@@ -501,6 +501,28 @@ st.markdown("""
     div[data-testid="stSidebarCollapsedControl"] {
         display: none !important;
     }
+
+    /* ── Sticky left nav column ── */
+    /* The columns flex container: align items to top so sticky works */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: flex-start !important;
+    }
+    /* First column (nav): sticky, scrolls independently */
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+        position: sticky !important;
+        top: 0.5rem !important;
+        max-height: calc(100vh - 1rem) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        scrollbar-width: thin !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child::-webkit-scrollbar {
+        width: 4px;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child::-webkit-scrollbar-thumb {
+        background: #DDE1E7;
+        border-radius: 4px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1796,10 +1818,16 @@ with _content_col:
                     {"role": "assistant", "content": assistant_reply})
 
     # ═══════════════════════════════════════════════════
-    # PAGE 10 — Submit Data (engineer data submission)
+    # PAGE 10 — Submit Data (engineer + viewer + admin)
     # ═══════════════════════════════════════════════════
     elif _NAV == "📤  Submit Data":
         st.markdown('<p class="section-title">📤 Submit Session Data</p>', unsafe_allow_html=True)
+
+        # Role check: all roles can upload (viewer = read + upload)
+        _submit_role = get_user_role(st.session_state.get("current_user", ""))
+        if _submit_role not in ("admin", "engineer", "viewer"):
+            st.error("⛔  You do not have permission to access this page.")
+            st.stop()
 
         cfg10       = load_config()
         supa_url10  = cfg10.get("supabase_url", "")
@@ -2267,7 +2295,7 @@ with _content_col:
                 nu_name  = st.text_input("Username", placeholder="e.g. mechanic01")
                 nu_pass  = st.text_input("Password", type="password", placeholder="At least 6 characters")
                 nu_role  = st.selectbox("Role", ["engineer", "viewer", "admin"],
-                                        help="engineer: can submit data | viewer: read-only | admin: full access")
+                                        help="engineer: submit data & upload | viewer: read + upload | admin: full access")
                 nu_rider = st.selectbox("Assigned Rider", ["None", "DA77", "JA52"],
                                         help="Engineers will only see data for their assigned rider")
                 add_btn  = st.form_submit_button("➕ Add User", type="primary", use_container_width=True)
