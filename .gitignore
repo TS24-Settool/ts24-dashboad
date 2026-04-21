@@ -1,10 +1,24 @@
-# シークレット・設定ファイル（機密情報を含む）
+# ============================================================
+# TS24 Dashboard — .gitignore
+# NEVER commit files containing API keys or credentials
+# ============================================================
+
+# ── Secrets & credentials (NEVER commit these) ──────────────
 ts24_config.json
 .streamlit/secrets.toml
 *.env
 .env
+*.key
+*.pem
+secrets.json
+config.local.json
+*_secret*
+*_private*
 
-# Python
+# ── Streamlit local config ───────────────────────────────────
+.streamlit/
+
+# ── Python ──────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -14,16 +28,36 @@ __pycache__/
 dist/
 build/
 .eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
 
-# SQLite DB
+# ── Database & data files ────────────────────────────────────
 *.db
 *.sqlite
+*.sqlite3
 
-# macOS
+# ── Data files (large / sensitive) ──────────────────────────
+*.xlsx
+*.csv
+*.xls
+*.xlsm
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── macOS ────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
+.Spotlight-V100
+.Trashes
 
-# データファイル
-*.xlsx
-*.csv
+# ── Editor ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
