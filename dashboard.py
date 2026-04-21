@@ -1560,6 +1560,19 @@ with _content_col:
             else:
                 df_valid = (df_round[df_round["is_valid"] == 1]
                             if "is_valid" in df_round.columns else df_round)
+
+                # ── 107% filter: remove out-laps / cool-down laps ──
+                # For each session, keep only laps within 107% of
+                # the session's fastest lap (eliminates installation laps
+                # and cool-down laps that inflate σ in FP/SP)
+                if not df_valid.empty and "lap_time" in df_valid.columns:
+                    def _filter_107pct(grp):
+                        ses_min = grp["lap_time"].min()
+                        return grp[grp["lap_time"] <= 1.07 * ses_min]
+                    df_valid = (df_valid
+                                .groupby("session_type", group_keys=False)
+                                .apply(_filter_107pct))
+
                 sessions_avail = [s for s in SESSION_ORDER
                                   if s in df_valid["session_type"].unique()]
 
@@ -1644,16 +1657,22 @@ with _content_col:
 
                     fig_evo = go.Figure()
 
-                    # Session P1 reference
+                    # P1 rider average reference
+                    # Uses the average lap time of the fastest rider per session
+                    # (more stable reference than best single lap, especially for
+                    #  FP/SP where a single hot lap can be misleading)
                     p1_ref = {}
                     for ses in sessions_avail:
-                        d = df_valid[df_valid["session_type"] == ses]["lap_time"]
-                        if not d.empty:
-                            p1_ref[ses] = d.min()
+                        ses_data = df_valid[df_valid["session_type"] == ses]
+                        if ses_data.empty:
+                            continue
+                        rider_avgs = ses_data.groupby("rider_num")["lap_time"].mean()
+                        if not rider_avgs.empty:
+                            p1_ref[ses] = float(rider_avgs.min())
                     if p1_ref:
                         fig_evo.add_trace(go.Scatter(
                             x=list(p1_ref.keys()), y=list(p1_ref.values()),
-                            name="Session P1 (all riders)",
+                            name="P1 Rider Avg (all riders)",
                             line=dict(color="#2ECC71", width=2, dash="dot"),
                             mode="lines+markers",
                             marker=dict(size=7, symbol="diamond"),
