@@ -389,6 +389,50 @@ def load_data():
     # Fallback: local SQLite
     return _load_sqlite()
 
+# ── Run Log (setup data per run) ─────────────────
+# Maps round_id in lap_times/DB → CIRCUIT name in Data_Bace_TS24_ORIGINAL
+ROUND_CIRCUIT_MAP = {
+    "ROUND1":  "PI",
+    "ROUND2":  "PORTIMAO",
+    "ROUND3":  "ASSEN",
+    "ROUND11": "ESTORIL",
+    "ROUND12": "JEREZ",
+}
+# lap_times uses "SP" for Superpole; ORIGINAL uses "QP"
+SESSION_LAP_TO_ORIG = {"SP": "QP"}
+
+@st.cache_data(ttl=300)
+def load_run_log():
+    """Load run-by-run setup data from Data_Bace_TS24_ORIGINAL.xlsx.
+    Returns empty DataFrame if file not available (e.g. Streamlit Cloud)."""
+    candidates = [
+        SCRIPT_DIR.parent / "04_REFERENCE" / "Data_Bace_TS24_ORIGINAL.xlsx",
+        SCRIPT_DIR / "Data_Bace_TS24_ORIGINAL.xlsx",
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                import openpyxl  # noqa: F401 — just to check availability
+                df_raw = pd.read_excel(str(path), sheet_name="DATA", header=None)
+                headers_raw = df_raw.iloc[1].tolist()
+                seen_h = {}; clean_h = []
+                for h in headers_raw:
+                    key = f"_blank_{len(seen_h)}" if pd.isna(h) else str(h).strip()
+                    if key in seen_h:
+                        seen_h[key] += 1; clean_h.append(f"{key}_{seen_h[key]}")
+                    else:
+                        seen_h[key] = 1; clean_h.append(key)
+                df = df_raw.iloc[2:].copy()
+                df.columns = clean_h
+                df = df.reset_index(drop=True)
+                df["CIRCUIT"] = df["CIRCUIT"].str.strip()
+                df["SESSION"] = df["SESSION"].str.strip()
+                df["RUN"]     = pd.to_numeric(df["RUN"], errors="coerce").fillna(0).astype(int)
+                return df
+            except Exception:
+                pass
+    return pd.DataFrame()
+
 # ── Color palette (Power BI style) ────────────────
 DA77_COLOR = "#0078D4"   # Microsoft blue
 JA52_COLOR = "#E74C3C"   # Red
@@ -1735,8 +1779,8 @@ with _content_col:
 
                     st.divider()
 
-                    # ── Setup Direction Summary ──────────────
-                    st.markdown("#### Setup Direction — Session-over-Session Change")
+                    # ── Setup Direction ── セッション間ペース変化 ──
+                    st.markdown("#### Setup Direction — Session-over-Session Pace")
 
                     for rider in riders_to_show:
                         rd = df_m[df_m["Rider"] == rider].reset_index(drop=True)
@@ -1747,8 +1791,8 @@ with _content_col:
                         for i in range(len(rd) - 1):
                             prev = rd.iloc[i]
                             curr = rd.iloc[i + 1]
-                            d_pace  = curr["Best (s)"]   - prev["Best (s)"]
-                            d_sigma = curr["Consistency σ"] - prev["Consistency σ"]
+                            d_pace  = curr["Best (s)"]        - prev["Best (s)"]
+                            d_sigma = curr["Consistency σ"]   - prev["Consistency σ"]
                             pi = "🟢" if d_pace  < -0.1 else ("🔴" if d_pace  > 0.1 else "🟡")
                             ci = "🟢" if d_sigma < -0.1 else ("🔴" if d_sigma > 0.1 else "🟡")
                             with dir_cols[i]:
@@ -1760,6 +1804,130 @@ with _content_col:
                                     f"{ci} σ: <b>{d_sigma:+.3f}s</b></div>",
                                     unsafe_allow_html=True,
                                 )
+
+                    st.divider()
+
+                    # ── Setup Direction ── Run別セットアップ詳細 ──
+                    st.markdown("#### Setup Direction — Run-by-Run Detail")
+                    st.caption("🟡 Yellow = changed from previous run in same session")
+
+                    _run_log = load_run_log()
+                    _circuit = ROUND_CIRCUIT_MAP.get(sel_la_round, "")
+
+                    if _run_log.empty or not _circuit:
+                        st.info("Run log data not available in this environment. "
+                                "Place Data_Bace_TS24_ORIGINAL.xlsx in 04_REFERENCE folder.")
+                    else:
+                        # セットアップ表示列の定義
+                        _SETUP_COLS = {
+                            "F:Set C/R": lambda r: f"{r['SETTING']}/{r['_blank_9']}",
+                            "F:Spr L/R": lambda r: f"{r['SPRING L/R']}/{r['_blank_13']}",
+                            "F:PreLoad": lambda r: r["PRELOAD"],
+                            "F:Comp":    lambda r: r["COMP"],
+                            "F:Reb":     lambda r: r["REB"],
+                            "F:Offset":  lambda r: r["OFFSET"],
+                            "F:Height":  lambda r: r["FRONT HEIGHT TOP/BOTT"],
+                            "R:ShkType": lambda r: r["SHOCK TYP"],
+                            "R:Set C/R": lambda r: r["SETTING COMP/REB"],
+                            "R:Spring":  lambda r: r["SPRING"],
+                            "R:PreLoad": lambda r: r["PRELOAD_2"],
+                            "R:Comp":    lambda r: r["COMP_2"],
+                            "R:Reb":     lambda r: r["REB_2"],
+                            "ShkLen":    lambda r: r["SHOCK LENGHT"],
+                            "Link":      lambda r: r["LINK"],
+                            "RideHgt":   lambda r: r["RIDE HEIGHT"],
+                            "SwingArm":  lambda r: r["SWING ARM LENGHT"],
+                        }
+
+                        def _highlight_run_changes(df_disp):
+                            styles = pd.DataFrame(
+                                "", index=df_disp.index, columns=df_disp.columns
+                            )
+                            for col in df_disp.columns:
+                                if col == "RUN":
+                                    continue
+                                for i in range(1, len(df_disp)):
+                                    if str(df_disp.iloc[i][col]) != str(df_disp.iloc[i - 1][col]):
+                                        styles.iat[i, df_disp.columns.get_loc(col)] = (
+                                            "background-color:#FFF3CD;"
+                                            "font-weight:bold;color:#856404"
+                                        )
+                            return styles
+
+                        for rider in riders_to_show:
+                            st.markdown(f"**{rider}**")
+                            RIDER_NUM_MAP = {"DA77": "DA77", "JA52": "JA52"}
+
+                            # どのセッションにデータがあるか確認
+                            _ses_with_data = []
+                            for ses in sessions_avail:
+                                orig_ses = SESSION_LAP_TO_ORIG.get(ses, ses)
+                                _df_chk = _run_log[
+                                    (_run_log["CIRCUIT"] == _circuit) &
+                                    (_run_log["RIDER"]   == rider) &
+                                    (_run_log["SESSION"] == orig_ses)
+                                ]
+                                if not _df_chk.empty:
+                                    _ses_with_data.append(ses)
+
+                            if not _ses_with_data:
+                                st.caption(f"No run log data for {rider} at {_circuit}.")
+                                continue
+
+                            # セッションごとにタブ表示
+                            _tabs = st.tabs(_ses_with_data)
+                            for _t_idx, ses in enumerate(_ses_with_data):
+                                orig_ses = SESSION_LAP_TO_ORIG.get(ses, ses)
+                                _df_runs = _run_log[
+                                    (_run_log["CIRCUIT"] == _circuit) &
+                                    (_run_log["RIDER"]   == rider) &
+                                    (_run_log["SESSION"] == orig_ses)
+                                ].copy().reset_index(drop=True)
+
+                                # 表示用テーブル構築
+                                _rows = []
+                                for _, _row in _df_runs.iterrows():
+                                    _r = {"RUN": int(_row["RUN"])}
+                                    for _col, _fn in _SETUP_COLS.items():
+                                        try:
+                                            _r[_col] = _fn(_row)
+                                        except Exception:
+                                            _r[_col] = "—"
+                                    _rows.append(_r)
+
+                                _df_disp = pd.DataFrame(_rows)
+
+                                # 変化した列数をカウント
+                                _n_changes = sum(
+                                    1
+                                    for col in _df_disp.columns
+                                    if col != "RUN"
+                                    for i in range(1, len(_df_disp))
+                                    if str(_df_disp.iloc[i][col]) != str(_df_disp.iloc[i - 1][col])
+                                )
+
+                                with _tabs[_t_idx]:
+                                    if len(_df_disp) == 1:
+                                        # 1 RUNのみ：ハイライトなし
+                                        st.dataframe(
+                                            _df_disp,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
+                                        st.caption("Only 1 run in this session — no changes to highlight.")
+                                    else:
+                                        _styled = _df_disp.style.apply(
+                                            _highlight_run_changes, axis=None
+                                        )
+                                        st.dataframe(
+                                            _styled,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
+                                        st.caption(
+                                            f"🟡 {_n_changes} parameter change(s) across "
+                                            f"{len(_df_disp)} runs"
+                                        )
 
     # ═══════════════════════════════════════════════════
     # PAGE 6 — Session Detail
