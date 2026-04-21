@@ -1625,9 +1625,9 @@ with _content_col:
                     disp_cols = ["Session","Rider","Laps","Best Lap",
                                  "P1 Gap (s)","Consistency σ","Avg vs Best (s)"]
                     styled = (df_m[disp_cols].style
-                              .applymap(_colour_p1,    subset=["P1 Gap (s)"])
-                              .applymap(_colour_sigma, subset=["Consistency σ"])
-                              .applymap(_colour_avg,   subset=["Avg vs Best (s)"]))
+                              .map(_colour_p1,    subset=["P1 Gap (s)"])
+                              .map(_colour_sigma, subset=["Consistency σ"])
+                              .map(_colour_avg,   subset=["Avg vs Best (s)"]))
                     st.dataframe(styled, use_container_width=True, hide_index=True)
 
                     st.caption("🟢 Green = strong  🟡 Yellow = acceptable  🔴 Red = needs attention  "
