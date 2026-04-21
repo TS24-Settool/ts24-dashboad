@@ -1792,10 +1792,12 @@ with _content_col:
                     # ── Setup Direction ── セッション間ペース変化 ──
                     st.markdown("#### Setup Direction — Session-over-Session Pace")
 
+                    _pace_shown = False
                     for rider in riders_to_show:
                         rd = df_m[df_m["Rider"] == rider].reset_index(drop=True)
                         if len(rd) < 2:
                             continue
+                        _pace_shown = True
                         st.markdown(f"**{rider}**")
                         dir_cols = st.columns(len(rd) - 1)
                         for i in range(len(rd) - 1):
@@ -1814,6 +1816,10 @@ with _content_col:
                                     f"{ci} σ: <b>{d_sigma:+.3f}s</b></div>",
                                     unsafe_allow_html=True,
                                 )
+
+                    if not _pace_shown:
+                        st.caption("Session-over-Session comparison requires at least 2 sessions. "
+                                   "Only 1 session available for the selected round/rider.")
 
                     st.divider()
 
