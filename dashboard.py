@@ -29,7 +29,7 @@ def find_db():
         db = base / "02_DATABASE" / "ts24_setup.db"
         if db.exists():
             return db
-    raise FileNotFoundError("ts24_setup.db not found. Run db_sync.py first.")
+    return None  # Streamlit Cloud など SQLite なし環境では None を返す
 
 def load_config() -> dict:
     # Streamlit Cloud の secrets を優先（クラウド環境）
@@ -182,7 +182,7 @@ if not st.session_state.get("authenticated"):
     login_page()
     st.stop()
 
-DB_PATH = find_db()
+DB_PATH = find_db()  # Supabase環境では None になる（問題なし）
 
 # ── Data loading ──────────────────────────────────
 def _sql_to_df(conn, query):
@@ -2097,8 +2097,11 @@ with tab11:
                     if col_app.button("✅ Approve", key=f"app_s_{rec['id']}", type="primary"):
                         # Supabaseのステータスを承認済みに更新
                         supa_update_status("pending_sessions", rec["id"], "approved", svc_key11, supa_url11)
-                        # ローカルSQLiteに挿入
+                        # ローカルSQLiteに挿入（Mother DBがある場合のみ）
                         try:
+                            if DB_PATH is None:
+                                st.info("ℹ️ Supabaseには承認済みで保存済み。Mother DBへの同期はローカルMacで自動実行されます。")
+                                st.rerun()
                             conn_a = sqlite3.connect(str(DB_PATH))
                             from datetime import datetime as _dt
                             conn_a.execute("""
@@ -2156,6 +2159,13 @@ with tab11:
             )
             col_la, col_lr, _ = st.columns([1, 1, 4])
             if col_la.button("✅ Approve All Laps", key="app_all_laps", type="primary"):
+                if DB_PATH is None:
+                    # Supabaseのみ更新（Mother DBへの同期はローカルMacで自動実行）
+                    for lap in pending_l:
+                        supa_update_status("pending_lap_times", lap["id"], "approved", svc_key11, supa_url11)
+                    st.success(f"✅ {len(pending_l)} ラップをSupabaseで承認しました。Mother DBへの同期はローカルMacで自動実行されます。")
+                    st.cache_data.clear()
+                    st.stop()
                 conn_b = sqlite3.connect(str(DB_PATH))
                 ok_count = 0
                 for lap in pending_l:
