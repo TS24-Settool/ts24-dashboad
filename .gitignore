@@ -1,0 +1,29 @@
+# シークレット・設定ファイル（機密情報を含む）
+ts24_config.json
+.streamlit/secrets.toml
+*.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# SQLite DB
+*.db
+*.sqlite
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# データファイル
+*.xlsx
+*.csv
