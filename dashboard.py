@@ -32,23 +32,32 @@ def find_db():
     return None  # Returns None in Streamlit Cloud / no-SQLite environments
 
 def load_config() -> dict:
-    # Prefer Streamlit Cloud secrets (cloud environment)
+    cfg = {}
+    # Step 1: Load base config from st.secrets (API keys, Supabase URL, etc.)
     try:
         if hasattr(st, 'secrets') and len(st.secrets) > 0:
             cfg = dict(st.secrets)
-            # Convert users section to dict
             if 'users' in cfg and hasattr(cfg['users'], 'items'):
                 cfg['users'] = {k: dict(v) for k, v in cfg['users'].items()}
-            return cfg
     except Exception:
         pass
-    # Local environment: ts24_config.json
+    # Step 2: Always overlay with ts24_config.json so UI-added users are visible
+    # (JSON takes priority for users; secrets take priority for API credentials)
     if CONFIG_FILE.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text())
+            file_cfg = json.loads(CONFIG_FILE.read_text())
+            # Merge users: JSON users override / extend secrets users
+            if 'users' in file_cfg:
+                merged_users = dict(cfg.get('users', {}))
+                merged_users.update(file_cfg['users'])
+                cfg['users'] = merged_users
+            # Merge other keys from JSON (API keys saved via UI, etc.)
+            for k, v in file_cfg.items():
+                if k != 'users':
+                    cfg[k] = v
         except Exception:
             pass
-    return {}
+    return cfg
 
 def save_config(data: dict):
     try:
