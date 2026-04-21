@@ -690,6 +690,7 @@ with _nav_col:
         "📈  Season Trend",
         "🏁  Race Results",
         "⏱  Race Pace",
+        "📐  Lap Analysis",
         "📋  Session Detail",
         "📉  Trend Analysis",
         "🤖  AI Advice",
@@ -1526,6 +1527,220 @@ with _content_col:
                 df_show = pd.concat([df_star, df_field]).drop(columns=["Tag"]).reset_index(drop=True)
                 st.dataframe(df_show, use_container_width=True, hide_index=True)
 
+
+    # ═══════════════════════════════════════════════════
+    # PAGE 5.5 — Lap Analysis (3-Metric + Performance Evolution)
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "📐  Lap Analysis":
+        st.markdown('<p class="section-title">📐 Lap Analysis — Performance Metrics & Evolution</p>',
+                    unsafe_allow_html=True)
+
+        if laps.empty:
+            st.info("No lap time data available.")
+        else:
+            # ── Round & Rider selectors ──────────────────────
+            la1, la2 = st.columns([2, 1])
+            with la1:
+                avail_rounds = sorted(laps["round_id"].unique())
+                sel_la_round = st.selectbox("Round", avail_rounds,
+                                            index=len(avail_rounds) - 1, key="la_round")
+            with la2:
+                sel_la_rider = st.radio("Rider", ["Both", "DA77", "JA52"],
+                                        horizontal=True, key="la_rider")
+
+            df_round = laps[laps["round_id"] == sel_la_round].copy()
+            SESSION_ORDER = ["FP", "SP", "WUP1", "WUP2", "RACE1", "RACE2"]
+            RIDER_NUM     = {"DA77": 77, "JA52": 52}
+            RIDER_COLOR   = {"DA77": "#0078D4", "JA52": "#E74C3C"}
+            riders_to_show = (["DA77", "JA52"] if sel_la_rider == "Both"
+                               else [sel_la_rider])
+
+            if df_round.empty:
+                st.warning("No data for the selected round.")
+            else:
+                df_valid = (df_round[df_round["is_valid"] == 1]
+                            if "is_valid" in df_round.columns else df_round)
+                sessions_avail = [s for s in SESSION_ORDER
+                                  if s in df_valid["session_type"].unique()]
+
+                # ── Build metrics table ──────────────────────
+                def fmt_lap(s):
+                    if s is None or (isinstance(s, float) and pd.isna(s)):
+                        return "—"
+                    m = int(s) // 60
+                    return f"{m}:{s % 60:06.3f}"
+
+                rows = []
+                for ses in sessions_avail:
+                    df_ses = df_valid[df_valid["session_type"] == ses]
+                    p1_time = df_ses["lap_time"].min() if not df_ses.empty else None
+
+                    for rider in riders_to_show:
+                        rnum = RIDER_NUM[rider]
+                        df_r = df_ses[df_ses["rider_num"] == rnum]
+                        if df_r.empty:
+                            continue
+                        times = df_r["lap_time"].dropna().values
+                        if len(times) == 0:
+                            continue
+                        best      = float(times.min())
+                        avg       = float(times.mean())
+                        sigma     = float(times.std()) if len(times) > 1 else 0.0
+                        p1_gap    = round(best - p1_time, 3) if p1_time else 0.0
+                        avg_vs_best = round(avg - best, 3)
+                        rows.append({
+                            "Session":         ses,
+                            "Rider":           rider,
+                            "Laps":            len(times),
+                            "Best Lap":        fmt_lap(best),
+                            "Best (s)":        best,        # hidden, for charts
+                            "P1 Gap (s)":      p1_gap,
+                            "Consistency σ":   round(sigma, 3),
+                            "Avg vs Best (s)": avg_vs_best,
+                        })
+
+                if not rows:
+                    st.warning("No valid lap data for the selected riders/round.")
+                else:
+                    df_m = pd.DataFrame(rows)
+
+                    # ── Colour-coded metrics table ───────────
+                    st.markdown("#### Session Metrics")
+
+                    def _colour_p1(v):
+                        if v <= 0.0:   return "background-color:#d4edda;color:#155724"
+                        if v <  0.5:   return "background-color:#fff3cd;color:#856404"
+                        return "background-color:#f8d7da;color:#721c24"
+
+                    def _colour_sigma(v):
+                        if v < 0.3:   return "background-color:#d4edda;color:#155724"
+                        if v < 0.8:   return "background-color:#fff3cd;color:#856404"
+                        return "background-color:#f8d7da;color:#721c24"
+
+                    def _colour_avg(v):
+                        if v < 0.3:   return "background-color:#d4edda;color:#155724"
+                        if v < 1.0:   return "background-color:#fff3cd;color:#856404"
+                        return "background-color:#f8d7da;color:#721c24"
+
+                    disp_cols = ["Session","Rider","Laps","Best Lap",
+                                 "P1 Gap (s)","Consistency σ","Avg vs Best (s)"]
+                    styled = (df_m[disp_cols].style
+                              .applymap(_colour_p1,    subset=["P1 Gap (s)"])
+                              .applymap(_colour_sigma, subset=["Consistency σ"])
+                              .applymap(_colour_avg,   subset=["Avg vs Best (s)"]))
+                    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+                    st.caption("🟢 Green = strong  🟡 Yellow = acceptable  🔴 Red = needs attention  "
+                               "| P1 Gap: gap to session fastest  "
+                               "| Consistency σ: std dev of valid laps  "
+                               "| Avg vs Best: avg lap vs personal best")
+
+                    st.divider()
+
+                    # ── Performance Evolution Chart ──────────
+                    st.markdown("#### Performance Evolution across Event")
+
+                    import plotly.graph_objects as go
+
+                    fig_evo = go.Figure()
+
+                    # Session P1 reference
+                    p1_ref = {}
+                    for ses in sessions_avail:
+                        d = df_valid[df_valid["session_type"] == ses]["lap_time"]
+                        if not d.empty:
+                            p1_ref[ses] = d.min()
+                    if p1_ref:
+                        fig_evo.add_trace(go.Scatter(
+                            x=list(p1_ref.keys()), y=list(p1_ref.values()),
+                            name="Session P1 (all riders)",
+                            line=dict(color="#2ECC71", width=2, dash="dot"),
+                            mode="lines+markers",
+                            marker=dict(size=7, symbol="diamond"),
+                        ))
+
+                    for rider in riders_to_show:
+                        rd = df_m[df_m["Rider"] == rider].copy()
+                        if rd.empty:
+                            continue
+                        fig_evo.add_trace(go.Scatter(
+                            x=rd["Session"], y=rd["Best (s)"],
+                            name=f"{rider} Best Lap",
+                            line=dict(color=RIDER_COLOR[rider], width=2),
+                            mode="lines+markers",
+                            marker=dict(size=9),
+                            text=[f"P1+{g:.3f}s" for g in rd["P1 Gap (s)"]],
+                            textposition="top center",
+                        ))
+
+                    fig_evo.update_layout(
+                        xaxis_title="Session",
+                        yaxis_title="Lap Time (s)",
+                        yaxis_autorange="reversed",   # lower = faster = top
+                        legend=dict(orientation="h", y=1.12),
+                        height=420,
+                        margin=dict(l=50, r=20, t=40, b=40),
+                        plot_bgcolor="#FAFAFA",
+                        paper_bgcolor="white",
+                    )
+                    st.plotly_chart(fig_evo, use_container_width=True)
+
+                    st.divider()
+
+                    # ── Consistency Evolution ────────────────
+                    st.markdown("#### Consistency (σ) Evolution — lower is better")
+
+                    fig_sig = go.Figure()
+                    for rider in riders_to_show:
+                        rd = df_m[df_m["Rider"] == rider]
+                        if rd.empty:
+                            continue
+                        fig_sig.add_trace(go.Bar(
+                            x=rd["Session"], y=rd["Consistency σ"],
+                            name=rider,
+                            marker_color=RIDER_COLOR[rider],
+                            opacity=0.85,
+                            text=[f"{v:.2f}s" for v in rd["Consistency σ"]],
+                            textposition="outside",
+                        ))
+                    fig_sig.update_layout(
+                        barmode="group",
+                        xaxis_title="Session",
+                        yaxis_title="Std Dev (s)",
+                        height=300,
+                        margin=dict(l=50, r=20, t=20, b=40),
+                        plot_bgcolor="#FAFAFA",
+                        paper_bgcolor="white",
+                    )
+                    st.plotly_chart(fig_sig, use_container_width=True)
+
+                    st.divider()
+
+                    # ── Setup Direction Summary ──────────────
+                    st.markdown("#### Setup Direction — Session-over-Session Change")
+
+                    for rider in riders_to_show:
+                        rd = df_m[df_m["Rider"] == rider].reset_index(drop=True)
+                        if len(rd) < 2:
+                            continue
+                        st.markdown(f"**{rider}**")
+                        dir_cols = st.columns(len(rd) - 1)
+                        for i in range(len(rd) - 1):
+                            prev = rd.iloc[i]
+                            curr = rd.iloc[i + 1]
+                            d_pace  = curr["Best (s)"]   - prev["Best (s)"]
+                            d_sigma = curr["Consistency σ"] - prev["Consistency σ"]
+                            pi = "🟢" if d_pace  < -0.1 else ("🔴" if d_pace  > 0.1 else "🟡")
+                            ci = "🟢" if d_sigma < -0.1 else ("🔴" if d_sigma > 0.1 else "🟡")
+                            with dir_cols[i]:
+                                st.markdown(
+                                    f"<div style='text-align:center;padding:8px;background:#F8F9FA;"
+                                    f"border-radius:8px;border:1px solid #DDE1E7'>"
+                                    f"<b>{prev['Session']}→{curr['Session']}</b><br>"
+                                    f"{pi} Pace: <b>{d_pace:+.3f}s</b><br>"
+                                    f"{ci} σ: <b>{d_sigma:+.3f}s</b></div>",
+                                    unsafe_allow_html=True,
+                                )
 
     # ═══════════════════════════════════════════════════
     # PAGE 6 — Session Detail
