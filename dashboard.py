@@ -105,18 +105,17 @@ def _supa_users_available() -> bool:
     url, key = _supa_creds()
     return bool(url and key and key != "PASTE_SERVICE_ROLE_KEY_HERE")
 
-def _supa_get_users() -> dict | None:
-    """Fetch users from Supabase dashboard_users table. Returns None on failure."""
+def _supa_get_users():
+    """Fetch users from Supabase dashboard_users table. Returns dict or None on failure."""
     url, key = _supa_creds()
     if not url or not key:
         return None
-    import urllib.request as _ur
     headers = {"apikey": key, "Authorization": f"Bearer {key}",
                "Content-Type": "application/json"}
-    req = _ur.Request(f"{url}/rest/v1/dashboard_users?select=*",
-                      headers=headers, method="GET")
+    req = urllib.request.Request(f"{url}/rest/v1/dashboard_users?select=*",
+                                 headers=headers, method="GET")
     try:
-        with _ur.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.loads(r.read())
             if isinstance(rows, list):
                 return {
@@ -131,12 +130,10 @@ def _supa_get_users() -> dict | None:
         pass
     return None
 
-def _supa_upsert_user(username: str, password_hash: str,
-                      role: str, rider) -> bool:
+def _supa_upsert_user(username, password_hash, role, rider):
     url, key = _supa_creds()
     if not url or not key:
         return False
-    import urllib.request as _ur
     payload = json.dumps({
         "username": username, "password_hash": password_hash,
         "role": role, "rider": rider
@@ -144,26 +141,25 @@ def _supa_upsert_user(username: str, password_hash: str,
     headers = {"apikey": key, "Authorization": f"Bearer {key}",
                "Content-Type": "application/json",
                "Prefer": "resolution=merge-duplicates,return=minimal"}
-    req = _ur.Request(f"{url}/rest/v1/dashboard_users",
-                      data=payload, headers=headers, method="POST")
+    req = urllib.request.Request(f"{url}/rest/v1/dashboard_users",
+                                 data=payload, headers=headers, method="POST")
     try:
-        with _ur.urlopen(req, timeout=10):
+        with urllib.request.urlopen(req, timeout=10):
             return True
     except Exception:
         return False
 
-def _supa_delete_user(username: str) -> bool:
+def _supa_delete_user(username):
     url, key = _supa_creds()
     if not url or not key:
         return False
-    import urllib.request as _ur
     headers = {"apikey": key, "Authorization": f"Bearer {key}",
                "Content-Type": "application/json"}
-    req = _ur.Request(
+    req = urllib.request.Request(
         f"{url}/rest/v1/dashboard_users?username=eq.{username}",
         headers=headers, method="DELETE")
     try:
-        with _ur.urlopen(req, timeout=10):
+        with urllib.request.urlopen(req, timeout=10):
             return True
     except Exception:
         return False
