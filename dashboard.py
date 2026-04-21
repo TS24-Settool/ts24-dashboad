@@ -162,7 +162,7 @@ def login_page():
     </style>""", unsafe_allow_html=True)
 
     st.markdown("<h2 style='text-align:center;color:#0078D4;margin-bottom:4px'>🏍 TS24 Dashboard</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center;color:#7F8C8D;margin-bottom:32px'>Puccetti Racing · ZX-636 WorldSSP</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center;color:#7F8C8D;margin-bottom:32px'>WorldSSP</p>", unsafe_allow_html=True)
 
     with st.form("login_form"):
         username = st.text_input("Username", placeholder="Enter username")
@@ -462,6 +462,44 @@ st.markdown("""
     /* Hide Streamlit branding */
     #MainMenu, footer, header { visibility: hidden; }
 
+    /* ── Left navigation menu ── */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] > label { display: none; }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] > div {
+        gap: 2px !important;
+        flex-direction: column !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"] {
+        background: transparent;
+        border-radius: 8px !important;
+        padding: 9px 14px !important;
+        margin: 1px 0 !important;
+        cursor: pointer;
+        transition: background 0.15s ease;
+        width: 100%;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover {
+        background: #EBF5FB !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"][aria-checked="true"] {
+        background: #DBEAFE !important;
+        border-left: 3px solid #0078D4 !important;
+        padding-left: 11px !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] span[data-testid="stMarkdownContainer"] p {
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        color: #1A202C !important;
+        margin: 0 !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"][aria-checked="true"] p {
+        color: #0078D4 !important;
+        font-weight: 700 !important;
+    }
+    /* Hide radio circle dots in nav */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] div[class*="radio"] > div:first-child {
+        display: none !important;
+    }
+
     /* ── Sidebar toggle — visible in BOTH open and closed states ── */
     /* Closed state: floating button in main area */
     button[data-testid="collapsedControl"],
@@ -495,8 +533,35 @@ sessions, tags, results, sectors, laps = load_data()
 
 # ── Sidebar ───────────────────────────────────────
 with st.sidebar:
-    st.markdown("## TS24 Set-UP Tool")
-    st.markdown("Puccetti Racing · ZX-636")
+    st.markdown(
+        "<div style='text-align:center;padding:10px 0 4px'>"
+        "<span style='font-size:26px'>🏍</span><br>"
+        "<span style='font-weight:800;font-size:16px;color:#0078D4;letter-spacing:1px'>TS24</span>"
+        "<span style='font-size:12px;color:#666'> Set-UP Tool</span></div>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<p style='text-align:center;font-size:11px;color:#999;margin:0 0 8px'>WorldSSP</p>",
+        unsafe_allow_html=True
+    )
+
+    # ── Navigation Menu ──────────────────────────────
+    NAV_ITEMS = [
+        "📊  Problem Analysis",
+        "🗺  Heatmap",
+        "📈  Season Trend",
+        "🏁  Race Results",
+        "⏱  Race Pace",
+        "📋  Session Detail",
+        "📉  Trend Analysis",
+        "🤖  AI Advice",
+        "💬  Setup Chat",
+        "📤  Submit Data",
+        "✅  Approvals",
+        "👤  Accounts",
+    ]
+    nav_sel = st.radio("nav", NAV_ITEMS, label_visibility="collapsed", key="nav_menu")
+
     st.divider()
 
     st.markdown("**Rider**")
@@ -656,25 +721,13 @@ if _cur_role == "engineer" and _cur_rider:
     if not df_rr.empty:
         df_rr = df_rr[df_rr["rider_id"] == _cur_rider]
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
-    "  Problem Analysis  ",
-    "  Heatmap  ",
-    "  Season Trend  ",
-    "  Race Results  ",
-    "  Race Pace  ",
-    "  Session Detail  ",
-    "  Trend Analysis  ",
-    "  AI Advice  ",
-    "  Setup Chat  ",
-    "  📤 Submit Data  ",
-    "  ✅ Approvals  ",
-    "  👤 Accounts  ",
-])
+# ── Navigation routing (sidebar radio → content area) ──────────
+_NAV = nav_sel  # shorthand
 
 # ═══════════════════════════════════════════════════
-# TAB 1 — Problem Analysis
+# PAGE 1 — Problem Analysis
 # ═══════════════════════════════════════════════════
-with tab1:
+if _NAV == "📊  Problem Analysis":
     col_l, col_r = st.columns(2, gap="medium")
 
     # ── Left: Tag frequency bar ──
@@ -783,9 +836,9 @@ with tab1:
             st.plotly_chart(fig_ph, use_container_width=True, config={"displayModeBar": False})
 
 # ═══════════════════════════════════════════════════
-# TAB 2 — Heatmap
+# PAGE 2 — Heatmap
 # ═══════════════════════════════════════════════════
-with tab2:
+elif _NAV == "🗺  Heatmap":
     st.markdown('<p class="section-title">Problem Frequency by Circuit & Phase</p>', unsafe_allow_html=True)
 
     merged_hm = df_t_event.merge(df_s_event[["session_id", "circuit", "rider"]], on="session_id", how="left")
@@ -836,9 +889,9 @@ with tab2:
         st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
 # ═══════════════════════════════════════════════════
-# TAB 3 — Season Trend
+# PAGE 3 — Season Trend
 # ═══════════════════════════════════════════════════
-with tab3:
+elif _NAV == "📈  Season Trend":
     st.markdown('<p class="section-title">Problem Count per Session (Season Progress)</p>', unsafe_allow_html=True)
 
     tps = df_t_event.groupby("session_id").size().reset_index(name="tag_count")
@@ -884,9 +937,9 @@ with tab3:
         st.plotly_chart(fig_st, use_container_width=True, config={"displayModeBar": False})
 
 # ═══════════════════════════════════════════════════
-# TAB 4 — Race Results (Official PDFs)
+# PAGE 4 — Race Results (Official PDFs)
 # ═══════════════════════════════════════════════════
-with tab4:
+elif _NAV == "🏁  Race Results":
     if results.empty:
         st.info("No official results data yet. Add PDFs to 07_RESULTS/ and run result_sync.py.")
     else:
@@ -1033,9 +1086,9 @@ with tab4:
 
 
 # ═══════════════════════════════════════════════════
-# TAB 5 — Race Pace
+# PAGE 5 — Race Pace
 # ═══════════════════════════════════════════════════
-with tab5:
+elif _NAV == "⏱  Race Pace":
 
     def fmt_laptime(sec):
         """97.901 → '1:37.901'"""
@@ -1336,9 +1389,9 @@ with tab5:
 
 
 # ═══════════════════════════════════════════════════
-# TAB 6 — Session Detail
+# PAGE 6 — Session Detail
 # ═══════════════════════════════════════════════════
-with tab6:
+elif _NAV == "📋  Session Detail":
     session_list = df_s["session_id"].tolist()
     if not session_list:
         st.info("No sessions for current filter.")
@@ -1474,9 +1527,9 @@ with tab6:
                     )
 
 # ═══════════════════════════════════════════════════
-# TAB 7 — Trend Analysis
+# PAGE 7 — Trend Analysis
 # ═══════════════════════════════════════════════════
-with tab7:
+elif _NAV == "📉  Trend Analysis":
     st.markdown('<p class="section-title">Lap Time Trend — Season Overview</p>', unsafe_allow_html=True)
 
     if laps.empty:
@@ -1578,9 +1631,9 @@ with tab7:
 
 
 # ═══════════════════════════════════════════════════
-# TAB 8 — AI Advice
+# PAGE 8 — AI Advice
 # ═══════════════════════════════════════════════════
-with tab8:
+elif _NAV == "🤖  AI Advice":
     st.markdown('<p class="section-title">AI Setup Advice — Claude Analysis</p>', unsafe_allow_html=True)
 
     if not claude_ready:
@@ -1669,9 +1722,9 @@ with tab8:
 
 
 # ═══════════════════════════════════════════════════
-# TAB 9 — Setup Chat
+# PAGE 9 — Setup Chat
 # ═══════════════════════════════════════════════════
-with tab9:
+elif _NAV == "💬  Setup Chat":
     st.markdown('<p class="section-title">Setup Chat — Direct Consultation with Claude</p>', unsafe_allow_html=True)
 
     if not claude_ready:
@@ -1763,9 +1816,9 @@ with tab9:
                 {"role": "assistant", "content": assistant_reply})
 
 # ═══════════════════════════════════════════════════
-# TAB 10 — Submit Data (engineer data submission)
+# PAGE 10 — Submit Data (engineer data submission)
 # ═══════════════════════════════════════════════════
-with tab10:
+elif _NAV == "📤  Submit Data":
     st.markdown('<p class="section-title">📤 Submit Session Data</p>', unsafe_allow_html=True)
 
     cfg10       = load_config()
@@ -2005,9 +2058,9 @@ with tab10:
 
 
 # ═══════════════════════════════════════════════════
-# TAB 11 — Approvals (admin-only approval workflow)
+# PAGE 11 — Approvals (admin-only approval workflow)
 # ═══════════════════════════════════════════════════
-with tab11:
+elif _NAV == "✅  Approvals":
     st.markdown('<p class="section-title">✅ Pending Approvals — Admin Only</p>', unsafe_allow_html=True)
 
     _a_user = st.session_state.get("current_user", "")
@@ -2173,9 +2226,9 @@ with tab11:
 
 
 # ═══════════════════════════════════════════════════
-# TAB 12 — Accounts (admin-only)
+# PAGE 12 — Accounts (admin-only)
 # ═══════════════════════════════════════════════════
-with tab12:
+elif _NAV == "👤  Accounts":
     st.markdown('<p class="section-title">👤 Account Management — Admin Only</p>', unsafe_allow_html=True)
 
     _ac_user = st.session_state.get("current_user", "")
