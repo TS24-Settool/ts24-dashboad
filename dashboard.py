@@ -463,67 +463,73 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
 
     /* ── Left navigation menu ── */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] > label { display: none; }
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] > div {
-        gap: 2px !important;
-        flex-direction: column !important;
+    /* Hide only the widget label text ("nav"), not the options */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] > div:first-child {
+        display: none !important;
     }
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"] {
-        background: transparent;
+    /* Each nav option row */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label {
         border-radius: 8px !important;
-        padding: 9px 14px !important;
+        padding: 8px 12px !important;
         margin: 1px 0 !important;
-        cursor: pointer;
-        transition: background 0.15s ease;
-        width: 100%;
+        transition: background 0.12s ease;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
     }
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover {
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:hover {
         background: #EBF5FB !important;
     }
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"][aria-checked="true"] {
+    /* Active item highlight */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) {
         background: #DBEAFE !important;
         border-left: 3px solid #0078D4 !important;
-        padding-left: 11px !important;
+        padding-left: 9px !important;
     }
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] span[data-testid="stMarkdownContainer"] p {
-        font-size: 14px !important;
-        font-weight: 500 !important;
-        color: #1A202C !important;
-        margin: 0 !important;
-    }
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"][aria-checked="true"] p {
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) p {
         color: #0078D4 !important;
         font-weight: 700 !important;
     }
-    /* Hide radio circle dots in nav */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] div[class*="radio"] > div:first-child {
+    /* Hide radio circle (the dot) only — target the SVG circle element */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] input[type="radio"] {
         display: none !important;
     }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] [data-baseweb="radio"] > div:first-child {
+        width: 0 !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 
-    /* ── Sidebar toggle — visible in BOTH open and closed states ── */
-    /* Closed state: floating button in main area */
-    button[data-testid="collapsedControl"],
-    /* Open state: close button inside sidebar header */
-    section[data-testid="stSidebar"] button[kind="header"],
-    section[data-testid="stSidebar"] button[data-testid="baseButton-headerNoPadding"],
-    div[data-testid="stSidebarCollapsedControl"] button,
-    [data-testid="stSidebarNavCollapseIcon"] {
+    /* ── Sidebar toggle button — always visible ── */
+    button[data-testid="collapsedControl"] {
         background-color: #0078D4 !important;
         border-radius: 50% !important;
-        width: 32px !important;
-        height: 32px !important;
+        width: 36px !important;
+        height: 36px !important;
         color: #FFFFFF !important;
         border: 2px solid #FFFFFF !important;
-        box-shadow: 0 2px 8px rgba(0,120,212,0.5) !important;
+        box-shadow: 0 2px 10px rgba(0,120,212,0.6) !important;
         opacity: 1 !important;
         visibility: visible !important;
+        position: fixed !important;
+        left: 8px !important;
+        top: 50% !important;
+        z-index: 9999 !important;
     }
-    button[data-testid="collapsedControl"] svg,
-    section[data-testid="stSidebar"] button svg,
-    div[data-testid="stSidebarCollapsedControl"] button svg {
+    button[data-testid="collapsedControl"] svg {
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
+    }
+    /* Sidebar header close button */
+    section[data-testid="stSidebar"] button[data-testid="baseButton-headerNoPadding"],
+    div[data-testid="stSidebarCollapsedControl"] button {
+        background-color: #0078D4 !important;
+        border-radius: 50% !important;
         color: #FFFFFF !important;
+        opacity: 1 !important;
+        visibility: visible !important;
     }
 </style>
 """, unsafe_allow_html=True)
