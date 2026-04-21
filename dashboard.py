@@ -1690,7 +1690,7 @@ elif _NAV == "🤖  AI Advice":
                     f"  {r['round_id']} {r['session_type']}: {int(r['lap_time'])//60}:{r['lap_time']%60:06.3f}"
                     for _, r in best_s.iterrows()])
             system_prompt = (
-                "You are an expert motorcycle racing engineer at Puccetti Racing (Kawasaki ZX-636 WorldSSP). "
+                "You are an expert motorcycle racing engineer in WorldSSP. "
                 "Analyze the provided session data and give specific, actionable setup recommendations. "
                 "Be concise and technical. Use motorcycle engineering terminology. Respond in English.")
             user_msg = (
@@ -1734,9 +1734,9 @@ elif _NAV == "💬  Setup Chat":
             st.session_state["chat_history"] = []
 
         CHAT_SYSTEM = (
-            "You are a senior motorcycle racing engineer at Puccetti Racing (Kawasaki ZX-636 WorldSSP). "
+            "You are a senior motorcycle racing engineer in WorldSSP. "
             "You are helping the team's setup engineer discuss and solve chassis and setup problems. "
-            "Riders: DA77 (Davide Alborghetti) and JA52 (Jorge Alfaro). "
+            "Riders: DA77 and JA52. "
             "Be direct, technical, and practical. Give specific values and ranges when relevant. "
             "Respond in English unless explicitly asked otherwise.")
 
@@ -1966,7 +1966,7 @@ elif _NAV == "📤  Submit Data":
                     "circuit":      s_circuit.upper(),
                     "session_type": s_type,
                     "rider":        s_rider,
-                    "bike_model":   "ZX-636",
+                    "bike_model":   "",
                     "track_temp":   s_ttrack,
                     "air_temp":     s_tair,
                     "fork_type":    s_ftype,
@@ -2144,7 +2144,7 @@ elif _NAV == "✅  Approvals":
                             """, (
                                 f"CLOUD_{rec['id']}_{rec.get('submitted_by','')}",
                                 rec.get("session_date"), rec.get("circuit"), rec.get("session_type"),
-                                rec.get("rider"), rec.get("bike_model", "ZX-636"),
+                                rec.get("rider"), rec.get("bike_model", ""),
                                 rec.get("track_temp"), rec.get("air_temp"),
                                 rec.get("fork_type"), rec.get("f_spring"), rec.get("f_preload"),
                                 rec.get("f_comp"), rec.get("f_reb"),
