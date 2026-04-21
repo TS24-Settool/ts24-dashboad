@@ -1602,20 +1602,21 @@ with _content_col:
             if df_round.empty:
                 st.warning("No data for the selected round.")
             else:
+                # ── Normalise column types (Supabase returns JSON; ensure numeric) ──
+                for _c in ["lap_time", "rider_num", "lap_no", "is_valid"]:
+                    if _c in df_round.columns:
+                        df_round[_c] = pd.to_numeric(df_round[_c], errors="coerce")
+
                 df_valid = (df_round[df_round["is_valid"] == 1]
                             if "is_valid" in df_round.columns else df_round)
 
                 # ── 107% filter: remove out-laps / cool-down laps ──
-                # For each session, keep only laps within 107% of
-                # the session's fastest lap (eliminates installation laps
-                # and cool-down laps that inflate σ in FP/SP)
+                # Uses transform() so session_type column is preserved in result
                 if not df_valid.empty and "lap_time" in df_valid.columns:
-                    def _filter_107pct(grp):
-                        ses_min = grp["lap_time"].min()
-                        return grp[grp["lap_time"] <= 1.07 * ses_min]
-                    df_valid = (df_valid
-                                .groupby("session_type", group_keys=False)
-                                .apply(_filter_107pct))
+                    _mask = (df_valid
+                             .groupby("session_type")["lap_time"]
+                             .transform(lambda x: x <= 1.07 * x.min()))
+                    df_valid = df_valid[_mask]
 
                 sessions_avail = [s for s in SESSION_ORDER
                                   if s in df_valid["session_type"].unique()]
@@ -1634,16 +1635,17 @@ with _content_col:
 
                     for rider in riders_to_show:
                         rnum = RIDER_NUM[rider]
-                        df_r = df_ses[df_ses["rider_num"] == rnum]
+                        # Match both int and string rider_num from different data sources
+                        df_r = df_ses[df_ses["rider_num"].astype(str) == str(rnum)]
                         if df_r.empty:
                             continue
-                        times = df_r["lap_time"].dropna().values
+                        times = pd.to_numeric(df_r["lap_time"], errors="coerce").dropna().values
                         if len(times) == 0:
                             continue
                         best      = float(times.min())
                         avg       = float(times.mean())
                         sigma     = float(times.std()) if len(times) > 1 else 0.0
-                        p1_gap    = round(best - p1_time, 3) if p1_time else 0.0
+                        p1_gap    = round(best - float(p1_time), 3) if p1_time is not None else 0.0
                         avg_vs_best = round(avg - best, 3)
                         rows.append({
                             "Session":         ses,
@@ -1657,7 +1659,9 @@ with _content_col:
                         })
 
                 if not rows:
-                    st.warning("No valid lap data for the selected riders/round.")
+                    st.warning(f"No valid lap data for the selected riders/round. "
+                               f"({len(df_round)} laps loaded, {len(df_valid)} after filter, "
+                               f"sessions: {sessions_avail})")
                 else:
                     df_m = pd.DataFrame(rows)
 
@@ -1681,11 +1685,17 @@ with _content_col:
 
                     disp_cols = ["Session","Rider","Laps","Best Lap",
                                  "P1 Gap (s)","Consistency σ","Avg vs Best (s)"]
-                    styled = (df_m[disp_cols].style
-                              .map(_colour_p1,    subset=["P1 Gap (s)"])
-                              .map(_colour_sigma, subset=["Consistency σ"])
-                              .map(_colour_avg,   subset=["Avg vs Best (s)"]))
-                    st.dataframe(styled, use_container_width=True, hide_index=True)
+                    try:
+                        # pandas >= 2.1 uses .map(); older pandas uses .applymap()
+                        _s = df_m[disp_cols].style
+                        _cell_fn = "map" if hasattr(_s, "map") else "applymap"
+                        styled = (getattr(_s, _cell_fn)(_colour_p1,    subset=["P1 Gap (s)"])
+                                  .pipe(lambda s: getattr(s, _cell_fn)(_colour_sigma, subset=["Consistency σ"]))
+                                  .pipe(lambda s: getattr(s, _cell_fn)(_colour_avg,   subset=["Avg vs Best (s)"])))
+                        st.dataframe(styled, use_container_width=True, hide_index=True)
+                    except Exception:
+                        # Fallback: plain dataframe without colour styling
+                        st.dataframe(df_m[disp_cols], use_container_width=True, hide_index=True)
 
                     st.caption("🟢 Green = strong  🟡 Yellow = acceptable  🔴 Red = needs attention  "
                                "| P1 Gap: gap to session fastest  "
@@ -1916,9 +1926,12 @@ with _content_col:
                                         )
                                         st.caption("Only 1 run in this session — no changes to highlight.")
                                     else:
-                                        _styled = _df_disp.style.apply(
-                                            _highlight_run_changes, axis=None
-                                        )
+                                        try:
+                                            _styled = _df_disp.style.apply(
+                                                _highlight_run_changes, axis=None
+                                            )
+                                        except Exception:
+                                            _styled = _df_disp
                                         st.dataframe(
                                             _styled,
                                             use_container_width=True,
