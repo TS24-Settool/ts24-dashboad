@@ -590,32 +590,6 @@ with st.sidebar:
         st.rerun()
 
     if current_role == "admin":
-        with st.expander("👥 User Management", expanded=False):
-            existing_users = get_users()
-            existing = list(existing_users.keys())
-            for u in existing:
-                r = _get_user_field(u, "role", "engineer")
-                rd = _get_user_field(u, "rider", None)
-                st.caption(f"  {u} · {r}" + (f" · {rd}" if rd else ""))
-            st.markdown("**Add user**")
-            new_u  = st.text_input("Username", key="new_u")
-            new_p  = st.text_input("Password", type="password", key="new_p")
-            new_role = st.selectbox("Role", ["engineer", "viewer", "admin"], key="new_role")
-            new_rider = st.selectbox("Assigned Rider", ["None", "DA77", "JA52"], key="new_rider")
-            if st.button("Add", key="add_user_btn"):
-                if new_u and new_p:
-                    add_user(new_u, new_p, new_role, None if new_rider == "None" else new_rider)
-                    st.success(f"User '{new_u}' added!")
-                    st.rerun()
-            st.markdown("**Delete user**")
-            del_opts = [u for u in existing if u != "ts24"]
-            if del_opts:
-                del_target = st.selectbox("Select user", del_opts, key="del_u")
-                if st.button("Delete", key="del_user_btn", type="secondary"):
-                    delete_user(del_target)
-                    st.success(f"User '{del_target}' deleted.")
-                    st.rerun()
-
         with st.expander("☁️ Supabase Settings", expanded=False):
             cfg_s = load_config()
             svc_key_input = st.text_input(
@@ -682,7 +656,7 @@ if _cur_role == "engineer" and _cur_rider:
     if not df_rr.empty:
         df_rr = df_rr[df_rr["rider_id"] == _cur_rider]
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "  Problem Analysis  ",
     "  Heatmap  ",
     "  Season Trend  ",
@@ -694,6 +668,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "  Setup Chat  ",
     "  📤 Submit Data  ",
     "  ✅ Approvals  ",
+    "  👤 Accounts  ",
 ])
 
 # ═══════════════════════════════════════════════════
@@ -2195,3 +2170,112 @@ with tab11:
                 for lap in pending_l:
                     supa_update_status("pending_lap_times", lap["id"], "rejected", svc_key11, supa_url11)
                 st.warning("All laps rejected.")
+
+
+# ═══════════════════════════════════════════════════
+# TAB 12 — Accounts (admin-only)
+# ═══════════════════════════════════════════════════
+with tab12:
+    st.markdown('<p class="section-title">👤 Account Management — Admin Only</p>', unsafe_allow_html=True)
+
+    _ac_user = st.session_state.get("current_user", "")
+    _ac_role = get_user_role(_ac_user)
+
+    if _ac_role != "admin":
+        st.warning("🔒 This tab is for administrators only.")
+        st.stop()
+
+    all_users = get_users()
+
+    # ── User List ─────────────────────────────────
+    st.markdown("### Current Users")
+
+    ROLE_BADGE = {
+        "admin":    ("🔑", "#C0392B"),
+        "engineer": ("🔧", "#2980B9"),
+        "viewer":   ("👁",  "#7F8C8D"),
+    }
+    cols_header = st.columns([2, 2, 2, 2])
+    cols_header[0].markdown("**Username**")
+    cols_header[1].markdown("**Role**")
+    cols_header[2].markdown("**Assigned Rider**")
+    cols_header[3].markdown("**Action**")
+    st.markdown("<hr style='margin:4px 0 8px 0;border-color:#DDE1E7'>", unsafe_allow_html=True)
+
+    for uname, udata in sorted(all_users.items()):
+        role  = udata.get("role", "engineer") if isinstance(udata, dict) else "engineer"
+        rider = udata.get("rider") if isinstance(udata, dict) else None
+        icon, color = ROLE_BADGE.get(role, ("?", "#999"))
+
+        c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
+        c1.markdown(f"**{uname}**")
+        c2.markdown(
+            f'<span style="background:{color};color:#fff;padding:2px 10px;'
+            f'border-radius:10px;font-size:12px;font-weight:700">{icon} {role}</span>',
+            unsafe_allow_html=True
+        )
+        c3.markdown(rider or "—")
+        if uname != "ts24":
+            if c4.button("🗑 Delete", key=f"del_{uname}", type="secondary"):
+                delete_user(uname)
+                st.success(f"User '{uname}' deleted.")
+                st.rerun()
+        else:
+            c4.caption("(protected)")
+
+    st.divider()
+
+    # ── Add User ──────────────────────────────────
+    ac1, ac2 = st.columns(2, gap="large")
+
+    with ac1:
+        st.markdown("### ➕ Add New User")
+        with st.form("add_user_form", clear_on_submit=True):
+            nu_name  = st.text_input("Username", placeholder="e.g. mechanic01")
+            nu_pass  = st.text_input("Password", type="password", placeholder="At least 6 characters")
+            nu_role  = st.selectbox("Role", ["engineer", "viewer", "admin"],
+                                    help="engineer: can submit data | viewer: read-only | admin: full access")
+            nu_rider = st.selectbox("Assigned Rider", ["None", "DA77", "JA52"],
+                                    help="Engineers will only see data for their assigned rider")
+            add_btn  = st.form_submit_button("➕ Add User", type="primary", use_container_width=True)
+
+        if add_btn:
+            if not nu_name.strip():
+                st.error("Username is required.")
+            elif len(nu_pass) < 4:
+                st.error("Password must be at least 4 characters.")
+            elif nu_name.strip() in all_users:
+                st.error(f"Username '{nu_name.strip()}' already exists.")
+            else:
+                add_user(nu_name.strip(), nu_pass, nu_role, None if nu_rider == "None" else nu_rider)
+                st.success(f"✅ User '{nu_name.strip()}' added as {nu_role}.")
+                st.rerun()
+
+    # ── Change Password ───────────────────────────
+    with ac2:
+        st.markdown("### 🔑 Change Password")
+        with st.form("change_pw_form", clear_on_submit=True):
+            pw_target = st.selectbox("User", list(all_users.keys()), key="pw_target")
+            pw_new    = st.text_input("New Password", type="password", placeholder="Enter new password")
+            pw_new2   = st.text_input("Confirm Password", type="password", placeholder="Repeat new password")
+            pw_btn    = st.form_submit_button("🔑 Change Password", type="primary", use_container_width=True)
+
+        if pw_btn:
+            if not pw_new:
+                st.error("Password cannot be empty.")
+            elif pw_new != pw_new2:
+                st.error("Passwords do not match.")
+            elif len(pw_new) < 4:
+                st.error("Password must be at least 4 characters.")
+            else:
+                cfg_pw = load_config()
+                users_pw = cfg_pw.get("users", {})
+                if pw_target in users_pw and isinstance(users_pw[pw_target], dict):
+                    users_pw[pw_target]["password"] = _hash(pw_new)
+                else:
+                    users_pw[pw_target] = {"password": _hash(pw_new),
+                                           "role": _get_user_field(pw_target, "role", "engineer"),
+                                           "rider": _get_user_field(pw_target, "rider")}
+                cfg_pw["users"] = users_pw
+                save_config(cfg_pw)
+                st.success(f"✅ Password for '{pw_target}' updated.")
