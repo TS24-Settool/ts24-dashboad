@@ -29,20 +29,20 @@ def find_db():
         db = base / "02_DATABASE" / "ts24_setup.db"
         if db.exists():
             return db
-    return None  # Streamlit Cloud など SQLite なし環境では None を返す
+    return None  # Returns None in Streamlit Cloud / no-SQLite environments
 
 def load_config() -> dict:
-    # Streamlit Cloud の secrets を優先（クラウド環境）
+    # Prefer Streamlit Cloud secrets (cloud environment)
     try:
         if hasattr(st, 'secrets') and len(st.secrets) > 0:
             cfg = dict(st.secrets)
-            # users セクションを dict に変換
+            # Convert users section to dict
             if 'users' in cfg and hasattr(cfg['users'], 'items'):
                 cfg['users'] = {k: dict(v) for k, v in cfg['users'].items()}
             return cfg
     except Exception:
         pass
-    # ローカル環境: ts24_config.json
+    # Local environment: ts24_config.json
     if CONFIG_FILE.exists():
         try:
             return json.loads(CONFIG_FILE.read_text())
@@ -61,14 +61,14 @@ def _hash(pwd: str) -> str:
     return hashlib.sha256(pwd.strip().encode()).hexdigest()
 
 def _get_user_field(username: str, field: str, default=None):
-    """ユーザーデータから指定フィールドを取得（新旧フォーマット対応）"""
+    """Get a specific field from user data (supports old and new format)."""
     cfg = load_config()
     user_data = cfg.get("users", {}).get(username)
     if user_data is None:
         return default
     if isinstance(user_data, dict):
         return user_data.get(field, default)
-    # 旧フォーマット（ハッシュ文字列のみ）
+    # Legacy format (hash string only)
     if field == "password":
         return user_data
     if field == "role":
@@ -80,7 +80,7 @@ def get_user_role(username: str) -> str:
     return _get_user_field(username, "role", "engineer")
 
 def get_user_rider(username: str):
-    """そのユーザーに紐づくライダー (DA77/JA52/None)"""
+    """Rider assigned to this user (DA77/JA52/None)."""
     return _get_user_field(username, "rider", None)
 
 def get_users() -> dict:
@@ -182,7 +182,7 @@ if not st.session_state.get("authenticated"):
     login_page()
     st.stop()
 
-DB_PATH = find_db()  # Supabase環境では None になる（問題なし）
+DB_PATH = find_db()  # None in Supabase-only environments — OK
 
 # ── Data loading ──────────────────────────────────
 def _sql_to_df(conn, query):
@@ -191,7 +191,7 @@ def _sql_to_df(conn, query):
     return pd.DataFrame(cur.fetchall(), columns=cols)
 
 def _load_sqlite():
-    """ローカルSQLiteからデータを読み込む（フォールバック）"""
+    """Load data from local SQLite (fallback)."""
     try:
         db = find_db()
         conn = sqlite3.connect(str(db))
@@ -214,9 +214,9 @@ def _load_sqlite():
         return empty, empty, empty, empty, empty
 
 def _supa_to_df(table: str, svc_key: str, supa_url: str, order: str = "") -> pd.DataFrame:
-    """Supabase REST API からテーブルを DataFrame に変換"""
+    """Fetch a Supabase table and convert to DataFrame."""
     filters = f"select=*{('&order=' + order) if order else ''}"
-    # ページネーション（最大10000件）
+    # Pagination (max 10000 rows)
     url = f"{supa_url}/rest/v1/{table}?{filters}&limit=10000"
     headers = {
         "apikey":        svc_key,
@@ -237,7 +237,7 @@ def load_data():
     supa_url = cfg.get("supabase_url", "")
     svc_key  = cfg.get("supabase_service_key", "")
 
-    # Supabase が設定済みの場合はクラウドから取得
+    # If Supabase is configured, fetch from cloud
     if supa_url and svc_key and svc_key != "PASTE_SERVICE_ROLE_KEY_HERE":
         try:
             sessions = _supa_to_df("sessions",       svc_key, supa_url, "session_date")
@@ -247,9 +247,9 @@ def load_data():
             laps     = _supa_to_df("lap_times",      svc_key, supa_url, "round_id,session_type,rider_num,lap_no")
             return sessions, tags, results, sectors, laps
         except Exception:
-            pass  # フォールバック
+            pass  # Fallback to SQLite
 
-    # フォールバック: ローカルSQLite
+    # Fallback: local SQLite
     return _load_sqlite()
 
 # ── Color palette (Power BI style) ────────────────
@@ -504,7 +504,7 @@ with st.sidebar:
     sel_rider  = st.radio("", all_riders, horizontal=True, label_visibility="collapsed")
 
     st.markdown("**Circuit**")
-    # サーキット選択肢: race_results（実走行）+ sessions（レポート）両方から収集
+    # Circuit options: collect from both race_results (track) + sessions (reports)
     circ_from_sessions = set(sessions["circuit"].dropna().unique().tolist())
     circ_from_results  = set(results["circuit"].dropna().str.upper().unique().tolist()) if not results.empty else set()
     all_circuits = sorted(circ_from_sessions | circ_from_results)
@@ -513,7 +513,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ── セットアップセッションフィルター (Session Detail用) — rider + circuit ──
+    # ── Setup session filter (for Session Detail tab) — rider + circuit ──
     df_s = sessions.copy()
     df_t = tags.copy()
     if sel_rider != "All":
@@ -523,16 +523,16 @@ with st.sidebar:
         df_s = df_s[df_s["circuit"].str.upper() == sel_circuit.upper()]
         df_t = df_t[df_t["session_id"].isin(df_s["session_id"])]
 
-    # ── イベント全体フィルター (Problem Analysis / Heatmap / Season Trend用) ──
-    # サーキットのみでフィルター — ライダー選択に関わらずイベント全体のタグを表示
+    # ── Whole-event filter (for Problem Analysis / Heatmap / Season Trend tabs) ──
+    # Filter by circuit only — show all event tags regardless of rider selection
     df_s_event = sessions.copy()
     df_t_event = tags.copy()
     if sel_circuit != "All":
         df_s_event = df_s_event[df_s_event["circuit"].str.upper() == sel_circuit.upper()]
         df_t_event = df_t_event[df_t_event["session_id"].isin(df_s_event["session_id"])]
 
-    # ── 実走行セッションフィルター (KPI / Race Results用) ──
-    # race_results の1行 = 1セッション(FP/SP/WUP/RACE)
+    # ── Track session filter (for KPI / Race Results tabs) ──
+    # Each row in race_results = one session (FP/SP/WUP/RACE)
     df_rr = results.copy() if not results.empty else pd.DataFrame()
     if not df_rr.empty:
         if sel_rider != "All":
@@ -550,7 +550,7 @@ with st.sidebar:
     st.divider()
     st.markdown("**Claude AI**")
 
-    # 起動時に設定ファイルからAPIキーを自動ロード
+    # Auto-load API key from config file on startup
     if "claude_api_key" not in st.session_state:
         cfg = load_config()
         st.session_state["claude_api_key"] = cfg.get("claude_api_key", "")
@@ -634,7 +634,7 @@ with st.sidebar:
                 st.success("Saved!")
 
 # ── KPI row ─────────────────────────────────────────────────
-# Track Sessions = race_results ベース（FP/SP/WUP/RACE の実走行単位）
+# Track Sessions = race_results based (FP/SP/WUP/RACE track session units)
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Track Sessions", n_track)
 k2.metric("DA77 Sessions",  n_da77)
@@ -669,7 +669,7 @@ if not claude_ready:
 
 # ── Tabs ──────────────────────────────────────────
 # ── Role-based data filtering ──────────────────────────────────
-# engineerロールは自分のライダーデータのみ表示
+# Engineer role: show only their assigned rider's data
 _cur_user  = st.session_state.get("current_user", "")
 _cur_role  = get_user_role(_cur_user)
 _cur_rider = get_user_rider(_cur_user)
@@ -735,7 +735,7 @@ with tab1:
     # ── Right: DA77 vs JA52 ──
     with col_r:
         st.markdown('<p class="section-title">DA77 vs JA52 Comparison</p>', unsafe_allow_html=True)
-        # イベント全体 (両ライダー) のタグをmerge — ライダー選択に関わらず全員表示
+        # Merge tags for whole event (both riders) — show all regardless of rider selection
         merged = df_t_event.merge(df_s_event[["session_id", "rider"]], on="session_id", how="left")
         by_rider = merged.groupby(["tag", "rider"]).size().reset_index(name="count")
         if not by_rider.empty:
@@ -915,7 +915,7 @@ with tab4:
     if results.empty:
         st.info("No official results data yet. Add PDFs to 07_RESULTS/ and run result_sync.py.")
     else:
-        # Race Resultsタブは df_rr (サイドバーフィルター済み) を使用
+        # Race Results tab uses df_rr (already filtered by sidebar)
         df_r = df_rr.copy() if not df_rr.empty else results.copy()
 
         # ── KPI row ──
@@ -1073,7 +1073,7 @@ with tab5:
     if laps.empty:
         st.info("No lap time data. Run lap_sync.py first.")
     else:
-        # ── フィルター（1行目: Round / Session / pit表示） ──
+        # ── Filter row 1: Round / Session / pit display ──
         fc1, fc2, fc3 = st.columns([2, 2, 1])
 
         available_rounds = sorted(laps["round_id"].unique())
@@ -1093,20 +1093,20 @@ with tab5:
 
         show_invalid = fc3.checkbox("Show pit/cancelled", value=False, key="rp_invalid")
 
-        # 選択セッションのデータ（ベースフィルター）
+        # Data for selected session (base filter)
         df_lp_base = laps[
             (laps["round_id"] == sel_rp_round) &
             (laps["session_type"] == sel_rp_session)
         ].copy()
 
-        # ライダーラベル (番号 + 名前) — is_valid問わず全ライダー分
+        # Rider labels (number + name) — all riders regardless of is_valid
         rider_labels = {
             r: f"#{r} {df_lp_base[df_lp_base['rider_num']==r]['rider_name'].iloc[0]}"
             for r in df_lp_base["rider_num"].unique()
         }
         df_lp_base["rider_label"] = df_lp_base["rider_num"].map(rider_labels)
 
-        # ── フィルター（2行目: 比較ライダー選択） ──
+        # ── Filter row 2: Compare rider selection ──
         COMPARE_PALETTE = [
             "#8E44AD", "#16A085", "#D35400", "#2C3E50",
             "#F39C12", "#1ABC9C", "#884EA0", "#CA6F1E",
@@ -1116,22 +1116,22 @@ with tab5:
         field_label_to_num = {rider_labels.get(n, f"#{n}"): n for n in field_nums_all}
 
         sel_compare_labels = st.multiselect(
-            "比較ライダー（ハイライト表示）",
+            "Compare Riders (Highlighted)",
             options=field_label_list,
             default=[],
             key="rp_compare",
-            help="DA77・JA52以外のライダーをカラーでハイライト比較できます（最大8名）",
+            help="Highlight up to 8 riders other than DA77/JA52 in color for comparison",
         )
         compare_nums = [field_label_to_num[l] for l in sel_compare_labels]
         compare_colors = {n: COMPARE_PALETTE[i % len(COMPARE_PALETTE)]
                           for i, n in enumerate(compare_nums)}
 
-        # is_validフィルター適用
+        # Apply is_valid filter
         df_lp = df_lp_base.copy()
         if not show_invalid:
             df_lp = df_lp[df_lp["is_valid"] == 1]
 
-        # DA77 / JA52 が存在するか
+        # Check if DA77 / JA52 exist in data
         has_da77 = 77 in df_lp["rider_num"].values
         has_ja52 = 52 in df_lp["rider_num"].values
 
@@ -1149,19 +1149,19 @@ with tab5:
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-        # ── CHART 1: ラップタイム推移 ─────────────────────────────
+        # ── CHART 1: Lap Time Evolution ────────────────────────────
         st.markdown('<p class="section-title">Lap Time Evolution</p>', unsafe_allow_html=True)
 
         fig_pace = go.Figure()
 
-        # フィールド描画: グレー背景 + 選択比較ライダーはカラーハイライト
+        # Draw field riders: gray background + highlighted color for selected compare riders
         field_nums = [n for n in df_lp["rider_num"].unique() if n not in (77, 52)]
         for rnum in field_nums:
             df_r = df_lp[df_lp["rider_num"] == rnum].sort_values("lap_no")
             lbl  = rider_labels.get(rnum, f"#{rnum}")
 
             if rnum in compare_nums:
-                # 比較ライダー: カラーでハイライト
+                # Compare rider: highlight in color
                 col = compare_colors[rnum]
                 fig_pace.add_trace(go.Scatter(
                     x=df_r["lap_no"], y=df_r["lap_time"],
@@ -1172,7 +1172,7 @@ with tab5:
                     hovertemplate=f"<b>{lbl}</b><br>Lap %{{x}}: %{{y:.3f}}s<extra></extra>",
                 ))
             else:
-                # 通常フィールド: グレー背景
+                # Regular field rider: gray background
                 fig_pace.add_trace(go.Scatter(
                     x=df_r["lap_no"], y=df_r["lap_time"],
                     mode="lines+markers",
@@ -1184,10 +1184,10 @@ with tab5:
                     showlegend=False,
                 ))
 
-        # DA77 を青でハイライト
+        # Highlight DA77 in blue
         if has_da77:
             df_da = df_lp[df_lp["rider_num"] == 77].sort_values("lap_no")
-            # 有効ラップ
+            # Valid laps
             df_da_v = df_da[df_da["is_valid"] == 1]
             df_da_i = df_da[df_da["is_valid"] == 0]
             fig_pace.add_trace(go.Scatter(
@@ -1213,7 +1213,7 @@ with tab5:
                 showarrow=False, font=dict(size=11, color=DA77_COLOR),
             )
 
-        # JA52 を赤でハイライト
+        # Highlight JA52 in red
         if has_ja52:
             df_ja = df_lp[df_lp["rider_num"] == 52].sort_values("lap_no")
             df_ja_v = df_ja[df_ja["is_valid"] == 1]
@@ -1241,7 +1241,7 @@ with tab5:
                 showarrow=False, font=dict(size=11, color=JA52_COLOR),
             )
 
-        # セッションベストラインを水平に
+        # Draw horizontal session best line
         if best_all:
             fig_pace.add_hline(
                 y=best_all, line_dash="dot",
@@ -1251,7 +1251,7 @@ with tab5:
                 annotation_position="top right",
             )
 
-        # Y軸をmm:ss形式で表示するカスタムtick
+        # Custom Y-axis ticks in mm:ss format
         if not df_lp.empty:
             y_min = df_lp[df_lp["is_valid"]==1]["lap_time"].quantile(0.02) if not df_lp[df_lp["is_valid"]==1].empty else 90
             y_max = df_lp[df_lp["is_valid"]==1]["lap_time"].quantile(0.98) if not df_lp[df_lp["is_valid"]==1].empty else 120
@@ -1271,7 +1271,7 @@ with tab5:
         )
         st.plotly_chart(fig_pace, use_container_width=True, config={"displayModeBar": False})
 
-        # ── CHART 2: セクタータイム比較 ──────────────────────────
+        # ── CHART 2: Sector Time Comparison ──────────────────────
         if has_da77 or has_ja52:
             st.markdown('<p class="section-title">Sector Time Evolution</p>', unsafe_allow_html=True)
             sc1, sc2 = st.columns(2, gap="medium")
@@ -1298,7 +1298,7 @@ with tab5:
                 fig_sec.update_layout(xaxis_title="Lap", yaxis_title="Sector Time (s)")
                 col.plotly_chart(fig_sec, use_container_width=True, config={"displayModeBar": False})
 
-        # ── CHART 3: ラップギャップ（ベスト比） ──────────────────
+        # ── CHART 3: Lap Gap (vs. session best) ──────────────────
         st.markdown('<p class="section-title">Gap to Session Best Lap (per lap)</p>', unsafe_allow_html=True)
 
         gap_traces = []
@@ -1329,9 +1329,9 @@ with tab5:
             )
             st.plotly_chart(fig_gap, use_container_width=True, config={"displayModeBar": False})
         else:
-            st.info("DA77 / JA52 の gap データなし — フィールドデータのみ収録のセッションです。")
+            st.info("No gap data for DA77/JA52 — field data only session.")
 
-        # ── 統計サマリー ─────────────────────────────────────────
+        # ── Statistics Summary ───────────────────────────────────
         st.markdown('<p class="section-title">Lap Time Statistics</p>', unsafe_allow_html=True)
 
         stat_rows = []
@@ -1353,7 +1353,7 @@ with tab5:
 
         if stat_rows:
             df_stat = pd.DataFrame(stat_rows).sort_values("Δ Best (s)")
-            # DA77/JA52を上部に表示
+            # Show DA77/JA52 at the top
             df_star = df_stat[df_stat["Tag"] != ""]
             df_field = df_stat[df_stat["Tag"] == ""]
             df_show = pd.concat([df_star, df_field]).drop(columns=["Tag"]).reset_index(drop=True)
@@ -1788,7 +1788,7 @@ with tab9:
                 {"role": "assistant", "content": assistant_reply})
 
 # ═══════════════════════════════════════════════════
-# TAB 10 — Submit Data（エンジニア向けデータ送信）
+# TAB 10 — Submit Data (engineer data submission)
 # ═══════════════════════════════════════════════════
 with tab10:
     st.markdown('<p class="section-title">📤 Submit Session Data</p>', unsafe_allow_html=True)
@@ -1800,26 +1800,26 @@ with tab10:
     submit_rider_default = get_user_rider(submit_user) or "DA77"
 
     if not supa_url10 or not anon_key10:
-        st.warning("⚠️  Supabase が設定されていません。管理者に連絡してください。")
+        st.warning("⚠️  Supabase is not configured. Please contact the administrator.")
     else:
-        sub_tab1, sub_tab2 = st.tabs(["📊 Excel Upload (推奨)", "📋 Manual Form"])
+        sub_tab1, sub_tab2 = st.tabs(["📊 Excel Upload (Recommended)", "📋 Manual Form"])
 
-        # ── Excel アップロード（推奨） ────────────────────
+        # ── Excel Upload (Recommended) ───────────────────
         with sub_tab1:
-            st.markdown("#### 手順")
+            st.markdown("#### Steps")
             st.markdown(
-                "1. **テンプレートをダウンロード** して記入する\n"
-                "2. 記入済みExcelをここにアップロード\n"
-                "3. 内容を確認して送信"
+                "1. **Download the template** and fill it in\n"
+                "2. Upload the completed Excel file here\n"
+                "3. Review the contents and submit"
             )
 
-            # テンプレートダウンロードリンク
+            # Template download link
             tmpl_path = SCRIPT_DIR.parent / "03_TEMPLATES" / "NEW_EVENT_TEAM_REPORT_TEMPLATE.xlsx"
             if tmpl_path.exists():
                 with open(tmpl_path, "rb") as f:
                     tmpl_bytes = f.read()
                 st.download_button(
-                    "📥 テンプレートをダウンロード",
+                    "📥 Download Template",
                     data=tmpl_bytes,
                     file_name="NEW_EVENT_TEAM_REPORT_TEMPLATE.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1828,7 +1828,7 @@ with tab10:
 
             st.divider()
             uploaded = st.file_uploader(
-                "記入済みExcelファイルをアップロード",
+                "Upload completed Excel file",
                 type=["xlsx", "xlsm"],
                 key="excel_upload"
             )
@@ -1847,18 +1847,18 @@ with tab10:
                     laps_p     = parsed["laps"]
 
                     if not sessions_p:
-                        st.error("解析できるセッションデータが見つかりませんでした。")
+                        st.error("No session data found in the file.")
                     else:
-                        st.success(f"✅ 解析完了: **{len(sessions_p)}セッション** / **{len(laps_p)}ラップ** を検出")
+                        st.success(f"✅ Parsed: **{len(sessions_p)} sessions** / **{len(laps_p)} laps** detected")
 
-                        # プレビュー
-                        with st.expander("📋 送信データプレビュー", expanded=True):
+                        # Preview
+                        with st.expander("📋 Data Preview", expanded=True):
                             prev_cols = ["session_date","circuit","session_type","rider",
                                          "track_temp","f_tyre","r_tyre","best_lap"]
                             prev_data = [{k: s.get(k) for k in prev_cols} for s in sessions_p]
                             st.dataframe(pd.DataFrame(prev_data), use_container_width=True, hide_index=True)
 
-                        if st.button("📤 Supabaseに送信", type="primary", use_container_width=True,
+                        if st.button("📤 Submit to Supabase", type="primary", use_container_width=True,
                                      key="excel_submit_btn"):
                             ok_s, ok_l = 0, 0
                             for sess in sessions_p:
@@ -1867,14 +1867,14 @@ with tab10:
                             for lap in laps_p:
                                 if supa_insert("pending_lap_times", lap, anon_key10, supa_url10) is not False:
                                     ok_l += 1
-                            st.success(f"✅ 送信完了！ セッション: {ok_s}件 / ラップ: {ok_l}件\n管理者の承認をお待ちください。")
+                            st.success(f"✅ Submitted! Sessions: {ok_s} / Laps: {ok_l}\nAwaiting administrator approval.")
                             st.cache_data.clear()
                 except ImportError:
-                    st.error("excel_parser.py が見つかりません。管理者に連絡してください。")
+                    st.error("excel_parser.py not found. Please contact the administrator.")
                 except Exception as e:
-                    st.error(f"解析エラー: {e}")
+                    st.error(f"Parse error: {e}")
 
-        # ── 手動フォーム（サブ） ──────────────────────────
+        # ── Manual Form (sub-tab) ────────────────────────
         with sub_tab2:
             with st.form("submit_session_form", clear_on_submit=True):
                 st.markdown("**Session Info**")
@@ -1933,7 +1933,7 @@ with tab10:
 
             if submitted10:
                 payload = {
-                    "submitted_by": submit_user,
+                    "submitted_by":  submit_user,
                     "session_date": str(s_date),
                     "circuit":      s_circuit.upper(),
                     "session_type": s_type,
@@ -1968,11 +1968,11 @@ with tab10:
                 }
                 ok = supa_insert("pending_sessions", payload, anon_key10, supa_url10)
                 if ok is not False:
-                    st.success("✅ 送信完了！管理者の承認をお待ちください。")
+                    st.success("✅ Submitted! Awaiting administrator approval.")
                 else:
-                    st.error("送信に失敗しました。ネットワーク接続を確認してください。")
+                    st.error("Submission failed. Please check your network connection.")
 
-        # ── ラップタイム送信 ───────────────────────────────
+        # ── Lap Time Submission ──────────────────────────
         with sub_tab2:
             with st.form("submit_laps_form", clear_on_submit=True):
                 st.markdown("**Session Info**")
@@ -1983,9 +1983,9 @@ with tab10:
                 l_rider   = lc4.selectbox("Rider", ["DA77 (77)", "JA52 (52)"],
                                           index=0 if submit_rider_default == "DA77" else 1)
 
-                st.markdown("**Lap Times** (1行1ラップ: lap_no, seg1, seg2, seg3, seg4, lap_time, speed)")
-                st.caption("例: 1, 28.5, 27.3, 25.1, 17.6, 98.500, 189.2")
-                laps_text = st.text_area("Lap data (CSV形式)", height=200,
+                st.markdown("**Lap Times** (one row per lap: lap_no, seg1, seg2, seg3, seg4, lap_time, speed)")
+                st.caption("Example: 1, 28.5, 27.3, 25.1, 17.6, 98.500, 189.2")
+                laps_text = st.text_area("Lap data (CSV format)", height=200,
                                          placeholder="1, 28.5, 27.3, 25.1, 17.6, 98.500, 189.2\n2, 28.1, 27.0, 24.9, 17.4, 97.400, 191.0")
 
                 submitted_laps = st.form_submit_button("📤 Submit Lap Times", type="primary",
@@ -1998,7 +1998,7 @@ with tab10:
                 for i, line in enumerate(laps_text.strip().splitlines(), 1):
                     parts = [p.strip() for p in line.split(",")]
                     if len(parts) < 6:
-                        errors.append(f"行{i}: カラム数不足")
+                        errors.append(f"Row {i}: insufficient columns")
                         continue
                     try:
                         payload_l = {
@@ -2022,15 +2022,15 @@ with tab10:
                         supa_insert("pending_lap_times", payload_l, anon_key10, supa_url10)
                         count += 1
                     except Exception as e:
-                        errors.append(f"行{i}: {e}")
+                        errors.append(f"Row {i}: {e}")
                 if count:
-                    st.success(f"✅ {count} ラップ送信完了！管理者の承認をお待ちください。")
+                    st.success(f"✅ {count} laps submitted! Awaiting administrator approval.")
                 if errors:
-                    st.warning("エラー:\n" + "\n".join(errors))
+                    st.warning("Errors:\n" + "\n".join(errors))
 
 
 # ═══════════════════════════════════════════════════
-# TAB 11 — Approvals（管理者専用 承認ワークフロー）
+# TAB 11 — Approvals (admin-only approval workflow)
 # ═══════════════════════════════════════════════════
 with tab11:
     st.markdown('<p class="section-title">✅ Pending Approvals — Admin Only</p>', unsafe_allow_html=True)
@@ -2039,7 +2039,7 @@ with tab11:
     _a_role = get_user_role(_a_user)
 
     if _a_role != "admin":
-        st.warning("🔒 このタブは管理者専用です。")
+        st.warning("🔒 This tab is for administrators only.")
         st.stop()
 
     cfg11      = load_config()
@@ -2047,20 +2047,20 @@ with tab11:
     svc_key11  = cfg11.get("supabase_service_key", "")
 
     if not supa_url11 or not svc_key11 or svc_key11 == "PASTE_SERVICE_ROLE_KEY_HERE":
-        st.error("⚠️  Supabase Service Role Key が設定されていません。")
-        st.info("サイドバー「☁️ Supabase Settings」に service_role キーを入力してください。\n"
-                "（Supabase ダッシュボード → Settings → API → service_role）")
+        st.error("⚠️  Supabase Service Role Key is not configured.")
+        st.info("Enter the service_role key in the sidebar under '☁️ Supabase Settings'.\n"
+                "(Supabase Dashboard → Settings → API → service_role)")
     else:
-        if st.button("🔄 Supabaseから最新データを取得", key="refresh_approvals", type="primary"):
+        if st.button("🔄 Refresh Data from Supabase", key="refresh_approvals", type="primary"):
             st.cache_data.clear()
 
-        # ── セッションレポート ─────────────────────────────
+        # ── Session Reports ───────────────────────────────
         pending_s = supa_fetch("pending_sessions", svc_key11, supa_url11)
 
-        st.markdown(f"### 📋 Session Reports — {len(pending_s)} 件")
+        st.markdown(f"### 📋 Session Reports — {len(pending_s)} pending")
 
         if not pending_s:
-            st.info("承認待ちのセッションレポートはありません。")
+            st.info("No session reports pending approval.")
         else:
             for rec in pending_s:
                 with st.expander(
@@ -2095,12 +2095,12 @@ with tab11:
 
                     col_app, col_rej, _ = st.columns([1, 1, 4])
                     if col_app.button("✅ Approve", key=f"app_s_{rec['id']}", type="primary"):
-                        # Supabaseのステータスを承認済みに更新
+                        # Update Supabase status to approved
                         supa_update_status("pending_sessions", rec["id"], "approved", svc_key11, supa_url11)
-                        # ローカルSQLiteに挿入（Mother DBがある場合のみ）
+                        # Insert into local SQLite only if Mother DB is present
                         try:
                             if DB_PATH is None:
-                                st.info("ℹ️ Supabaseには承認済みで保存済み。Mother DBへの同期はローカルMacで自動実行されます。")
+                                st.info("ℹ️ Approved in Supabase. Sync to Mother DB will run automatically on local Mac.")
                                 st.rerun()
                             conn_a = sqlite3.connect(str(DB_PATH))
                             from datetime import datetime as _dt
@@ -2131,24 +2131,24 @@ with tab11:
                             ))
                             conn_a.commit()
                             conn_a.close()
-                            st.success(f"✅ 承認してMother DBに保存しました。")
+                            st.success("✅ Approved and saved to Mother DB.")
                             st.cache_data.clear()
                         except Exception as e:
-                            st.error(f"DB保存エラー: {e}")
+                            st.error(f"DB save error: {e}")
 
                     if col_rej.button("❌ Reject", key=f"rej_s_{rec['id']}"):
                         supa_update_status("pending_sessions", rec["id"], "rejected", svc_key11, supa_url11)
-                        st.warning("拒否しました。")
+                        st.warning("Rejected.")
 
         st.divider()
 
-        # ── ラップタイム ──────────────────────────────────
+        # ── Lap Times ────────────────────────────────────
         pending_l = supa_fetch("pending_lap_times", svc_key11, supa_url11)
 
-        st.markdown(f"### ⏱ Lap Times — {len(pending_l)} 件")
+        st.markdown(f"### ⏱ Lap Times — {len(pending_l)} pending")
 
         if not pending_l:
-            st.info("承認待ちのラップタイムはありません。")
+            st.info("No lap times pending approval.")
         else:
             import pandas as _pd_ap
             df_pending_l = _pd_ap.DataFrame(pending_l)
@@ -2160,10 +2160,10 @@ with tab11:
             col_la, col_lr, _ = st.columns([1, 1, 4])
             if col_la.button("✅ Approve All Laps", key="app_all_laps", type="primary"):
                 if DB_PATH is None:
-                    # Supabaseのみ更新（Mother DBへの同期はローカルMacで自動実行）
+                    # Update Supabase only (sync to Mother DB runs automatically on local Mac)
                     for lap in pending_l:
                         supa_update_status("pending_lap_times", lap["id"], "approved", svc_key11, supa_url11)
-                    st.success(f"✅ {len(pending_l)} ラップをSupabaseで承認しました。Mother DBへの同期はローカルMacで自動実行されます。")
+                    st.success(f"✅ {len(pending_l)} laps approved in Supabase. Sync to Mother DB will run automatically on local Mac.")
                     st.cache_data.clear()
                     st.stop()
                 conn_b = sqlite3.connect(str(DB_PATH))
@@ -2188,10 +2188,10 @@ with tab11:
                         st.warning(f"Lap {lap.get('id')}: {e}")
                 conn_b.commit()
                 conn_b.close()
-                st.success(f"✅ {ok_count} ラップをMother DBに保存しました。")
+                st.success(f"✅ {ok_count} laps saved to Mother DB.")
                 st.cache_data.clear()
 
             if col_lr.button("❌ Reject All Laps", key="rej_all_laps"):
                 for lap in pending_l:
                     supa_update_status("pending_lap_times", lap["id"], "rejected", svc_key11, supa_url11)
-                st.warning("全ラップを拒否しました。")
+                st.warning("All laps rejected.")
