@@ -23,6 +23,8 @@ import hashlib
 # ── Path ─────────────────────────────────────────
 SCRIPT_DIR  = Path(__file__).resolve().parent
 CONFIG_FILE = SCRIPT_DIR / "ts24_config.json"
+# /tmp fallback: writable on Streamlit Cloud (where repo dir is read-only)
+_TMP_CONFIG = Path("/tmp/ts24_dashboard_config.json")
 
 def find_db():
     for base in [SCRIPT_DIR, SCRIPT_DIR.parent]:
@@ -33,7 +35,7 @@ def find_db():
 
 def load_config() -> dict:
     cfg = {}
-    # Step 1: Load base config from st.secrets (API keys, Supabase URL, etc.)
+    # Step 1: st.secrets — API keys, Supabase URL (Streamlit Cloud)
     try:
         if hasattr(st, 'secrets') and len(st.secrets) > 0:
             cfg = dict(st.secrets)
@@ -41,29 +43,31 @@ def load_config() -> dict:
                 cfg['users'] = {k: dict(v) for k, v in cfg['users'].items()}
     except Exception:
         pass
-    # Step 2: Always overlay with ts24_config.json so UI-added users are visible
-    # (JSON takes priority for users; secrets take priority for API credentials)
-    if CONFIG_FILE.exists():
-        try:
-            file_cfg = json.loads(CONFIG_FILE.read_text())
-            # Merge users: JSON users override / extend secrets users
-            if 'users' in file_cfg:
-                merged_users = dict(cfg.get('users', {}))
-                merged_users.update(file_cfg['users'])
-                cfg['users'] = merged_users
-            # Merge other keys from JSON (API keys saved via UI, etc.)
-            for k, v in file_cfg.items():
-                if k != 'users':
-                    cfg[k] = v
-        except Exception:
-            pass
+    # Step 2: Merge from JSON files — repo file first, then /tmp overlay
+    # /tmp has the most recent UI changes on Streamlit Cloud
+    for path in [CONFIG_FILE, _TMP_CONFIG]:
+        if path.exists():
+            try:
+                file_cfg = json.loads(path.read_text())
+                if 'users' in file_cfg:
+                    merged = dict(cfg.get('users', {}))
+                    merged.update(file_cfg['users'])
+                    cfg['users'] = merged
+                for k, v in file_cfg.items():
+                    if k != 'users':
+                        cfg[k] = v
+            except Exception:
+                pass
     return cfg
 
 def save_config(data: dict):
-    try:
-        CONFIG_FILE.write_text(json.dumps(data, indent=2))
-    except Exception:
-        pass
+    """Write config; try repo path first, fall back to /tmp (Streamlit Cloud)."""
+    for path in [CONFIG_FILE, _TMP_CONFIG]:
+        try:
+            path.write_text(json.dumps(data, indent=2))
+            return  # success — stop after first writable path
+        except Exception:
+            continue
 
 # ── Auth helpers ──────────────────────────────────
 def _hash(pwd: str) -> str:
@@ -71,8 +75,8 @@ def _hash(pwd: str) -> str:
 
 def _get_user_field(username: str, field: str, default=None):
     """Get a specific field from user data (supports old and new format)."""
-    cfg = load_config()
-    user_data = cfg.get("users", {}).get(username)
+    users = get_users()
+    user_data = users.get(username)
     if user_data is None:
         return default
     if isinstance(user_data, dict):
@@ -92,32 +96,160 @@ def get_user_rider(username: str):
     """Rider assigned to this user (DA77/JA52/None)."""
     return _get_user_field(username, "rider", None)
 
+# ── Supabase user helpers (persistent storage) ────
+def _supa_creds() -> tuple:
+    cfg = load_config()
+    return cfg.get("supabase_url", ""), cfg.get("supabase_service_key", "")
+
+def _supa_users_available() -> bool:
+    url, key = _supa_creds()
+    return bool(url and key and key != "PASTE_SERVICE_ROLE_KEY_HERE")
+
+def _supa_get_users() -> dict | None:
+    """Fetch users from Supabase dashboard_users table. Returns None on failure."""
+    url, key = _supa_creds()
+    if not url or not key:
+        return None
+    import urllib.request as _ur
+    headers = {"apikey": key, "Authorization": f"Bearer {key}",
+               "Content-Type": "application/json"}
+    req = _ur.Request(f"{url}/rest/v1/dashboard_users?select=*",
+                      headers=headers, method="GET")
+    try:
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.loads(r.read())
+            if isinstance(rows, list):
+                return {
+                    row["username"]: {
+                        "password": row["password_hash"],
+                        "role":     row.get("role", "engineer"),
+                        "rider":    row.get("rider"),
+                    }
+                    for row in rows
+                }
+    except Exception:
+        pass
+    return None
+
+def _supa_upsert_user(username: str, password_hash: str,
+                      role: str, rider) -> bool:
+    url, key = _supa_creds()
+    if not url or not key:
+        return False
+    import urllib.request as _ur
+    payload = json.dumps({
+        "username": username, "password_hash": password_hash,
+        "role": role, "rider": rider
+    }).encode()
+    headers = {"apikey": key, "Authorization": f"Bearer {key}",
+               "Content-Type": "application/json",
+               "Prefer": "resolution=merge-duplicates,return=minimal"}
+    req = _ur.Request(f"{url}/rest/v1/dashboard_users",
+                      data=payload, headers=headers, method="POST")
+    try:
+        with _ur.urlopen(req, timeout=10):
+            return True
+    except Exception:
+        return False
+
+def _supa_delete_user(username: str) -> bool:
+    url, key = _supa_creds()
+    if not url or not key:
+        return False
+    import urllib.request as _ur
+    headers = {"apikey": key, "Authorization": f"Bearer {key}",
+               "Content-Type": "application/json"}
+    req = _ur.Request(
+        f"{url}/rest/v1/dashboard_users?username=eq.{username}",
+        headers=headers, method="DELETE")
+    try:
+        with _ur.urlopen(req, timeout=10):
+            return True
+    except Exception:
+        return False
+
 def get_users() -> dict:
-    """Return {username: user_data} dict from config."""
+    """Return {username: user_data} dict — Supabase first, JSON fallback."""
+    # 1) Try Supabase (persistent across restarts)
+    if _supa_users_available():
+        supa_users = _supa_get_users()
+        if supa_users is not None:
+            if not supa_users:
+                # Table exists but empty — migrate local users to Supabase
+                cfg = load_config()
+                local_users = cfg.get("users", {})
+                for uname, udata in local_users.items():
+                    if isinstance(udata, dict):
+                        _supa_upsert_user(
+                            uname, udata.get("password", ""),
+                            udata.get("role", "engineer"), udata.get("rider"))
+                return local_users or {
+                    "ts24": {"password": _hash("Tatsuki1344"),
+                             "role": "admin", "rider": None}
+                }
+            # Deduplicate: lowercase keys, keep most-privileged role on collision
+            deduped = {}
+            for uname, udata in supa_users.items():
+                key_lower = uname.lower()
+                if key_lower in deduped:
+                    # Keep admin > engineer > viewer
+                    order = {"admin": 0, "engineer": 1, "viewer": 2}
+                    existing_role = deduped[key_lower].get("role", "engineer")
+                    new_role      = udata.get("role", "engineer")
+                    if order.get(new_role, 9) < order.get(existing_role, 9):
+                        deduped[key_lower] = udata
+                else:
+                    deduped[key_lower] = udata
+            return deduped
+
+    # 2) Fallback: JSON config (local / Streamlit Cloud /tmp)
     cfg = load_config()
     users = cfg.get("users", {})
-    if not users:
-        default = {"ts24": {"password": _hash("Tatsuki1344"), "role": "admin", "rider": None}}
+    # Deduplicate JSON users too (case-insensitive)
+    deduped = {}
+    for uname, udata in users.items():
+        key_lower = uname.lower()
+        if key_lower not in deduped:
+            deduped[key_lower] = udata
+    if not deduped:
+        default = {"ts24": {"password": _hash("Tatsuki1344"),
+                            "role": "admin", "rider": None}}
         cfg["users"] = default
         save_config(cfg)
         return default
-    return users
+    return deduped
 
 def check_login(username: str, password: str) -> bool:
-    stored_hash = _get_user_field(username.strip(), "password")
-    return stored_hash == _hash(password) if stored_hash else False
+    users = get_users()
+    udata = users.get(username.strip().lower())
+    if udata is None:
+        return False
+    stored = udata.get("password") if isinstance(udata, dict) else udata
+    return stored == _hash(password)
 
 def add_user(username: str, password: str, role: str = "engineer", rider: str = None):
+    uname = username.strip().lower()
+    phash = _hash(password)
+    # 1) Supabase (preferred — persistent)
+    if _supa_users_available():
+        if _supa_upsert_user(uname, phash, role, rider):
+            return
+    # 2) JSON fallback
     cfg   = load_config()
     users = cfg.get("users", {})
-    users[username.strip()] = {"password": _hash(password), "role": role, "rider": rider}
+    users[uname] = {"password": phash, "role": role, "rider": rider}
     cfg["users"] = users
     save_config(cfg)
 
 def delete_user(username: str):
-    cfg  = load_config()
+    uname = username.strip().lower()
+    # 1) Supabase
+    if _supa_users_available():
+        _supa_delete_user(uname)
+    # 2) JSON fallback (also clean up local copy)
+    cfg = load_config()
     users = cfg.get("users", {})
-    users.pop(username.strip(), None)
+    users.pop(uname, None)
     cfg["users"] = users
     save_config(cfg)
 
