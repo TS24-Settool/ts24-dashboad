@@ -354,23 +354,38 @@ def _load_sqlite():
         empty = pd.DataFrame()
         return empty, empty, empty, empty, empty
 
-def _supa_to_df(table: str, svc_key: str, supa_url: str, order: str = "") -> pd.DataFrame:
-    """Fetch a Supabase table and convert to DataFrame."""
-    filters = f"select=*{('&order=' + order) if order else ''}"
-    # Pagination (max 10000 rows)
-    url = f"{supa_url}/rest/v1/{table}?{filters}&limit=10000"
+def _supa_to_df(table: str, svc_key: str, supa_url: str,
+                order: str = "", where: str = "") -> pd.DataFrame:
+    """Fetch a Supabase table with pagination (1000 rows/page) until all rows retrieved."""
+    CHUNK = 1000
+    all_rows = []
+    offset   = 0
+    base_q   = f"select=*"
+    if where: base_q += f"&{where}"
+    if order: base_q += f"&order={order}"
     headers = {
         "apikey":        svc_key,
         "Authorization": f"Bearer {svc_key}",
-        "Range":         "0-9999",
+        "Prefer":        "count=none",
     }
-    req = urllib.request.Request(url, headers=headers, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
+    while True:
+        url = (f"{supa_url}/rest/v1/{table}"
+               f"?{base_q}&limit={CHUNK}&offset={offset}")
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                chunk = json.loads(resp.read())
+        except Exception:
+            break
+        if not chunk:
+            break
+        all_rows.extend(chunk)
+        if len(chunk) < CHUNK:
+            break          # 最終ページ
+        offset += CHUNK
+        if offset > 50000: # 安全上限
+            break
+    return pd.DataFrame(all_rows) if all_rows else pd.DataFrame()
 
 @st.cache_data(ttl=60)
 def load_data():
@@ -381,11 +396,14 @@ def load_data():
     # If Supabase is configured, fetch from cloud
     if supa_url and svc_key and svc_key != "PASTE_SERVICE_ROLE_KEY_HERE":
         try:
-            sessions = _supa_to_df("sessions",       svc_key, supa_url, "session_date")
+            sessions = _supa_to_df("sessions",       svc_key, supa_url, order="session_date")
             tags     = _supa_to_df("session_tags",   svc_key, supa_url)
-            results  = _supa_to_df("race_results",   svc_key, supa_url, "round_no,session_type,rider_id")
+            results  = _supa_to_df("race_results",   svc_key, supa_url, order="round_no,session_type,rider_id")
             sectors  = _supa_to_df("sector_results", svc_key, supa_url)
-            laps     = _supa_to_df("lap_times",      svc_key, supa_url, "round_id,session_type,rider_num,lap_no")
+            # lap_times: DA77(77) + JA52(52) のみ取得 — 全体9,931行→約530行に絞り込み
+            laps     = _supa_to_df("lap_times", svc_key, supa_url,
+                                   order="round_id,session_type,rider_num,lap_no",
+                                   where="rider_num=in.(52,77)")
             return sessions, tags, results, sectors, laps
         except Exception:
             pass  # Fallback to SQLite
@@ -3092,7 +3110,19 @@ with _content_col:
                     _best["round_sort"] = _best["round_id"].apply(_rnd_sort)
                     _best = _best.sort_values("round_sort").reset_index(drop=True)
                     _best["circuit"]      = _best["round_id"].map(ROUND_CIRCUIT_MAP).fillna(_best["round_id"])
+                    _best["x_label"]      = _best["round_id"] + "<br>" + _best["circuit"]
                     _best["best_lap_str"] = _best["lap_time"].apply(_fmt_t)
+
+                    # Y軸ティック: M'SS.mmm 形式でカスタム表示
+                    _y_min = _best["lap_time"].min()
+                    _y_max = _best["lap_time"].max()
+                    _y_pad = max((_y_max - _y_min) * 0.15, 1.0)
+                    # 5秒刻みのティック
+                    import math as _math
+                    _tick_start = _math.floor((_y_min - _y_pad) / 5) * 5
+                    _tick_end   = _math.ceil((_y_max + _y_pad) / 5) * 5
+                    _tick_vals  = list(range(_tick_start, _tick_end + 1, 5))
+                    _tick_texts = [_fmt_t(v) for v in _tick_vals]
 
                     # ── ラップ推移折れ線グラフ ──
                     fig_evo = go.Figure()
@@ -3101,18 +3131,32 @@ with _content_col:
                         if _rd.empty:
                             continue
                         fig_evo.add_trace(go.Scatter(
-                            x=_rd["round_id"], y=_rd["lap_time"],
+                            x=_rd["x_label"], y=_rd["lap_time"],
                             mode="lines+markers", name=rider,
-                            line=dict(color=color, width=2), marker=dict(size=9),
-                            text=_rd.apply(lambda r: f"{r['circuit']}<br>{r['best_lap_str']}", axis=1),
-                            hovertemplate="<b>%{x}</b><br>%{text}<extra>" + rider + "</extra>",
+                            line=dict(color=color, width=2.5),
+                            marker=dict(size=10, symbol="circle"),
+                            customdata=_rd[["circuit","best_lap_str"]].values,
+                            hovertemplate=(
+                                f"<b>{rider}</b><br>"
+                                "%{customdata[0]}<br>"
+                                "Best Lap: <b>%{customdata[1]}</b>"
+                                "<extra></extra>"
+                            ),
                         ))
                     fig_evo.update_layout(
-                        yaxis=dict(title="Best Lap (s)", autorange="reversed", tickformat=".3f"),
-                        xaxis_title="Round", legend=dict(orientation="h", y=1.12),
-                        height=360, margin=dict(t=50, b=40, l=60, r=20),
+                        yaxis=dict(
+                            title="Best Lap Time",
+                            autorange="reversed",
+                            tickvals=_tick_vals,
+                            ticktext=_tick_texts,
+                            range=[_y_max + _y_pad, _y_min - _y_pad],
+                        ),
+                        xaxis=dict(title="Round", tickangle=-20),
+                        legend=dict(orientation="h", y=1.12),
+                        height=400,
+                        margin=dict(t=50, b=60, l=80, r=20),
                     )
-                    fig_evo = chart_layout(fig_evo, height=360, title="Best Lap per Round — Season Progress")
+                    fig_evo = chart_layout(fig_evo, height=400, title="Best Lap per Round — Season Progress")
                     st.plotly_chart(fig_evo, use_container_width=True)
 
                     # ── ライダー間ギャップ棒グラフ ──
