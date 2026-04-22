@@ -2890,63 +2890,71 @@ with _content_col:
                                     if not _lap_sub.empty:
                                         best_laps_map[sid] = _lap_sub["lap_time"].min()
 
+                    # ── NaN-safe helper ──
+                    def _sv(val, fallback="—"):
+                        """Return string value; fallback if None/NaN/empty/nan."""
+                        try:
+                            if val is None or (isinstance(val, float) and val != val):
+                                return fallback
+                            if pd.isna(val):
+                                return fallback
+                        except (TypeError, ValueError):
+                            pass
+                        s = str(val).strip()
+                        return s if s and s.lower() not in ("nan", "none", "") else fallback
+
                     # ── Build result table ──
                     rows_out = []
                     for _, row in _ms.iterrows():
                         sid = row["session_id"]
-                        # Tags for this session (filtered to selection)
                         _sess_tags = _ft[_ft["session_id"] == sid]["tag"].tolist()
-                        # Phase descriptions
-                        ph_parts = []
-                        for ph_col, ph_label in [("ph1_braking","PH1"),("ph2_entry","PH2"),
-                                                   ("ph3_mid","PH3"),("ph4_exit","PH4"),("ph5_speed","PH5")]:
-                            val = row.get(ph_col)
-                            if pd.notna(val) and str(val).strip():
-                                ph_parts.append(f"**{ph_label}**: {str(val).strip()}")
 
-                        # Setup summary
+                        # Setup summary — collect all non-null setup fields
                         setup_parts = []
-                        if pd.notna(row.get("fork_type")):
-                            setup_parts.append(f"Fork: {row['fork_type']}")
-                        if pd.notna(row.get("f_spring")):
-                            setup_parts.append(f"F-Spring: {row['f_spring']}")
-                        if pd.notna(row.get("f_comp")):
-                            setup_parts.append(f"F-Comp: {row['f_comp']}")
-                        if pd.notna(row.get("shock_type")):
-                            setup_parts.append(f"Shock: {row['shock_type']}")
-                        if pd.notna(row.get("r_spring")):
-                            setup_parts.append(f"R-Spring: {row['r_spring']}")
-                        if pd.notna(row.get("swing_arm")):
-                            setup_parts.append(f"SwingArm: {row['swing_arm']}")
-                        if pd.notna(row.get("ride_height")):
-                            setup_parts.append(f"RideH: {row['ride_height']}")
+                        for _scol, _slabel in [
+                            ("fork_type","Fork"), ("f_spring","F-Spring"),
+                            ("f_comp","F-Comp"), ("f_reb","F-Reb"),
+                            ("shock_type","Shock"), ("r_spring","R-Spring"),
+                            ("r_comp","R-Comp"), ("r_reb","R-Reb"),
+                            ("swing_arm","SwingArm"), ("ride_height","RideH"),
+                            ("f_tyre","F-Tyre"), ("r_tyre","R-Tyre"),
+                        ]:
+                            v = _sv(row.get(_scol))
+                            if v != "—":
+                                setup_parts.append(f"{_slabel}: {v}")
 
+                        # Best lap
                         best_lap_s = best_laps_map.get(sid)
-                        if best_lap_s:
-                            m = int(best_lap_s // 60)
-                            s = best_lap_s - m * 60
-                            best_lap_str = f"{m}'{s:06.3f}"
+                        if best_lap_s and pd.notna(best_lap_s):
+                            _m = int(best_lap_s // 60)
+                            _s = best_lap_s - _m * 60
+                            best_lap_str = f"{_m}'{_s:06.3f}"
                         else:
-                            best_lap_str = row.get("best_lap") or "—"
+                            best_lap_str = _sv(row.get("best_lap"))
+
+                        next_act = _sv(row.get("next_action"))
+                        circuit  = _sv(row.get("circuit"))
 
                         rows_out.append({
-                            "Session": sid,
-                            "Date": str(row.get("session_date",""))[:10],
-                            "Circuit": row.get("circuit","—"),
-                            "Rider": row.get("rider","—"),
-                            "Problem Tags": ", ".join(_sess_tags),
-                            "Setup": " | ".join(setup_parts) if setup_parts else "—",
-                            "Best Lap": best_lap_str,
-                            "Next Action / Solution": str(row.get("next_action","") or "—"),
+                            "Session":               sid,
+                            "Date":                  _sv(row.get("session_date",""))[:10],
+                            "Circuit":               circuit,
+                            "Rider":                 _sv(row.get("rider")),
+                            "Problem Tags":          ", ".join(_sess_tags),
+                            "Setup":                 " | ".join(setup_parts) if setup_parts else "—",
+                            "Best Lap":              best_lap_str,
+                            "Next Action / Solution": next_act,
                         })
 
                     df_ps_out = pd.DataFrame(rows_out)
 
                     # ── Display each session as an expander card ──
                     for _, card in df_ps_out.iterrows():
-                        has_solution = card["Next Action / Solution"] not in ("—", "", "None")
+                        next_act_val = str(card["Next Action / Solution"])
+                        has_solution = next_act_val not in ("—", "", "None", "nan")
                         icon = "✅" if has_solution else "📋"
-                        label = f"{icon} **{card['Session']}** — {card['Rider']} | {card['Circuit']} | {card['Best Lap']}"
+                        label = (f"{icon} **{card['Session']}** — "
+                                 f"{card['Rider']} | {card['Circuit']} | {card['Best Lap']}")
                         with st.expander(label, expanded=has_solution):
                             cc1, cc2 = st.columns([1, 1])
                             with cc1:
@@ -2958,26 +2966,26 @@ with _content_col:
                                     for sp in card["Setup"].split(" | "):
                                         st.markdown(f"- {sp}")
                                 else:
-                                    st.caption("No setup data recorded")
+                                    st.caption("No setup data in DB for this session")
                                 st.markdown(f"**⏱ Best Lap:** `{card['Best Lap']}`")
                             with cc2:
-                                # Show phase problem descriptions
                                 _sess_row = _ms[_ms["session_id"] == card["Session"]].iloc[0]
                                 st.markdown("**📋 Engineer Notes (by Phase)**")
                                 any_note = False
-                                for ph_col, ph_label in [("ph1_braking","PH1 Braking"),("ph2_entry","PH2 Entry"),
-                                                          ("ph3_mid","PH3 Mid-Corner"),("ph4_exit","PH4 Exit"),
-                                                          ("ph5_speed","PH5 Speed")]:
-                                    val = _sess_row.get(ph_col)
-                                    if pd.notna(val) and str(val).strip():
-                                        st.markdown(f"**{ph_label}:** {str(val).strip()}")
+                                for ph_col, ph_label in [
+                                    ("ph1_braking","PH1 Braking"), ("ph2_entry","PH2 Entry"),
+                                    ("ph3_mid","PH3 Mid-Corner"), ("ph4_exit","PH4 Exit"),
+                                    ("ph5_speed","PH5 Speed"),
+                                ]:
+                                    v = _sv(_sess_row.get(ph_col))
+                                    if v != "—":
+                                        st.markdown(f"**{ph_label}:** {v}")
                                         any_note = True
                                 if not any_note:
                                     st.caption("No phase notes recorded")
-
                                 if has_solution:
                                     st.markdown("**💡 Solution / Next Action**")
-                                    st.info(card["Next Action / Solution"])
+                                    st.info(next_act_val)
 
                     # ── Summary: tag frequency ──
                     st.divider()
