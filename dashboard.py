@@ -3010,121 +3010,141 @@ with _content_col:
         st.markdown('<p class="section-title">🏆 Comprehensive Performance Analysis</p>', unsafe_allow_html=True)
         st.caption("Season-wide performance trends: lap times, race results, and setup correlations.")
 
+        # ── ヘルパー ──────────────────────────────────────
+        _ROUND_ORDER_P = ["ROUND11","ROUND12","TEST1","TEST2","TEST3",
+                          "TEST4","TEST5","ROUND1","ROUND2","ROUND3"]
+        def _rnd_sort(r):
+            try:    return _ROUND_ORDER_P.index(r)
+            except: return 99
+
+        def _to_rid(x):
+            """rider_num (int/float/str 全対応) → 'DA77'/'JA52'/None"""
+            try:
+                return {77: "DA77", 52: "JA52"}.get(int(float(str(x))))
+            except (ValueError, TypeError):
+                return None
+
+        def _fmt_t(t):
+            """秒 → M'SS.mmm 形式"""
+            try:
+                t = float(t)
+                if t != t: return "—"   # NaN check
+                m = int(t // 60); s = t - m * 60
+                return f"{m}'{s:06.3f}"
+            except:
+                return "—"
+
+        _P_LABEL = {
+            "f_comp":"F-Comp","f_reb":"F-Reb","r_comp":"R-Comp","r_reb":"R-Reb",
+            "r_spring":"R-Spring","swing_arm":"SwingArm","ride_height":"Ride Height",
+            "f_preload":"F-Preload","r_preload":"R-Preload",
+        }
+
+        # ── laps を正規化（一度だけ） ─────────────────────
+        def _normalize_laps(df):
+            if df.empty:
+                return df
+            d = df.copy()
+            for c in ["lap_time","rider_num","lap_no","is_valid"]:
+                if c in d.columns:
+                    d[c] = pd.to_numeric(d[c], errors="coerce")
+            # is_valid: 0以外を有効 (1, True, 1.0 すべて対応)
+            d = d[d["is_valid"].fillna(0) != 0].copy()
+            d = d.dropna(subset=["lap_time"])
+            d["rider_id"] = d["rider_num"].apply(_to_rid)
+            return d
+
+        _laps_all = _normalize_laps(laps)
+        _laps_da77 = _laps_all[_laps_all["rider_id"] == "DA77"] if not _laps_all.empty else pd.DataFrame()
+        _laps_ja52 = _laps_all[_laps_all["rider_id"] == "JA52"] if not _laps_all.empty else pd.DataFrame()
+
         # ── Tab layout ──
         perf_tab1, perf_tab2, perf_tab3 = st.tabs(["📈 Lap Time Evolution", "🏁 Race Results Trend", "🔧 Setup Correlation"])
 
         # ───────────────────────────────────────────────
-        # TAB 1 — Lap Time Evolution (best lap per round/session)
+        # TAB 1 — Lap Time Evolution
         # ───────────────────────────────────────────────
         with perf_tab1:
-            if laps.empty:
-                st.info("No lap time data available.")
+            if _laps_all.empty:
+                n_total = len(laps)
+                iv_vals = laps["is_valid"].unique().tolist() if not laps.empty else []
+                st.warning(f"有効ラップデータなし。総ラップ数: {n_total}, is_valid値: {iv_vals}")
             else:
-                _lv = laps.copy()
-                for _c in ["lap_time", "rider_num", "is_valid"]:
-                    if _c in _lv.columns:
-                        _lv[_c] = pd.to_numeric(_lv[_c], errors="coerce")
-                # is_valid: handle int 1, float 1.0, bool True → keep rows where is_valid != 0
-                _lv = _lv[_lv["is_valid"].fillna(0) != 0].dropna(subset=["lap_time"])
-
-                # round ordering
-                ROUND_ORDER = ["ROUND11","ROUND12","TEST1","TEST2","TEST3","TEST4","TEST5","ROUND1","ROUND2","ROUND3"]
-                def _round_sort_key(r):
-                    try:
-                        return ROUND_ORDER.index(r)
-                    except ValueError:
-                        return 99
-
-                # Best lap per round per rider — convert rider_num to int for map lookup
-                _lv["_rnum_int"] = _lv["rider_num"].dropna().apply(
-                    lambda x: int(x) if pd.notna(x) else None)
-                rider_num_map = {77: "DA77", 52: "JA52"}
-                _lv["rider_id"] = _lv["_rnum_int"].map(rider_num_map)
-                _lv = _lv.dropna(subset=["rider_id"])
-
-                if _lv.empty:
-                    st.warning(f"No valid lap data found. Total laps: {len(laps)}, "
-                               f"after is_valid filter: {len(_lv)}. "
-                               f"Unique is_valid values: {laps['is_valid'].unique().tolist() if not laps.empty else '[]'}")
-                    st.stop()
+                _lv2 = _laps_all.copy()
+                _avail_sess = sorted(_lv2["session_type"].dropna().unique().tolist())
+                _default_sess = [s for s in ["FP","SP","RACE1","RACE2"] if s in _avail_sess] or _avail_sess[:4]
 
                 sel_sess_types = st.multiselect(
                     "Session types to include",
-                    options=sorted(_lv["session_type"].unique().tolist()),
-                    default=["FP","SP","RACE1","RACE2"] if "FP" in _lv["session_type"].values else sorted(_lv["session_type"].unique().tolist())[:4],
+                    options=_avail_sess,
+                    default=_default_sess,
                     key="perf_sess_types",
                 )
                 if sel_sess_types:
-                    _lv = _lv[_lv["session_type"].isin(sel_sess_types)]
+                    _lv2 = _lv2[_lv2["session_type"].isin(sel_sess_types)]
 
-                _best = _lv.groupby(["round_id","rider_id"])["lap_time"].min().reset_index()
-                _best["round_sort"] = _best["round_id"].apply(_round_sort_key)
-                _best = _best.sort_values("round_sort")
+                if _lv2.empty:
+                    st.info("選択したセッションタイプにデータがありません。")
+                else:
+                    # Best lap per round × rider
+                    _best = (_lv2.groupby(["round_id","rider_id"], as_index=False)["lap_time"]
+                             .min().dropna(subset=["rider_id"]))
+                    _best["round_sort"] = _best["round_id"].apply(_rnd_sort)
+                    _best = _best.sort_values("round_sort").reset_index(drop=True)
+                    _best["circuit"]      = _best["round_id"].map(ROUND_CIRCUIT_MAP).fillna(_best["round_id"])
+                    _best["best_lap_str"] = _best["lap_time"].apply(_fmt_t)
 
-                # Add circuit name
-                _best["circuit"] = _best["round_id"].map(ROUND_CIRCUIT_MAP).fillna(_best["round_id"])
-
-                # format best lap as M'SS.mmm
-                def _fmt_lap(t):
-                    if pd.isna(t):
-                        return "—"
-                    m = int(t // 60); s = t - m * 60
-                    return f"{m}'{s:06.3f}"
-
-                _best["best_lap_str"] = _best["lap_time"].apply(_fmt_lap)
-
-                fig_evo = go.Figure()
-                for rider, color in [("DA77", DA77_COLOR), ("JA52", JA52_COLOR)]:
-                    _rd = _best[_best["rider_id"] == rider].copy()
-                    if _rd.empty:
-                        continue
-                    fig_evo.add_trace(go.Scatter(
-                        x=_rd["round_id"],
-                        y=_rd["lap_time"],
-                        mode="lines+markers",
-                        name=rider,
-                        line=dict(color=color, width=2),
-                        marker=dict(size=8),
-                        text=_rd.apply(lambda r: f"{r['circuit']}<br>{r['best_lap_str']}", axis=1),
-                        hovertemplate="<b>%{x}</b><br>%{text}<extra>" + rider + "</extra>",
-                    ))
-                fig_evo.update_layout(
-                    yaxis=dict(
-                        title="Best Lap Time (s)",
-                        autorange="reversed",
-                        tickformat=".3f",
-                    ),
-                    xaxis_title="Round / Session",
-                    legend=dict(orientation="h", y=1.12),
-                    height=350,
-                    margin=dict(t=40, b=40, l=60, r=20),
-                )
-                fig_evo = chart_layout(fig_evo, height=350, title="Best Lap per Round — Season Progress")
-                st.plotly_chart(fig_evo, use_container_width=True)
-
-                # Gap between riders per round
-                _pivot = _best.pivot(index="round_id", columns="rider_id", values="lap_time").reset_index()
-                if "DA77" in _pivot.columns and "JA52" in _pivot.columns:
-                    _pivot["Gap DA77-JA52 (s)"] = (_pivot["DA77"] - _pivot["JA52"]).round(3)
-                    _pivot["round_sort"] = _pivot["round_id"].apply(_round_sort_key)
-                    _pivot = _pivot.sort_values("round_sort")
-                    st.markdown("**Rider Gap (DA77 − JA52) per Round**")
-                    st.caption("Negative = DA77 faster, Positive = JA52 faster")
-                    fig_gap = px.bar(
-                        _pivot.dropna(subset=["Gap DA77-JA52 (s)"]),
-                        x="round_id", y="Gap DA77-JA52 (s)",
-                        color="Gap DA77-JA52 (s)",
-                        color_continuous_scale=["#0078D4","#E74C3C"],
-                        height=240,
+                    # ── ラップ推移折れ線グラフ ──
+                    fig_evo = go.Figure()
+                    for rider, color in [("DA77", DA77_COLOR), ("JA52", JA52_COLOR)]:
+                        _rd = _best[_best["rider_id"] == rider]
+                        if _rd.empty:
+                            continue
+                        fig_evo.add_trace(go.Scatter(
+                            x=_rd["round_id"], y=_rd["lap_time"],
+                            mode="lines+markers", name=rider,
+                            line=dict(color=color, width=2), marker=dict(size=9),
+                            text=_rd.apply(lambda r: f"{r['circuit']}<br>{r['best_lap_str']}", axis=1),
+                            hovertemplate="<b>%{x}</b><br>%{text}<extra>" + rider + "</extra>",
+                        ))
+                    fig_evo.update_layout(
+                        yaxis=dict(title="Best Lap (s)", autorange="reversed", tickformat=".3f"),
+                        xaxis_title="Round", legend=dict(orientation="h", y=1.12),
+                        height=360, margin=dict(t=50, b=40, l=60, r=20),
                     )
-                    fig_gap = chart_layout(fig_gap, height=240)
-                    st.plotly_chart(fig_gap, use_container_width=True)
+                    fig_evo = chart_layout(fig_evo, height=360, title="Best Lap per Round — Season Progress")
+                    st.plotly_chart(fig_evo, use_container_width=True)
 
-                # Data table
-                with st.expander("📋 Raw Data Table"):
-                    _disp = _best[["round_id","circuit","rider_id","best_lap_str","lap_time"]].copy()
-                    _disp.columns = ["Round","Circuit","Rider","Best Lap","Best Lap (s)"]
-                    st.dataframe(_disp, use_container_width=True, hide_index=True)
+                    # ── ライダー間ギャップ棒グラフ ──
+                    try:
+                        _piv = _best.pivot(index="round_id", columns="rider_id", values="lap_time").reset_index()
+                        if "DA77" in _piv.columns and "JA52" in _piv.columns:
+                            _piv["Gap (s)"] = (_piv["DA77"] - _piv["JA52"]).round(3)
+                            _piv["round_sort"] = _piv["round_id"].apply(_rnd_sort)
+                            _piv = _piv.sort_values("round_sort")
+                            st.markdown("**DA77 − JA52 Gap per Round**")
+                            st.caption("マイナス = DA77が速い / プラス = JA52が速い")
+                            _piv_plot = _piv.dropna(subset=["Gap (s)"])
+                            if not _piv_plot.empty:
+                                _piv_plot = _piv_plot.copy()
+                                _piv_plot["color"] = _piv_plot["Gap (s)"].apply(
+                                    lambda v: DA77_COLOR if v < 0 else JA52_COLOR)
+                                fig_gap = go.Figure(go.Bar(
+                                    x=_piv_plot["round_id"], y=_piv_plot["Gap (s)"],
+                                    marker_color=_piv_plot["color"],
+                                    hovertemplate="%{x}: %{y:.3f}s<extra></extra>",
+                                ))
+                                fig_gap.add_hline(y=0, line_dash="dash", line_color="#666")
+                                fig_gap = chart_layout(fig_gap, height=240)
+                                st.plotly_chart(fig_gap, use_container_width=True)
+                    except Exception:
+                        pass
+
+                    # ── データテーブル ──
+                    with st.expander("📋 Raw Data Table"):
+                        _disp = _best[["round_id","circuit","rider_id","best_lap_str","lap_time"]].copy()
+                        _disp.columns = ["Round","Circuit","Rider","Best Lap","Best Lap (s)"]
+                        st.dataframe(_disp, use_container_width=True, hide_index=True)
 
         # ───────────────────────────────────────────────
         # TAB 2 — Race Results Trend
@@ -3133,81 +3153,65 @@ with _content_col:
             if results.empty:
                 st.info("No race results data available.")
             else:
-                _rr = results.copy()
-                # Filter to race sessions only
-                race_sess = ["RACE1","RACE2","FP","SP","WUP1","WUP2"]
+                _rr = results[results["rider_id"].isin(["DA77","JA52"])].copy()
+                _rr["position"] = pd.to_numeric(_rr["position"], errors="coerce")
+                _rr["round_sort"] = _rr["round_no"].apply(_rnd_sort)
+                _rr = _rr.sort_values(["round_sort","session_type"]).reset_index(drop=True)
+
+                # ── レース結果のみ（RACE1/RACE2）──
                 _rr_race = _rr[_rr["session_type"].isin(["RACE1","RACE2"])].copy()
-
-                if _rr_race.empty:
-                    st.info("No RACE1/RACE2 results available.")
-                else:
-                    ROUND_ORDER2 = ["ROUND11","ROUND12","ROUND1","ROUND2","ROUND3"]
-                    _rr_race["round_sort"] = _rr_race["round_no"].apply(
-                        lambda r: ROUND_ORDER2.index(r) if r in ROUND_ORDER2 else 99
-                    )
-                    _rr_race = _rr_race.sort_values(["round_sort","session_type"])
-
-                    # Position trend chart
+                if not _rr_race.empty:
+                    _rr_race["label"] = _rr_race["round_no"] + " " + _rr_race["session_type"]
                     fig_pos = go.Figure()
                     for rider, color in [("DA77", DA77_COLOR), ("JA52", JA52_COLOR)]:
-                        _rd2 = _rr_race[_rr_race["rider_id"] == rider].copy()
-                        if _rd2.empty:
-                            continue
-                        _rd2["label"] = _rd2["round_no"] + " " + _rd2["session_type"]
+                        _rd2 = _rr_race[_rr_race["rider_id"] == rider]
+                        if _rd2.empty: continue
                         fig_pos.add_trace(go.Scatter(
-                            x=_rd2["label"],
-                            y=_rd2["position"],
-                            mode="lines+markers",
-                            name=rider,
-                            line=dict(color=color, width=2),
-                            marker=dict(size=9),
-                            hovertemplate="<b>%{x}</b><br>Position: %{y}<br>Best Lap: %{text}<extra>" + rider + "</extra>",
+                            x=_rd2["label"], y=_rd2["position"],
+                            mode="lines+markers", name=rider,
+                            line=dict(color=color, width=2), marker=dict(size=10),
                             text=_rd2["best_lap"].fillna("—"),
+                            hovertemplate="<b>%{x}</b><br>Position: %{y}<br>Best Lap: %{text}<extra>" + rider + "</extra>",
                         ))
                     fig_pos.update_layout(
                         yaxis=dict(title="Finishing Position", autorange="reversed",
                                    tickmode="linear", tick0=1, dtick=1),
-                        xaxis_title="Race",
-                        legend=dict(orientation="h", y=1.12),
-                        height=350,
-                        margin=dict(t=40, b=80, l=60, r=20),
+                        xaxis_title="Race", legend=dict(orientation="h", y=1.12),
+                        height=360, margin=dict(t=50, b=80, l=60, r=20),
                     )
-                    fig_pos = chart_layout(fig_pos, height=350, title="Race Finishing Position — Season")
+                    fig_pos = chart_layout(fig_pos, height=360, title="Race Finishing Position — Season")
                     st.plotly_chart(fig_pos, use_container_width=True)
 
-                    # Points summary (hypothetical top-15 = points)
                     st.markdown("**Race Summary Table**")
-                    _rr_disp = _rr_race[["round_no","session_type","rider_id","position","best_lap","gap_to_top","conditions"]].copy()
-                    _rr_disp.columns = ["Round","Session","Rider","Position","Best Lap","Gap to Top","Conditions"]
+                    _rcols = [c for c in ["round_no","session_type","rider_id","position",
+                                          "best_lap","gap_to_top","conditions"] if c in _rr_race.columns]
+                    _rr_disp = _rr_race[_rcols].copy()
+                    _rr_disp.columns = ["Round","Session","Rider","Position","Best Lap","Gap to Top","Conditions"][:len(_rcols)]
                     st.dataframe(_rr_disp.sort_values(["Round","Session","Position"]),
                                  use_container_width=True, hide_index=True)
+                else:
+                    st.info("No RACE1/RACE2 results available.")
 
-                    # All sessions (FP/SP/WUP) performance
-                    st.divider()
-                    st.markdown("**All Sessions — Position Overview**")
-                    _rr_all = _rr[_rr["rider_id"].isin(["DA77","JA52"])].copy()
-                    sel_rr_types = st.multiselect(
-                        "Session types",
-                        options=sorted(_rr_all["session_type"].unique()),
-                        default=["FP","SP","RACE1","RACE2"],
-                        key="rr_type_sel",
+                # ── 全セッション散布図 ──
+                st.divider()
+                st.markdown("**All Sessions — Position Overview**")
+                _avail_rr = sorted(_rr["session_type"].dropna().unique().tolist())
+                _def_rr   = [s for s in ["FP","SP","RACE1","RACE2"] if s in _avail_rr] or _avail_rr[:4]
+                sel_rr_types = st.multiselect("Session types", _avail_rr, default=_def_rr, key="rr_type_sel")
+                _rr_filt = _rr[_rr["session_type"].isin(sel_rr_types)] if sel_rr_types else _rr
+                if not _rr_filt.empty:
+                    _rr_filt = _rr_filt.copy()
+                    _rr_filt["label"] = _rr_filt["round_no"] + " " + _rr_filt["session_type"]
+                    fig_all = px.scatter(
+                        _rr_filt, x="label", y="position",
+                        color="rider_id", symbol="session_type",
+                        color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
+                        labels={"label":"Round + Session","position":"Position","rider_id":"Rider"},
+                        height=300,
                     )
-                    _rr_all = _rr_all[_rr_all["session_type"].isin(sel_rr_types)]
-                    if not _rr_all.empty:
-                        _rr_all["round_sort"] = _rr_all["round_no"].apply(
-                            lambda r: ROUND_ORDER2.index(r) if r in ROUND_ORDER2 else 99)
-                        _rr_all = _rr_all.sort_values(["round_sort","session_type"])
-                        _rr_all["label"] = _rr_all["round_no"] + " " + _rr_all["session_type"]
-                        fig_all = px.scatter(
-                            _rr_all, x="label", y="position",
-                            color="rider_id", symbol="session_type",
-                            color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
-                            labels={"label": "Round + Session", "position": "Position", "rider_id": "Rider"},
-                            height=300,
-                        )
-                        fig_all.update_yaxes(autorange="reversed")
-                        fig_all = chart_layout(fig_all, height=300)
-                        st.plotly_chart(fig_all, use_container_width=True)
+                    fig_all.update_yaxes(autorange="reversed")
+                    fig_all = chart_layout(fig_all, height=300)
+                    st.plotly_chart(fig_all, use_container_width=True)
 
         # ───────────────────────────────────────────────
         # TAB 3 — Setup Correlation
@@ -3217,128 +3221,110 @@ with _content_col:
                 st.info("No session setup data available.")
             else:
                 _sc = sessions.copy()
-                # Numeric setup columns
-                num_cols = ["f_comp","f_reb","r_comp","r_reb","r_spring","swing_arm","ride_height","f_preload","r_preload"]
-                num_cols = [c for c in num_cols if c in _sc.columns]
+                _num_cols = [c for c in ["f_comp","f_reb","r_comp","r_reb","r_spring",
+                                          "swing_arm","ride_height","f_preload","r_preload"]
+                             if c in _sc.columns]
+                for c in _num_cols:
+                    _sc[c] = pd.to_numeric(_sc[c], errors="coerce")
 
-                # Get best lap from lap_times for each session
-                if not laps.empty:
-                    _laps_v2_raw = laps.copy()
-                    _laps_v2_raw["is_valid"] = pd.to_numeric(_laps_v2_raw["is_valid"], errors="coerce").fillna(0)
-                    _laps_v2 = _laps_v2_raw[_laps_v2_raw["is_valid"] != 0].copy()
-                    _laps_v2["lap_time"] = pd.to_numeric(_laps_v2["lap_time"], errors="coerce")
-                    _laps_v2["rider_num"] = pd.to_numeric(_laps_v2["rider_num"], errors="coerce").apply(
-                        lambda x: int(x) if pd.notna(x) else None)
-                    rider_num_map2 = {"DA77": 77, "JA52": 52}
+                # session_id → round_id マッピング（YYYYMMDD-ROUND_X-RIDER → ROUND_X）
+                def _sid_to_rnd(sid):
+                    try: return sid.split("-")[1]
+                    except: return None
+                def _sid_to_rider(sid):
+                    try: return sid.split("-")[2]
+                    except: return None
 
-                    _sc["_best_lap_s"] = None
-                    for idx, row in _sc.iterrows():
-                        sid = row["session_id"]
-                        parts = sid.split("-")
-                        if len(parts) >= 3:
-                            _rnd = parts[1]
-                            _rider_key = parts[2]
-                            _rnum = rider_num_map2.get(_rider_key)
-                            if _rnum:
-                                _sub = _laps_v2[
-                                    (_laps_v2["round_id"] == _rnd) &
-                                    (_laps_v2["rider_num"] == _rnum)
-                                ]
-                                if not _sub.empty:
-                                    _sc.at[idx, "_best_lap_s"] = _sub["lap_time"].min()
+                # 各セッションのベストラップを _laps_all から取得
+                if not _laps_all.empty:
+                    _laps_for_sc = _laps_all.copy()
+                    _rnum_to_rider = {"77": "DA77", "52": "JA52"}
+                    _laps_for_sc["_rider_str"] = _laps_for_sc["rider_id"].fillna("")
 
-                    _sc["_best_lap_s"] = pd.to_numeric(_sc["_best_lap_s"], errors="coerce")
-                    _sc_with_lap = _sc.dropna(subset=["_best_lap_s"]).copy()
+                    _best_by_rnd = (_laps_for_sc
+                                    .groupby(["round_id","rider_id"], as_index=False)["lap_time"]
+                                    .min()
+                                    .rename(columns={"lap_time":"_best_lap_s"}))
+
+                    _sc["_rnd"]   = _sc["session_id"].apply(_sid_to_rnd)
+                    _sc["_rider"] = _sc["session_id"].apply(_sid_to_rider)
+                    _sc = _sc.merge(_best_by_rnd,
+                                    left_on=["_rnd","_rider"],
+                                    right_on=["round_id","rider_id"],
+                                    how="left")
                 else:
-                    _sc_with_lap = pd.DataFrame()
+                    _sc["_best_lap_s"] = float("nan")
 
-                if _sc_with_lap.empty or not num_cols:
-                    st.info("Insufficient data for correlation analysis (need sessions with lap time data).")
-                    st.markdown("**Available Setup Data (all sessions)**")
-                    _setup_disp_cols = ["session_id","rider","circuit"] + num_cols[:6]
-                    _setup_disp_cols = [c for c in _setup_disp_cols if c in _sc.columns]
-                    st.dataframe(_sc[_setup_disp_cols], use_container_width=True, hide_index=True)
+                _sc["_best_lap_s"] = pd.to_numeric(_sc["_best_lap_s"], errors="coerce")
+                _sc_with_lap = _sc.dropna(subset=["_best_lap_s"]).copy()
+
+                # ── セットアップテーブル（常時表示）──
+                st.markdown("**Full Setup Data — All Sessions**")
+                _disp_cols = [c for c in ["session_id","rider","circuit","session_type",
+                                          "fork_type","f_spring","f_comp","f_reb",
+                                          "shock_type","r_spring","r_comp","r_reb",
+                                          "swing_arm","ride_height","f_tyre","r_tyre"]
+                              if c in sessions.columns]
+                st.dataframe(sessions[_disp_cols].reset_index(drop=True),
+                             use_container_width=True, hide_index=True)
+
+                if _sc_with_lap.empty:
+                    st.info("ラップタイムと紐づくセッションデータが不足しています（相関分析には3件以上必要）。")
                 else:
-                    # ── Correlation bar chart ──
+                    st.divider()
                     st.markdown("**Setup Parameter Correlation with Best Lap Time**")
-                    st.caption("Negative correlation = higher value → faster lap. Positive = higher value → slower lap.")
+                    st.caption("マイナス相関 = 値が大きいほど速い / プラス相関 = 値が大きいほど遅い")
 
                     _corr_vals = {}
-                    for c in num_cols:
-                        _sub_c = _sc_with_lap[[c, "_best_lap_s"]].dropna()
+                    for c in _num_cols:
+                        _sub_c = _sc_with_lap[[c,"_best_lap_s"]].dropna()
                         if len(_sub_c) >= 3:
-                            _corr_vals[c] = _sub_c[c].corr(_sub_c["_best_lap_s"])
+                            _corr_vals[c] = float(_sub_c[c].corr(_sub_c["_best_lap_s"]))
 
                     if _corr_vals:
                         _corr_df = pd.DataFrame({
                             "Parameter": list(_corr_vals.keys()),
                             "Correlation": list(_corr_vals.values()),
                         }).sort_values("Correlation")
-
-                        col_label_map = {
-                            "f_comp": "F-Comp", "f_reb": "F-Reb", "r_comp": "R-Comp", "r_reb": "R-Reb",
-                            "r_spring": "R-Spring", "swing_arm": "SwingArm", "ride_height": "Ride Height",
-                            "f_preload": "F-Preload", "r_preload": "R-Preload",
-                        }
-                        _corr_df["Label"] = _corr_df["Parameter"].map(col_label_map).fillna(_corr_df["Parameter"])
+                        _corr_df["Label"] = _corr_df["Parameter"].map(_P_LABEL).fillna(_corr_df["Parameter"])
                         _corr_df["Color"] = _corr_df["Correlation"].apply(
-                            lambda v: "#0078D4" if v < 0 else "#E74C3C")
-
+                            lambda v: DA77_COLOR if v < 0 else JA52_COLOR)
                         fig_corr = go.Figure(go.Bar(
-                            x=_corr_df["Correlation"],
-                            y=_corr_df["Label"],
-                            orientation="h",
-                            marker_color=_corr_df["Color"],
+                            x=_corr_df["Correlation"], y=_corr_df["Label"],
+                            orientation="h", marker_color=_corr_df["Color"].tolist(),
                             hovertemplate="%{y}: %{x:.3f}<extra></extra>",
                         ))
                         fig_corr.add_vline(x=0, line_dash="dash", line_color="#666", line_width=1)
-                        fig_corr = chart_layout(fig_corr, height=300, title="Correlation: Setup Parameter vs Best Lap Time")
+                        fig_corr = chart_layout(fig_corr, height=320, title="Correlation: Setup vs Best Lap")
                         fig_corr.update_layout(xaxis=dict(title="Pearson r", range=[-1,1]))
                         st.plotly_chart(fig_corr, use_container_width=True)
-                    else:
-                        st.warning("Not enough data points for correlation (need ≥3 sessions with matching lap times).")
 
-                    # ── Scatter: pick two parameters ──
+                    # ── スキャッタープロット ──
                     st.divider()
                     st.markdown("**Scatter: Setup Parameter vs Best Lap**")
-                    avail_params = [c for c in num_cols if _sc_with_lap[c].notna().sum() >= 2]
-                    if avail_params:
+                    _avail_p = [c for c in _num_cols if _sc_with_lap[c].notna().sum() >= 2]
+                    if _avail_p:
                         sel_param = st.selectbox(
-                            "X-axis parameter",
-                            avail_params,
-                            format_func=lambda c: col_label_map.get(c, c) if 'col_label_map' in dir() else c,
+                            "X-axis parameter", _avail_p,
+                            format_func=lambda c: _P_LABEL.get(c, c),
                             key="sc_x_param",
                         )
-                        _scatter_df = _sc_with_lap[[sel_param, "_best_lap_s", "rider", "session_id", "circuit"]].dropna()
-                        if not _scatter_df.empty:
-                            def _fmt_lt(t):
-                                m = int(t // 60); s = t - m * 60
-                                return f"{m}'{s:06.3f}"
-                            _scatter_df["best_lap_str"] = _scatter_df["_best_lap_s"].apply(_fmt_lt)
+                        _sdf = _sc_with_lap[[sel_param,"_best_lap_s","rider","session_id"]].dropna()
+                        if not _sdf.empty:
+                            _sdf = _sdf.copy()
+                            _sdf["best_lap_str"] = _sdf["_best_lap_s"].apply(_fmt_t)
                             fig_sc = px.scatter(
-                                _scatter_df, x=sel_param, y="_best_lap_s",
+                                _sdf, x=sel_param, y="_best_lap_s",
                                 color="rider",
                                 color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
-                                hover_data={"session_id": True, "circuit": True,
-                                            "best_lap_str": True, "_best_lap_s": False},
-                                labels={"_best_lap_s": "Best Lap (s)", sel_param: col_label_map.get(sel_param, sel_param)},
-                                trendline="lowess",
+                                hover_data={"session_id": True, "best_lap_str": True, "_best_lap_s": False},
+                                labels={"_best_lap_s":"Best Lap (s)",
+                                        sel_param: _P_LABEL.get(sel_param, sel_param)},
                                 height=320,
                             )
                             fig_sc.update_yaxes(autorange="reversed")
                             fig_sc = chart_layout(fig_sc, height=320)
                             st.plotly_chart(fig_sc, use_container_width=True)
-
-                # ── Setup data table (all sessions) ──
-                st.divider()
-                st.markdown("**Full Setup Data — All Sessions**")
-                disp_cols = ["session_id","rider","circuit","session_type",
-                             "fork_type","f_spring","f_comp","f_reb",
-                             "shock_type","r_spring","r_comp","r_reb",
-                             "swing_arm","ride_height","f_tyre","r_tyre"]
-                disp_cols = [c for c in disp_cols if c in sessions.columns]
-                st.dataframe(sessions[disp_cols].reset_index(drop=True),
-                             use_container_width=True, hide_index=True)
 
     # ═══════════════════════════════════════════════════
     # PAGE 12 — Accounts (admin-only)
