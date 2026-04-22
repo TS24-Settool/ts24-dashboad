@@ -2868,22 +2868,24 @@ with _content_col:
                     # ── Best lap per session from lap_times ──
                     best_laps_map = {}
                     if not laps.empty:
-                        _laps_valid = laps[laps["is_valid"] == 1].copy()
-                        for _, _lr in _laps_valid.groupby("round_id"):
-                            pass  # will do below
-                        # Map session_id pattern: YYYYMMDD-ROUND_X-RIDER → round_id=ROUND_X rider_num
-                        rider_num_map = {"DA77": 77, "JA52": 52}
+                        _laps_iv = laps.copy()
+                        _laps_iv["is_valid"] = pd.to_numeric(_laps_iv["is_valid"], errors="coerce").fillna(0)
+                        _laps_valid = _laps_iv[_laps_iv["is_valid"] != 0].copy()
+                        _laps_valid["lap_time"] = pd.to_numeric(_laps_valid["lap_time"], errors="coerce")
+                        _laps_valid["_rnum_str"] = pd.to_numeric(_laps_valid["rider_num"], errors="coerce").apply(
+                            lambda x: str(int(x)) if pd.notna(x) else "")
+                        rider_num_map_ps = {"DA77": "77", "JA52": "52"}
                         for _, _lrow in _ms.iterrows():
                             sid = _lrow["session_id"]  # e.g. 20260220-ROUND1-DA77
                             parts = sid.split("-")
                             if len(parts) >= 3:
                                 _rnd = parts[1]  # ROUND1
                                 _rider_key = parts[2]  # DA77
-                                _rnum = rider_num_map.get(_rider_key)
-                                if _rnum:
+                                _rnum_s = rider_num_map_ps.get(_rider_key)
+                                if _rnum_s:
                                     _lap_sub = _laps_valid[
                                         (_laps_valid["round_id"] == _rnd) &
-                                        (_laps_valid["rider_num"].astype(str) == str(_rnum))
+                                        (_laps_valid["_rnum_str"] == _rnum_s)
                                     ]
                                     if not _lap_sub.empty:
                                         best_laps_map[sid] = _lap_sub["lap_time"].min()
@@ -3011,10 +3013,11 @@ with _content_col:
                 st.info("No lap time data available.")
             else:
                 _lv = laps.copy()
-                for _c in ["lap_time", "rider_num"]:
+                for _c in ["lap_time", "rider_num", "is_valid"]:
                     if _c in _lv.columns:
                         _lv[_c] = pd.to_numeric(_lv[_c], errors="coerce")
-                _lv = _lv[_lv["is_valid"] == 1].dropna(subset=["lap_time"])
+                # is_valid: handle int 1, float 1.0, bool True → keep rows where is_valid != 0
+                _lv = _lv[_lv["is_valid"].fillna(0) != 0].dropna(subset=["lap_time"])
 
                 # round ordering
                 ROUND_ORDER = ["ROUND11","ROUND12","TEST1","TEST2","TEST3","TEST4","TEST5","ROUND1","ROUND2","ROUND3"]
@@ -3024,10 +3027,18 @@ with _content_col:
                     except ValueError:
                         return 99
 
-                # Best lap per round per rider
+                # Best lap per round per rider — convert rider_num to int for map lookup
+                _lv["_rnum_int"] = _lv["rider_num"].dropna().apply(
+                    lambda x: int(x) if pd.notna(x) else None)
                 rider_num_map = {77: "DA77", 52: "JA52"}
-                _lv["rider_id"] = _lv["rider_num"].map(rider_num_map)
+                _lv["rider_id"] = _lv["_rnum_int"].map(rider_num_map)
                 _lv = _lv.dropna(subset=["rider_id"])
+
+                if _lv.empty:
+                    st.warning(f"No valid lap data found. Total laps: {len(laps)}, "
+                               f"after is_valid filter: {len(_lv)}. "
+                               f"Unique is_valid values: {laps['is_valid'].unique().tolist() if not laps.empty else '[]'}")
+                    st.stop()
 
                 sel_sess_types = st.multiselect(
                     "Session types to include",
@@ -3204,9 +3215,12 @@ with _content_col:
 
                 # Get best lap from lap_times for each session
                 if not laps.empty:
-                    _laps_v2 = laps[laps["is_valid"] == 1].copy()
+                    _laps_v2_raw = laps.copy()
+                    _laps_v2_raw["is_valid"] = pd.to_numeric(_laps_v2_raw["is_valid"], errors="coerce").fillna(0)
+                    _laps_v2 = _laps_v2_raw[_laps_v2_raw["is_valid"] != 0].copy()
                     _laps_v2["lap_time"] = pd.to_numeric(_laps_v2["lap_time"], errors="coerce")
-                    _laps_v2["rider_num"] = pd.to_numeric(_laps_v2["rider_num"], errors="coerce")
+                    _laps_v2["rider_num"] = pd.to_numeric(_laps_v2["rider_num"], errors="coerce").apply(
+                        lambda x: int(x) if pd.notna(x) else None)
                     rider_num_map2 = {"DA77": 77, "JA52": 52}
 
                     _sc["_best_lap_s"] = None
