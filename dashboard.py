@@ -165,55 +165,59 @@ def _supa_delete_user(username):
         return False
 
 def get_users() -> dict:
-    """Return {username: user_data} dict — Supabase first, JSON fallback."""
-    # 1) Try Supabase (persistent across restarts)
-    if _supa_users_available():
-        supa_users = _supa_get_users()
-        if supa_users is not None:
-            if not supa_users:
-                # Table exists but empty — migrate local users to Supabase
-                cfg = load_config()
-                local_users = cfg.get("users", {})
-                for uname, udata in local_users.items():
-                    if isinstance(udata, dict):
-                        _supa_upsert_user(
-                            uname, udata.get("password", ""),
-                            udata.get("role", "engineer"), udata.get("rider"))
-                return local_users or {
-                    "ts24": {"password": _hash("Tatsuki1344"),
-                             "role": "admin", "rider": None}
-                }
-            # Deduplicate: lowercase keys, keep most-privileged role on collision
-            deduped = {}
-            for uname, udata in supa_users.items():
-                key_lower = uname.lower()
-                if key_lower in deduped:
-                    # Keep admin > engineer > viewer
-                    order = {"admin": 0, "engineer": 1, "viewer": 2}
-                    existing_role = deduped[key_lower].get("role", "engineer")
-                    new_role      = udata.get("role", "engineer")
-                    if order.get(new_role, 9) < order.get(existing_role, 9):
-                        deduped[key_lower] = udata
-                else:
-                    deduped[key_lower] = udata
-            return deduped
+    """Return {username: user_data} dict — Supabase + JSON merged."""
+    order_map = {"admin": 0, "engineer": 1, "viewer": 2}
 
-    # 2) Fallback: JSON config (local / Streamlit Cloud /tmp)
+    def _merge(base: dict, extra: dict) -> dict:
+        """Merge extra into base; higher privilege wins on key collision."""
+        result = dict(base)
+        for uname, udata in extra.items():
+            key = uname.lower()
+            if key not in result:
+                result[key] = udata
+            else:
+                # Keep more-privileged role
+                existing_role = result[key].get("role", "engineer") if isinstance(result[key], dict) else "engineer"
+                new_role      = udata.get("role", "engineer")       if isinstance(udata, dict)       else "engineer"
+                if order_map.get(new_role, 9) < order_map.get(existing_role, 9):
+                    result[key] = udata
+        return result
+
+    supa_users = {}
+    if _supa_users_available():
+        fetched = _supa_get_users()
+        if fetched is not None:
+            supa_users = {k.lower(): v for k, v in fetched.items()}
+
+    # JSON config (local or /tmp on Streamlit Cloud)
     cfg = load_config()
-    users = cfg.get("users", {})
-    # Deduplicate JSON users too (case-insensitive)
-    deduped = {}
-    for uname, udata in users.items():
-        key_lower = uname.lower()
-        if key_lower not in deduped:
-            deduped[key_lower] = udata
-    if not deduped:
+    json_users_raw = cfg.get("users", {})
+    json_users = {}
+    for uname, udata in json_users_raw.items():
+        json_users[uname.lower()] = udata
+
+    # Merge: Supabase takes priority, JSON fills gaps
+    merged = _merge(supa_users, json_users)
+
+    if not merged:
+        # Bootstrap default admin
         default = {"ts24": {"password": _hash("Tatsuki1344"),
                             "role": "admin", "rider": None}}
         cfg["users"] = default
         save_config(cfg)
+        # Push to Supabase too
+        if _supa_users_available():
+            _supa_upsert_user("ts24", _hash("Tatsuki1344"), "admin", None)
         return default
-    return deduped
+
+    # If Supabase was empty, migrate JSON users up to Supabase
+    if not supa_users and json_users and _supa_users_available():
+        for uname, udata in json_users.items():
+            if isinstance(udata, dict):
+                _supa_upsert_user(uname, udata.get("password", ""),
+                                  udata.get("role", "engineer"), udata.get("rider"))
+
+    return merged
 
 def check_login(username: str, password: str) -> bool:
     users = get_users()
@@ -227,10 +231,10 @@ def add_user(username: str, password: str, role: str = "engineer", rider: str = 
     uname = username.strip().lower()
     phash = _hash(password)
     # 1) Supabase (preferred — persistent)
+    supa_ok = False
     if _supa_users_available():
-        if _supa_upsert_user(uname, phash, role, rider):
-            return
-    # 2) JSON fallback
+        supa_ok = _supa_upsert_user(uname, phash, role, rider)
+    # 2) Always write to JSON as well (ensures data survives even if Supabase sync fails)
     cfg   = load_config()
     users = cfg.get("users", {})
     users[uname] = {"password": phash, "role": role, "rider": rider}
