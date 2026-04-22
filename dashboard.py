@@ -3300,7 +3300,7 @@ with _content_col:
                                 hover_data={"session_id": True, "circuit": True,
                                             "best_lap_str": True, "_best_lap_s": False},
                                 labels={"_best_lap_s": "Best Lap (s)", sel_param: col_label_map.get(sel_param, sel_param)},
-                                trendline="ols",
+                                trendline="lowess",
                                 height=320,
                             )
                             fig_sc.update_yaxes(autorange="reversed")
