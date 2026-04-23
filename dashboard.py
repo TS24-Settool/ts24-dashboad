@@ -757,6 +757,7 @@ with _nav_col:
         "🏁  Race Results",
         "⏱  Race Pace",
         "📐  Lap Analysis",
+        "🏎  2D Lap Data",
         "📋  Session Detail",
         "📉  Trend Analysis",
         "🔍  Problem→Solution",
@@ -1974,6 +1975,169 @@ with _content_col:
 
     # ═══════════════════════════════════════════════════
     # PAGE 6 — Session Detail
+    # ═══════════════════════════════════════════════════
+    # PAGE — 2D Lap Data
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "🏎  2D Lap Data":
+        st.markdown('<p class="section-title">🏎 2D Lap Data — Official Session Laps (JA52 / DA77)</p>', unsafe_allow_html=True)
+
+        # ── Fetch from Supabase ──────────────────────────────────
+        @st.cache_data(ttl=300, show_spinner="Loading 2D lap data...")
+        def _load_2d_sessions(supa_url, svc_key):
+            try:
+                url = f"{supa_url}/rest/v1/sessions_2d?select=*&order=date.asc,round.asc,rider.asc,run_no.asc"
+                headers = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}"}
+                req = __import__("urllib.request", fromlist=["Request","urlopen"]).Request(url, headers=headers)
+                with __import__("urllib.request", fromlist=["urlopen"]).urlopen(req, timeout=30) as r:
+                    return __import__("json").loads(r.read())
+            except Exception:
+                return []
+
+        @st.cache_data(ttl=300, show_spinner="Loading 2D laps...")
+        def _load_2d_laps(supa_url, svc_key):
+            try:
+                # Fetch in pages (up to 2000 rows)
+                import json as _json, urllib.request as _ur
+                rows = []
+                offset = 0
+                while True:
+                    url = (f"{supa_url}/rest/v1/lap_times_2d?select=*"
+                           f"&order=date.asc,round.asc,rider.asc,run_no.asc,lap_no.asc"
+                           f"&limit=1000&offset={offset}")
+                    headers = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}"}
+                    req = _ur.Request(url, headers=headers)
+                    with _ur.urlopen(req, timeout=30) as r:
+                        chunk = _json.loads(r.read())
+                    if not chunk:
+                        break
+                    rows.extend(chunk)
+                    if len(chunk) < 1000:
+                        break
+                    offset += 1000
+                return rows
+            except Exception:
+                return []
+
+        _supa_url_2d = cfg.get("supabase_url", "")
+        _svc_key_2d  = cfg.get("supabase_service_key", "")
+
+        if not _supa_url_2d or not _svc_key_2d or "PASTE" in _svc_key_2d:
+            st.warning("⚠️ Supabase not configured. Check ts24_config.json.")
+        else:
+            _sess2d_raw = _load_2d_sessions(_supa_url_2d, _svc_key_2d)
+            _laps2d_raw = _load_2d_laps(_supa_url_2d, _svc_key_2d)
+
+            if not _sess2d_raw:
+                st.info("📭 No 2D session data in Supabase yet.\n\n"
+                        "**Steps to populate:**\n"
+                        "1. Run `create_2d_tables.sql` in Supabase SQL Editor\n"
+                        "2. Run `python3 sync_2d_to_supabase.py` on your Mac")
+            else:
+                import pandas as _pd2d
+
+                df_2ds = _pd2d.DataFrame(_sess2d_raw)
+                df_2dl = _pd2d.DataFrame(_laps2d_raw) if _laps2d_raw else _pd2d.DataFrame()
+
+                # ── Filters ─────────────────────────────────────
+                col_f1, col_f2, col_f3 = st.columns(3)
+                _rounds_2d = sorted(df_2ds["round"].dropna().unique())
+                _riders_2d = sorted(df_2ds["rider"].dropna().unique())
+
+                with col_f1:
+                    _sel_round = st.multiselect("Round", _rounds_2d, default=_rounds_2d, key="2d_round")
+                with col_f2:
+                    _sel_rider = st.multiselect("Rider", _riders_2d, default=_riders_2d, key="2d_rider")
+                with col_f3:
+                    _sess_types = sorted(df_2ds["session_type"].dropna().unique())
+                    _sel_stype  = st.multiselect("Session", _sess_types, default=_sess_types, key="2d_stype")
+
+                _mask = (
+                    df_2ds["round"].isin(_sel_round) &
+                    df_2ds["rider"].isin(_sel_rider) &
+                    df_2ds["session_type"].isin(_sel_stype)
+                )
+                df_2ds_f = df_2ds[_mask].copy()
+
+                if not df_2dl.empty:
+                    df_2dl_f = df_2dl[
+                        df_2dl["round"].isin(_sel_round) &
+                        df_2dl["rider"].isin(_sel_rider) &
+                        df_2dl["session_type"].isin(_sel_stype)
+                    ].copy()
+                else:
+                    df_2dl_f = _pd2d.DataFrame()
+
+                st.markdown(f"**{len(df_2ds_f)} sessions · {len(df_2dl_f)} laps** (filtered)")
+                st.divider()
+
+                # ── Tabs ────────────────────────────────────────
+                tab_a, tab_b, tab_c = st.tabs(["📊 Lap Time Chart", "📋 Session Summary", "🔧 Setup Overview"])
+
+                # TAB A — Lap Time Chart
+                with tab_a:
+                    if df_2dl_f.empty:
+                        st.info("No lap data for current filter.")
+                    else:
+                        df_2dl_f["lap_time_s"] = _pd2d.to_numeric(df_2dl_f["lap_time_s"], errors="coerce")
+                        df_2dl_f = df_2dl_f[~df_2dl_f["is_outlap"].astype(bool)]
+                        df_2dl_f = df_2dl_f.dropna(subset=["lap_time_s"])
+                        df_2dl_f["label"] = (df_2dl_f["round"] + " " + df_2dl_f["session_type"]
+                                             + " R" + df_2dl_f["run_no"].astype(str)
+                                             + " " + df_2dl_f["rider"])
+
+                        import plotly.graph_objects as _pgo
+                        fig_2d = _pgo.Figure()
+                        RIDER_COL = {"JA52": "#2196F3", "DA77": "#FF5722"}
+                        for _lbl in df_2dl_f["label"].unique():
+                            _d = df_2dl_f[df_2dl_f["label"] == _lbl]
+                            _rider = _d["rider"].iloc[0]
+                            fig_2d.add_trace(_pgo.Scatter(
+                                x=_d["lap_no"], y=_d["lap_time_s"],
+                                mode="lines+markers",
+                                name=_lbl,
+                                line=dict(color=RIDER_COL.get(_rider, "#888"), width=1.5),
+                                marker=dict(size=5),
+                                hovertemplate="%{text}<br>Lap %{x}: %{y:.3f}s<extra></extra>",
+                                text=[_lbl] * len(_d)
+                            ))
+                        fig_2d.update_layout(
+                            height=400, template="plotly_white",
+                            xaxis_title="Lap No", yaxis_title="Lap Time (s)",
+                            legend=dict(orientation="h", y=-0.2),
+                            margin=dict(t=20, b=80)
+                        )
+                        st.plotly_chart(fig_2d, use_container_width=True)
+
+                        # Best lap table per session
+                        _best = (df_2dl_f.groupby(["round","session_type","rider","run_no"])
+                                         ["lap_time_s"].min()
+                                         .reset_index()
+                                         .sort_values("lap_time_s"))
+                        _best.columns = ["Round","Session","Rider","Run","Best Lap (s)"]
+                        _best["Best Lap"] = _best["Best Lap (s)"].apply(
+                            lambda t: f"{int(t//60)}:{t%60:06.3f}" if t > 0 else ""
+                        )
+                        st.dataframe(_best[["Round","Session","Rider","Run","Best Lap","Best Lap (s)"]],
+                                     use_container_width=True, hide_index=True)
+
+                # TAB B — Session Summary
+                with tab_b:
+                    _disp_cols = [c for c in ["round","circuit","date","session_type","rider","run_no",
+                                              "total_laps","best_lap","best_lap_s","condition",
+                                              "air_temp","track_temp","tyre_f","tyre_r"]
+                                  if c in df_2ds_f.columns]
+                    st.dataframe(df_2ds_f[_disp_cols].sort_values(["date","round","rider","run_no"]),
+                                 use_container_width=True, hide_index=True)
+
+                # TAB C — Setup Overview
+                with tab_c:
+                    _setup_cols = [c for c in ["round","date","session_type","rider","run_no",
+                                               "fork","fork_comp","fork_reb","shock","fork_offset",
+                                               "tyre_f","tyre_r","tyre_f_press","tyre_r_press"]
+                                   if c in df_2ds_f.columns]
+                    st.dataframe(df_2ds_f[_setup_cols].sort_values(["date","round","rider","run_no"]),
+                                 use_container_width=True, hide_index=True)
+
     # ═══════════════════════════════════════════════════
     elif _NAV == "📋  Session Detail":
         session_list = df_s["session_id"].tolist()
