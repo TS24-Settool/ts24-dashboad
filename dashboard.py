@@ -1396,35 +1396,32 @@ with _content_col:
             for rnum in field_nums:
                 df_r = df_lp[df_lp["rider_num"] == rnum].sort_values("lap_no")
                 lbl  = rider_labels.get(rnum, f"#{rnum}")
+                _cd  = df_r["lap_time"].apply(fmt_laptime).values
 
                 if rnum in compare_nums:
-                    # Compare rider: highlight in color
                     col = compare_colors[rnum]
                     fig_pace.add_trace(go.Scatter(
                         x=df_r["lap_no"], y=df_r["lap_time"],
-                        mode="lines+markers",
-                        name=lbl,
+                        mode="lines+markers", name=lbl,
                         line=dict(color=col, width=2),
                         marker=dict(size=6, color=col),
-                        hovertemplate=f"<b>{lbl}</b><br>Lap %{{x}}: %{{y:.3f}}s<extra></extra>",
+                        customdata=_cd,
+                        hovertemplate=f"<b>{lbl}</b><br>Lap %{{x}}: %{{customdata}}<extra></extra>",
                     ))
                 else:
-                    # Regular field rider: gray background
                     fig_pace.add_trace(go.Scatter(
                         x=df_r["lap_no"], y=df_r["lap_time"],
-                        mode="lines+markers",
-                        name=lbl,
+                        mode="lines+markers", name=lbl,
                         line=dict(color="#CCCCCC", width=1),
                         marker=dict(size=4, color="#CCCCCC"),
-                        hovertemplate=f"<b>{lbl}</b><br>Lap %{{x}}: %{{y:.3f}}s<extra></extra>",
-                        legendgroup="field",
-                        showlegend=False,
+                        customdata=_cd,
+                        hovertemplate=f"<b>{lbl}</b><br>Lap %{{x}}: %{{customdata}}<extra></extra>",
+                        legendgroup="field", showlegend=False,
                     ))
 
             # Highlight DA77 in blue
             if has_da77:
                 df_da = df_lp[df_lp["rider_num"] == 77].sort_values("lap_no")
-                # Valid laps
                 df_da_v = df_da[df_da["is_valid"] == 1]
                 df_da_i = df_da[df_da["is_valid"] == 0]
                 fig_pace.add_trace(go.Scatter(
@@ -1432,15 +1429,17 @@ with _content_col:
                     mode="lines+markers", name="DA77 D.Aegerter",
                     line=dict(color=DA77_COLOR, width=2.5),
                     marker=dict(size=7, color=DA77_COLOR),
-                    hovertemplate="<b>DA77</b> Lap %{x}: %{y:.3f}s<extra></extra>",
+                    customdata=df_da_v["lap_time"].apply(fmt_laptime).values,
+                    hovertemplate="<b>DA77</b> Lap %{x}: %{customdata}<extra></extra>",
                 ))
                 if not df_da_i.empty:
+                    _da_i_cd = list(zip(df_da_i["flag"], df_da_i["lap_time"].apply(fmt_laptime)))
                     fig_pace.add_trace(go.Scatter(
                         x=df_da_i["lap_no"], y=df_da_i["lap_time"],
                         mode="markers", name="DA77 pit/cancel",
                         marker=dict(size=8, color=DA77_COLOR, symbol="x", opacity=0.5),
-                        hovertemplate="<b>DA77 [%{customdata}]</b> Lap %{x}: %{y:.3f}s<extra></extra>",
-                        customdata=df_da_i["flag"],
+                        customdata=_da_i_cd,
+                        hovertemplate="<b>DA77 [%{customdata[0]}]</b> Lap %{x}: %{customdata[1]}<extra></extra>",
                         showlegend=False,
                     ))
             else:
@@ -1460,15 +1459,17 @@ with _content_col:
                     mode="lines+markers", name="JA52 J.Alcoba",
                     line=dict(color=JA52_COLOR, width=2.5),
                     marker=dict(size=7, color=JA52_COLOR),
-                    hovertemplate="<b>JA52</b> Lap %{x}: %{y:.3f}s<extra></extra>",
+                    customdata=df_ja_v["lap_time"].apply(fmt_laptime).values,
+                    hovertemplate="<b>JA52</b> Lap %{x}: %{customdata}<extra></extra>",
                 ))
                 if not df_ja_i.empty:
+                    _ja_i_cd = list(zip(df_ja_i["flag"], df_ja_i["lap_time"].apply(fmt_laptime)))
                     fig_pace.add_trace(go.Scatter(
                         x=df_ja_i["lap_no"], y=df_ja_i["lap_time"],
                         mode="markers", name="JA52 pit/cancel",
                         marker=dict(size=8, color=JA52_COLOR, symbol="x", opacity=0.5),
-                        hovertemplate="<b>JA52 [%{customdata}]</b> Lap %{x}: %{y:.3f}s<extra></extra>",
-                        customdata=df_ja_i["flag"],
+                        customdata=_ja_i_cd,
+                        hovertemplate="<b>JA52 [%{customdata[0]}]</b> Lap %{x}: %{customdata[1]}<extra></extra>",
                         showlegend=False,
                     ))
             else:
@@ -1522,17 +1523,31 @@ with _content_col:
                     fig_sec = go.Figure()
                     seg_colors = {"seg1": "#C0392B", "seg2": "#E67E22", "seg3": "#27AE60", "seg4": "#2980B9"}
                     seg_labels = {"seg1": "S1", "seg2": "S2", "seg3": "S3", "seg4": "S4"}
+                    _sec_all_vals = []
                     for seg, sc in seg_colors.items():
                         if df_r[seg].notna().any():
+                            _seg_cd = df_r[seg].apply(lambda v: fmt_laptime(v) if pd.notna(v) else "—").values
                             fig_sec.add_trace(go.Scatter(
                                 x=df_r["lap_no"], y=df_r[seg],
                                 mode="lines+markers", name=seg_labels[seg],
                                 line=dict(color=sc, width=2),
                                 marker=dict(size=5),
-                                hovertemplate=f"{seg_labels[seg]} Lap %{{x}}: %{{y:.3f}}s<extra></extra>",
+                                customdata=_seg_cd,
+                                hovertemplate=f"{seg_labels[seg]} Lap %{{x}}: %{{customdata}}<extra></extra>",
                             ))
+                            _sec_all_vals.extend(df_r[seg].dropna().tolist())
+                    # Y-axis: M:SS.mmm ticks
+                    if _sec_all_vals:
+                        _sv_min, _sv_max = min(_sec_all_vals), max(_sec_all_vals)
+                        _sv_pad = max((_sv_max - _sv_min) * 0.2, 0.5)
+                        _sv_tick = [_sv_min + i * (_sv_max - _sv_min) / 5 for i in range(6)]
+                        fig_sec.update_yaxes(
+                            tickvals=_sv_tick,
+                            ticktext=[fmt_laptime(v) for v in _sv_tick],
+                            range=[_sv_min - _sv_pad, _sv_max + _sv_pad],
+                        )
                     chart_layout(fig_sec, height=240, title=f"{rname} — Sector Times per Lap")
-                    fig_sec.update_layout(xaxis_title="Lap", yaxis_title="Sector Time (s)")
+                    fig_sec.update_layout(xaxis_title="Lap", yaxis_title="Sector Time")
                     col.plotly_chart(fig_sec, use_container_width=True, config={"displayModeBar": False})
 
             # ── CHART 3: Lap Gap (vs. session best) ──────────────────
@@ -2041,24 +2056,43 @@ with _content_col:
                                              + " R" + df_2dl_f["run_no"].astype(str)
                                              + " " + df_2dl_f["rider"])
 
+                        def _fmt2d(sec):
+                            try:
+                                m = int(sec // 60); s = sec - m * 60
+                                return f"{m}:{s:06.3f}"
+                            except Exception:
+                                return "—"
+
                         RIDER_COL = {"JA52": "#2196F3", "DA77": "#FF5722"}
                         fig_2d = go.Figure()
                         for _lbl in df_2dl_f["label"].unique():
                             _d     = df_2dl_f[df_2dl_f["label"] == _lbl]
                             _rider = _d["rider"].iloc[0]
+                            _cd2d  = _d["lap_time_s"].apply(_fmt2d).values
                             fig_2d.add_trace(go.Scatter(
                                 x=_d["lap_no"], y=_d["lap_time_s"],
                                 mode="lines+markers", name=_lbl,
                                 line=dict(color=RIDER_COL.get(_rider, "#888"), width=1.5),
                                 marker=dict(size=5),
-                                hovertemplate="%{text}<br>Lap %{x}: %{y:.3f}s<extra></extra>",
+                                customdata=_cd2d,
+                                hovertemplate="%{text}<br>Lap %{x}: %{customdata}<extra></extra>",
                                 text=[_lbl] * len(_d)
                             ))
+                        # Y-axis: M:SS.mmm ticks
+                        _2d_y_min = df_2dl_f["lap_time_s"].min()
+                        _2d_y_max = df_2dl_f["lap_time_s"].max()
+                        _2d_pad   = max((_2d_y_max - _2d_y_min) * 0.15, 0.5)
+                        _2d_ticks = [_2d_y_min + i * (_2d_y_max - _2d_y_min) / 6 for i in range(7)]
                         fig_2d.update_layout(
                             height=420, template="plotly_white",
-                            xaxis_title="Lap No", yaxis_title="Lap Time (s)",
+                            xaxis_title="Lap No", yaxis_title="Lap Time",
                             legend=dict(orientation="h", y=-0.25),
-                            margin=dict(t=20, b=90)
+                            margin=dict(t=20, b=90),
+                            yaxis=dict(
+                                tickvals=_2d_ticks,
+                                ticktext=[_fmt2d(v) for v in _2d_ticks],
+                                range=[_2d_y_min - _2d_pad, _2d_y_max + _2d_pad],
+                            )
                         )
                         st.plotly_chart(fig_2d, use_container_width=True)
 
