@@ -10,6 +10,8 @@
 #             → DYNAMICS_ANALYSIS シート更新
 #    STEP 2 — パフォーマンス相関解析 (performance_correlation.py)
 #             → PERFORMANCE_CORRELATION シート更新
+#    STEP 3 — ダッシュボード用JSONエクスポート (sync_dynamics_to_cloud.py)
+#             → dynamics_data.json / lap_times_data.json 更新
 #
 #  出力先: 02_DATABASE/TS24 DB Master.xlsx
 # ============================================================
@@ -55,13 +57,30 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
+
+# ── STEP 3: JSONエクスポート（Streamlit Cloud用） ─────────────────
+echo "------------------------------------------------------------"
+echo "  STEP 3/3 — Export JSON for Streamlit Cloud"
+echo "  (dynamics_data.json / lap_times_data.json)"
+echo "------------------------------------------------------------"
+python3 "$SCRIPT_DIR/sync_dynamics_to_cloud.py"
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "⚠️  STEP 3 failed (JSON export). Excel data is still updated."
+fi
+
+echo ""
 echo "============================================================"
 echo "  ✅ All analysis complete!"
 echo "  Finished : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================================"
 echo ""
-echo "  Updated sheets in TS24 DB Master.xlsx:"
-echo "    • DYNAMICS_ANALYSIS      — APEX / Pit / Braking per session"
-echo "    • PERFORMANCE_CORRELATION — Fast vs Slow setup targets"
+echo "  Updated files:"
+echo "    • TS24 DB Master.xlsx  — DYNAMICS_ANALYSIS / PERFORMANCE_CORRELATION"
+echo "    • dynamics_data.json   — Streamlit Cloud 用データ"
+echo "    • lap_times_data.json  — Streamlit Cloud 用データ"
+echo ""
+echo "  ▶ git push origin main を実行するとダッシュボードに反映されます"
 echo ""
 read -p "Press Enter to exit..."

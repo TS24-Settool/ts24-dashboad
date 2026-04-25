@@ -458,37 +458,52 @@ def load_run_log():
 # ── Dynamics & Correlation data loader ───────────
 _DYNAMICS_EXCEL = SCRIPT_DIR.parent / "02_DATABASE" / "TS24 DB Master.xlsx"
 
+_JSON_DYN = SCRIPT_DIR / "dynamics_data.json"
+_JSON_LT  = SCRIPT_DIR / "lap_times_data.json"
+
+def _coerce_dyn_numerics(df_dyn):
+    num_cols = ["APEX Count","APEX Spd (km/h)","APEX SusF (mm)","APEX SusR (mm)",
+                "APEX WhlF (N)","APEX WhlR (N)","APEX ax (m/s²)",
+                "Pit Count","Pit Spd (km/h)","Pit SusF (mm)","Pit SusR (mm)",
+                "Brk Count","Brk Spd (km/h)","Brk SusF (mm)","Brk SusR (mm)"]
+    for c in num_cols:
+        if c in df_dyn.columns:
+            df_dyn[c] = pd.to_numeric(df_dyn[c], errors="coerce")
+    if "Date" in df_dyn.columns:
+        df_dyn["Date"] = df_dyn["Date"].astype(str)
+    return df_dyn
+
 @st.cache_data(ttl=120)
 def _load_dynamics_data():
-    """Load DYNAMICS_ANALYSIS and LAP_TIMES from TS24 DB Master.xlsx.
-    Returns (df_dyn, df_lt) — both empty DataFrames if file not found."""
-    if not _DYNAMICS_EXCEL.exists():
-        return pd.DataFrame(), pd.DataFrame()
+    """Load DYNAMICS_ANALYSIS and LAP_TIMES.
+    Priority: TS24 DB Master.xlsx (local Mac) → JSON fallback (Streamlit Cloud)."""
+
+    # ── 1. ローカル Excel（Mac実行時）───────────────────────
+    if _DYNAMICS_EXCEL.exists():
+        try:
+            df_dyn = pd.read_excel(str(_DYNAMICS_EXCEL),
+                                   sheet_name="DYNAMICS_ANALYSIS", header=1)
+            df_dyn = _coerce_dyn_numerics(
+                df_dyn.dropna(subset=["Rider"]).reset_index(drop=True))
+        except Exception:
+            df_dyn = pd.DataFrame()
+        try:
+            df_lt = pd.read_excel(str(_DYNAMICS_EXCEL),
+                                  sheet_name="LAP_TIMES", header=1)
+            df_lt = df_lt.dropna(how="all").reset_index(drop=True)
+        except Exception:
+            df_lt = pd.DataFrame()
+        return df_dyn, df_lt
+
+    # ── 2. JSON フォールバック（Streamlit Cloud）────────────
     try:
-        df_dyn = pd.read_excel(str(_DYNAMICS_EXCEL),
-                               sheet_name="DYNAMICS_ANALYSIS", header=1)
-        df_dyn = df_dyn.dropna(subset=["Rider"]).reset_index(drop=True)
-        # Numeric coerce
-        num_cols = ["APEX Count","APEX Spd (km/h)","APEX SusF (mm)","APEX SusR (mm)",
-                    "APEX WhlF (N)","APEX WhlR (N)","APEX ax (m/s²)",
-                    "Pit Count","Pit Spd (km/h)","Pit SusF (mm)","Pit SusR (mm)",
-                    "Brk Count","Brk Spd (km/h)","Brk SusF (mm)","Brk SusR (mm)"]
-        for c in num_cols:
-            if c in df_dyn.columns:
-                df_dyn[c] = pd.to_numeric(df_dyn[c], errors="coerce")
-        if "Date" in df_dyn.columns:
-            df_dyn["Date"] = df_dyn["Date"].astype(str)
+        df_dyn = pd.read_json(str(_JSON_DYN)) if _JSON_DYN.exists() else pd.DataFrame()
+        if not df_dyn.empty:
+            df_dyn = _coerce_dyn_numerics(df_dyn)
     except Exception:
         df_dyn = pd.DataFrame()
-
     try:
-        df_lt = pd.read_excel(str(_DYNAMICS_EXCEL),
-                              sheet_name="LAP_TIMES", header=1)
-        df_lt = df_lt.dropna(how="all").reset_index(drop=True)
-        lt_num = ["lap_time_s"]
-        for c in lt_num:
-            if c in df_lt.columns:
-                df_lt[c] = pd.to_numeric(df_lt[c], errors="coerce")
+        df_lt = pd.read_json(str(_JSON_LT)) if _JSON_LT.exists() else pd.DataFrame()
     except Exception:
         df_lt = pd.DataFrame()
 
@@ -2327,8 +2342,8 @@ with _content_col:
         df_dyn, _ = _load_dynamics_data()
 
         if df_dyn.empty:
-            st.warning("⚠️ TS24 DB Master.xlsx が見つかりません。\n\n"
-                       "run_full_analysis.command を実行してデータを生成してください。")
+            st.warning("⚠️ データが見つかりません。\n\n"
+                       "Mac で run_full_analysis.command を実行後、git push してください。")
         else:
             # ── Filters ──────────────────────────────────────
             fc1, fc2, fc3 = st.columns(3)
@@ -2475,8 +2490,8 @@ with _content_col:
         df_dyn, df_lt = _load_dynamics_data()
 
         if df_dyn.empty:
-            st.warning("⚠️ TS24 DB Master.xlsx が見つかりません。\n\n"
-                       "run_full_analysis.command を実行してデータを生成してください。")
+            st.warning("⚠️ データが見つかりません。\n\n"
+                       "Mac で run_full_analysis.command を実行後、git push してください。")
         else:
             # ── Re-compute correlation in pandas ───────────
             MIN_LAP_S_CORR = 80.0
