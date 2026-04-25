@@ -455,6 +455,61 @@ def load_run_log():
                 pass
     return pd.DataFrame()
 
+# ── Dynamics & Correlation data loader ───────────
+_DYNAMICS_EXCEL = SCRIPT_DIR.parent / "02_DATABASE" / "PUCCETTI_DB_MASTER.xlsx"
+
+@st.cache_data(ttl=120)
+def _load_dynamics_data():
+    """Load DYNAMICS_ANALYSIS and LAP_TIMES from PUCCETTI_DB_MASTER.xlsx.
+    Returns (df_dyn, df_lt) — both empty DataFrames if file not found."""
+    if not _DYNAMICS_EXCEL.exists():
+        return pd.DataFrame(), pd.DataFrame()
+    try:
+        df_dyn = pd.read_excel(str(_DYNAMICS_EXCEL),
+                               sheet_name="DYNAMICS_ANALYSIS", header=1)
+        df_dyn = df_dyn.dropna(subset=["Rider"]).reset_index(drop=True)
+        # Numeric coerce
+        num_cols = ["APEX Count","APEX Spd (km/h)","APEX SusF (mm)","APEX SusR (mm)",
+                    "APEX WhlF (N)","APEX WhlR (N)","APEX ax (m/s²)",
+                    "Pit Count","Pit Spd (km/h)","Pit SusF (mm)","Pit SusR (mm)",
+                    "Brk Count","Brk Spd (km/h)","Brk SusF (mm)","Brk SusR (mm)"]
+        for c in num_cols:
+            if c in df_dyn.columns:
+                df_dyn[c] = pd.to_numeric(df_dyn[c], errors="coerce")
+        if "Date" in df_dyn.columns:
+            df_dyn["Date"] = df_dyn["Date"].astype(str)
+    except Exception:
+        df_dyn = pd.DataFrame()
+
+    try:
+        df_lt = pd.read_excel(str(_DYNAMICS_EXCEL),
+                              sheet_name="LAP_TIMES", header=1)
+        df_lt = df_lt.dropna(how="all").reset_index(drop=True)
+        lt_num = ["lap_time_s"]
+        for c in lt_num:
+            if c in df_lt.columns:
+                df_lt[c] = pd.to_numeric(df_lt[c], errors="coerce")
+    except Exception:
+        df_lt = pd.DataFrame()
+
+    return df_dyn, df_lt
+
+
+def _dyn_norm_circuit(c):
+    c = str(c or "").upper().strip()
+    if c in ("PHILLIPISLAND","PHILLIP ISLAND","PHI","AUSTRALIA","WORKSHOP","PHILLIP_ISLAND"):
+        return "PHILLIP ISLAND"
+    return c
+
+def _dyn_norm_session(s):
+    s = str(s or "").upper().strip()
+    m = {"WUP":"WUP","WUP1":"WUP","WUP2":"WUP",
+         "FP":"FP","FP1":"FP","FP2":"FP","L1":"FP","L2":"FP",
+         "QP":"QP","QP1":"QP","QP2":"QP",
+         "SP":"SP","RACE1":"RACE1","RACE2":"RACE2",
+         "TEST_D1":"TEST_D1","TEST_D2":"TEST_D2"}
+    return m.get(s, s)
+
 # ── Color palette (Power BI style) ────────────────
 DA77_COLOR = "#0078D4"   # Microsoft blue
 JA52_COLOR = "#E74C3C"   # Red
@@ -758,6 +813,8 @@ with _nav_col:
         "⏱  Race Pace",
         "📐  Lap Analysis",
         "🏎  2D Lap Data",
+        "🔬  Suspension Dynamics",
+        "🎯  Setup Target",
         "📋  Session Detail",
         "📉  Trend Analysis",
         "🔍  Problem→Solution",
@@ -2259,6 +2316,381 @@ with _content_col:
                             f'{next_act}</div>',
                             unsafe_allow_html=True
                         )
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Suspension Dynamics
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "🔬  Suspension Dynamics":
+        st.markdown('<p class="section-title">🔬 Suspension Dynamics — APEX / Braking Entry / Pit Limiter</p>',
+                    unsafe_allow_html=True)
+
+        df_dyn, _ = _load_dynamics_data()
+
+        if df_dyn.empty:
+            st.warning("⚠️ PUCCETTI_DB_MASTER.xlsx が見つかりません。\n\n"
+                       "run_full_analysis.command を実行してデータを生成してください。")
+        else:
+            # ── Filters ──────────────────────────────────────
+            fc1, fc2, fc3 = st.columns(3)
+            _dyn_riders   = sorted(df_dyn["Rider"].dropna().unique())
+            _dyn_circuits = sorted(df_dyn["Circuit"].apply(_dyn_norm_circuit).dropna().unique())
+            _dyn_sessions = sorted(df_dyn["Session"].apply(_dyn_norm_session).dropna().unique())
+
+            with fc1:
+                _f_rider = st.multiselect("Rider", _dyn_riders, default=_dyn_riders, key="dyn_rider")
+            with fc2:
+                _f_circuit = st.multiselect("Circuit", _dyn_circuits, default=_dyn_circuits, key="dyn_circ")
+            with fc3:
+                _f_session = st.multiselect("Session", _dyn_sessions, default=_dyn_sessions, key="dyn_sess")
+
+            df_dyn_w = df_dyn.copy()
+            df_dyn_w["Circuit_n"] = df_dyn_w["Circuit"].apply(_dyn_norm_circuit)
+            df_dyn_w["Session_n"] = df_dyn_w["Session"].apply(_dyn_norm_session)
+            df_dyn_w = df_dyn_w[
+                df_dyn_w["Rider"].isin(_f_rider) &
+                df_dyn_w["Circuit_n"].isin(_f_circuit) &
+                df_dyn_w["Session_n"].isin(_f_session)
+            ].copy()
+
+            if df_dyn_w.empty:
+                st.info("No data for current filter.")
+            else:
+                # Build a session label column for x-axis
+                df_dyn_w["Run"] = pd.to_numeric(df_dyn_w["Run"], errors="coerce").fillna(0).astype(int)
+                df_dyn_w["label"] = (df_dyn_w["Circuit_n"].str[:6] + " "
+                                     + df_dyn_w["Session_n"] + " R"
+                                     + df_dyn_w["Run"].astype(str)
+                                     + " " + df_dyn_w["Rider"])
+                df_dyn_w = df_dyn_w.sort_values(["Date", "Rider", "Run"])
+
+                RIDER_COLOR = {"DA77": DA77_COLOR, "JA52": JA52_COLOR}
+
+                # ── Sub-tabs ────────────────────────────────────
+                tab_apex, tab_brake, tab_pit = st.tabs(
+                    ["🔺 APEX Posture", "🛑 Braking Entry", "🟡 Pit Limiter"]
+                )
+
+                def _sus_scatter(df, col_f, col_r, title, ylab="Suspension (mm)"):
+                    """Dual-metric scatter/line: SusF and SusR plotted together."""
+                    rows = []
+                    for _, row in df.iterrows():
+                        for metric, col in [("SusF (Front)", col_f), ("SusR (Rear)", col_r)]:
+                            if pd.notna(row.get(col)):
+                                rows.append({"label": row["label"], "Rider": row["Rider"],
+                                             "Metric": metric, "Value": row[col]})
+                    if not rows:
+                        st.info("No data.")
+                        return
+                    dff = pd.DataFrame(rows)
+                    fig = px.scatter(dff, x="label", y="Value", color="Rider",
+                                     symbol="Metric",
+                                     color_discrete_map=RIDER_COLOR,
+                                     labels={"label": "", "Value": ylab},
+                                     title=title)
+                    fig.update_traces(marker=dict(size=10), opacity=0.85)
+                    chart_layout(fig, height=360, title=title)
+                    fig.update_layout(xaxis_tickangle=-40, xaxis_title="")
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+                def _avg_bar(df, col_f, col_r, title):
+                    """Average SusF and SusR per circuit × rider bar chart."""
+                    rows = []
+                    for rider in df["Rider"].unique():
+                        for circ in df["Circuit_n"].unique():
+                            sub = df[(df["Rider"]==rider) & (df["Circuit_n"]==circ)]
+                            f_avg = sub[col_f].mean() if col_f in sub else None
+                            r_avg = sub[col_r].mean() if col_r in sub else None
+                            if pd.notna(f_avg):
+                                rows.append({"Circuit": circ, "Rider": rider, "Metric": "SusF (Front)", "Avg (mm)": round(f_avg,1)})
+                            if pd.notna(r_avg):
+                                rows.append({"Circuit": circ, "Rider": rider, "Metric": "SusR (Rear)", "Avg (mm)": round(r_avg,1)})
+                    if not rows:
+                        return
+                    dff = pd.DataFrame(rows)
+                    dff["Group"] = dff["Rider"] + " " + dff["Metric"]
+                    fig = px.bar(dff, x="Circuit", y="Avg (mm)", color="Group", barmode="group",
+                                 title=title,
+                                 color_discrete_map={
+                                     "DA77 SusF (Front)": "#0078D4", "DA77 SusR (Rear)": "#66B2E8",
+                                     "JA52 SusF (Front)": "#E74C3C", "JA52 SusR (Rear)": "#F1948A"})
+                    chart_layout(fig, height=300, title=title)
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+                with tab_apex:
+                    st.caption("APEX = all corners across full-length laps. Average suspension position at minimum speed (local minima of Speed F).")
+                    _sus_scatter(df_dyn_w, "APEX SusF (mm)", "APEX SusR (mm)",
+                                 "APEX Suspension Position — per Session")
+                    st.divider()
+                    _avg_bar(df_dyn_w, "APEX SusF (mm)", "APEX SusR (mm)",
+                             "APEX Average Suspension — by Circuit × Rider")
+
+                    # Summary stats table
+                    st.markdown('<p class="section-title">Session Data</p>', unsafe_allow_html=True)
+                    disp_cols = ["Date","Circuit_n","Session_n","Rider","Run",
+                                 "APEX Count","APEX Spd (km/h)","APEX SusF (mm)","APEX SusR (mm)",
+                                 "APEX WhlF (N)","APEX WhlR (N)","APEX ax (m/s²)"]
+                    disp_cols = [c for c in disp_cols if c in df_dyn_w.columns]
+                    rename = {"Circuit_n":"Circuit","Session_n":"Session"}
+                    st.dataframe(df_dyn_w[disp_cols].rename(columns=rename).reset_index(drop=True),
+                                 use_container_width=True, height=280)
+
+                with tab_brake:
+                    st.caption("Braking Entry = captured ~0.08 s before brake-on (decel ≤ −8 m/s², speed ≥ 80 km/h). Average front/rear suspension position.")
+                    _sus_scatter(df_dyn_w, "Brk SusF (mm)", "Brk SusR (mm)",
+                                 "Braking Entry Suspension Position — per Session")
+                    st.divider()
+                    _avg_bar(df_dyn_w, "Brk SusF (mm)", "Brk SusR (mm)",
+                             "Braking Entry Average Suspension — by Circuit × Rider")
+                    st.markdown('<p class="section-title">Session Data</p>', unsafe_allow_html=True)
+                    disp_cols_b = ["Date","Circuit_n","Session_n","Rider","Run",
+                                   "Brk Count","Brk Spd (km/h)","Brk SusF (mm)","Brk SusR (mm)"]
+                    disp_cols_b = [c for c in disp_cols_b if c in df_dyn_w.columns]
+                    st.dataframe(df_dyn_w[disp_cols_b].rename(columns={"Circuit_n":"Circuit","Session_n":"Session"}).reset_index(drop=True),
+                                 use_container_width=True, height=280)
+
+                with tab_pit:
+                    st.caption("Pit Limiter = Speed F in [56–64 km/h] for ≥ 3 s continuously. Represents fully settled, low-load suspension baseline.")
+                    _sus_scatter(df_dyn_w, "Pit SusF (mm)", "Pit SusR (mm)",
+                                 "Pit Limiter Suspension Position — per Session")
+                    st.divider()
+                    _avg_bar(df_dyn_w, "Pit SusF (mm)", "Pit SusR (mm)",
+                             "Pit Limiter Average Suspension — by Circuit × Rider")
+                    st.markdown('<p class="section-title">Session Data</p>', unsafe_allow_html=True)
+                    disp_cols_p = ["Date","Circuit_n","Session_n","Rider","Run",
+                                   "Pit Count","Pit Spd (km/h)","Pit SusF (mm)","Pit SusR (mm)"]
+                    disp_cols_p = [c for c in disp_cols_p if c in df_dyn_w.columns]
+                    st.dataframe(df_dyn_w[disp_cols_p].rename(columns={"Circuit_n":"Circuit","Session_n":"Session"}).reset_index(drop=True),
+                                 use_container_width=True, height=280)
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Setup Target
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "🎯  Setup Target":
+        st.markdown('<p class="section-title">🎯 Setup Target — FAST vs SLOW Session Comparison</p>',
+                    unsafe_allow_html=True)
+        st.caption("Sessions ranked by best lap time within each rider × circuit group. "
+                   "FAST = top 33%, SLOW = bottom 33%. "
+                   "Δ = FAST avg − SLOW avg (positive = front compresses more when fast).")
+
+        df_dyn, df_lt = _load_dynamics_data()
+
+        if df_dyn.empty:
+            st.warning("⚠️ PUCCETTI_DB_MASTER.xlsx が見つかりません。\n\n"
+                       "run_full_analysis.command を実行してデータを生成してください。")
+        else:
+            # ── Re-compute correlation in pandas ───────────
+            MIN_LAP_S_CORR = 80.0
+
+            # Build LT key → best lap
+            lt_map = {}
+            if not df_lt.empty:
+                # Try common column names
+                lt_rider_col  = next((c for c in df_lt.columns if str(c).lower() in ("rider","rider_id")), None)
+                lt_circ_col   = next((c for c in df_lt.columns if str(c).lower() in ("circuit","circ")), None)
+                lt_date_col   = next((c for c in df_lt.columns if str(c).lower() in ("date","session_date")), None)
+                lt_run_col    = next((c for c in df_lt.columns if str(c).lower() in ("run","run_no","run no")), None)
+                lt_ts_col     = next((c for c in df_lt.columns if str(c).lower() in
+                                      ("lap_time_s","laptime_s","lap time s","time (s)")), None)
+                lt_outlap_col = next((c for c in df_lt.columns if str(c).lower() in
+                                      ("outlap","is_outlap","out_lap","outlap?")), None)
+
+                if all([lt_rider_col, lt_circ_col, lt_date_col, lt_run_col, lt_ts_col]):
+                    for _, lr in df_lt.iterrows():
+                        rider = str(lr[lt_rider_col] or "")
+                        if not rider: continue
+                        if lt_outlap_col and str(lr.get(lt_outlap_col,"")).upper() == "YES": continue
+                        ts = lr[lt_ts_col]
+                        if not isinstance(ts, (int, float)) or ts < MIN_LAP_S_CORR or ts > 400: continue
+                        circ = _dyn_norm_circuit(lr[lt_circ_col])
+                        date = str(lr[lt_date_col] or "")
+                        try:
+                            run = int(lr[lt_run_col] or 0)
+                        except Exception:
+                            run = 0
+                        key = (rider, circ, date, run)
+                        lt_map.setdefault(key, []).append(float(ts))
+
+            # Aggregate LT map to best lap
+            lt_best = {k: min(v) for k, v in lt_map.items()}
+
+            # Build dynamics lookup
+            dy_map = {}
+            df_dyn["Circuit_n"] = df_dyn["Circuit"].apply(_dyn_norm_circuit)
+            df_dyn["Date_s"]    = df_dyn["Date"].astype(str)
+            for _, dr in df_dyn.iterrows():
+                rider = str(dr.get("Rider","") or "")
+                if not rider: continue
+                try:
+                    run = int(dr.get("Run", 0) or 0)
+                except Exception:
+                    run = 0
+                key = (rider, dr["Circuit_n"], dr["Date_s"], run)
+                dy_map[key] = dr
+
+            # Join
+            matched_rows = []
+            for key, best_s in lt_best.items():
+                if key not in dy_map: continue
+                dr = dy_map[key]
+                rider, circ, date, run = key
+                matched_rows.append({
+                    "rider": rider, "circuit": circ, "date": date, "run": run,
+                    "best_s": best_s,
+                    "apex_susF": dr.get("APEX SusF (mm)"), "apex_susR": dr.get("APEX SusR (mm)"),
+                    "apex_whlF": dr.get("APEX WhlF (N)"),  "apex_whlR": dr.get("APEX WhlR (N)"),
+                    "apex_spd":  dr.get("APEX Spd (km/h)"),
+                    "brk_susF":  dr.get("Brk SusF (mm)"),  "brk_susR":  dr.get("Brk SusR (mm)"),
+                    "brk_spd":   dr.get("Brk Spd (km/h)"),
+                })
+
+            if not matched_rows:
+                st.info("No matched sessions between DYNAMICS_ANALYSIS and LAP_TIMES.\n\n"
+                        "Ensure run_full_analysis.command has been executed with current data.")
+            else:
+                df_m = pd.DataFrame(matched_rows)
+
+                # Tier classification per rider×circuit
+                def assign_tier(grp):
+                    grp = grp.sort_values("best_s").reset_index(drop=True)
+                    n = len(grp)
+                    tiers = []
+                    for i in range(n):
+                        pct = i / max(n-1, 1)
+                        if n < 3:
+                            tiers.append("FAST" if i == 0 else "SLOW")
+                        elif pct <= 0.33:
+                            tiers.append("FAST")
+                        elif pct >= 0.67:
+                            tiers.append("SLOW")
+                        else:
+                            tiers.append("MED")
+                    grp["tier"] = tiers
+                    return grp
+
+                df_m = df_m.groupby(["rider","circuit"], group_keys=False).apply(assign_tier)
+
+                METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_whlF","apex_whlR","apex_spd"]
+                METRIC_LABELS = {
+                    "apex_susF": "APEX SusF (mm)", "apex_susR": "APEX SusR (mm)",
+                    "brk_susF":  "Brk SusF (mm)",  "brk_susR":  "Brk SusR (mm)",
+                    "apex_whlF": "APEX WhlF (N)",   "apex_whlR": "APEX WhlR (N)",
+                    "apex_spd":  "APEX Spd (km/h)"
+                }
+
+                # ── Rider filter ──────────────────────────
+                _st_riders = sorted(df_m["rider"].unique())
+                _st_sel_rider = st.selectbox("Rider", ["All"] + _st_riders, key="st_rider")
+                df_m_f = df_m if _st_sel_rider == "All" else df_m[df_m["rider"] == _st_sel_rider]
+
+                # ── Summary table ─────────────────────────
+                st.markdown('<p class="section-title">Setup Target Reference Table</p>', unsafe_allow_html=True)
+
+                summary_rows = []
+                for (rider, circ), grp in df_m_f.groupby(["rider","circuit"]):
+                    fast = grp[grp["tier"] == "FAST"]
+                    slow = grp[grp["tier"] == "SLOW"]
+                    n = len(grp)
+                    row = {"Rider": rider, "Circuit": circ, "N Sessions": n,
+                           "Best Lap": f"{int(grp['best_s'].min())//60}:{grp['best_s'].min()%60:06.3f}"}
+                    for m in METRICS:
+                        fv = fast[m].dropna().mean() if not fast.empty else None
+                        sv = slow[m].dropna().mean() if not slow.empty else None
+                        row[f"★FAST {METRIC_LABELS[m]}"] = round(fv,1) if fv is not None else None
+                        row[f"SLOW {METRIC_LABELS[m]}"]  = round(sv,1) if sv is not None else None
+                        if fv is not None and sv is not None:
+                            row[f"Δ {METRIC_LABELS[m]}"] = round(fv-sv,1)
+                        else:
+                            row[f"Δ {METRIC_LABELS[m]}"] = None
+                    summary_rows.append(row)
+
+                if summary_rows:
+                    df_sum = pd.DataFrame(summary_rows)
+
+                    # Color-coded delta display
+                    def _color_delta(val):
+                        if val is None or (isinstance(val, float) and pd.isna(val)):
+                            return ""
+                        try:
+                            v = float(val)
+                        except Exception:
+                            return ""
+                        if v > 0.5:   return "background-color:#C6EFCE; color:#276221; font-weight:bold"
+                        elif v < -0.5: return "background-color:#FFC7CE; color:#9C0006; font-weight:bold"
+                        else:          return "background-color:#FFEB9C; color:#7D6608"
+
+                    delta_cols = [c for c in df_sum.columns if c.startswith("Δ ")]
+                    st.dataframe(
+                        df_sum.style.applymap(_color_delta, subset=delta_cols),
+                        use_container_width=True, height=320
+                    )
+
+                    # ── Δ bar chart — key metrics ──────────
+                    st.divider()
+                    st.markdown('<p class="section-title">Δ (FAST − SLOW) — Suspension Direction per Circuit</p>',
+                                unsafe_allow_html=True)
+                    bar_metrics = [("Δ APEX SusF (mm)", "APEX SusF"), ("Δ APEX SusR (mm)", "APEX SusR"),
+                                   ("Δ Brk SusF (mm)",  "Brk SusF"),  ("Δ Brk SusR (mm)",  "Brk SusR")]
+                    bar_rows = []
+                    for _, sr in df_sum.iterrows():
+                        for col, short in bar_metrics:
+                            v = sr.get(col)
+                            if v is not None and not (isinstance(v, float) and pd.isna(v)):
+                                bar_rows.append({"Circuit": sr["Circuit"],
+                                                 "Rider":   sr["Rider"],
+                                                 "Metric":  short,
+                                                 "Δ (mm)":  float(v)})
+                    if bar_rows:
+                        df_bar = pd.DataFrame(bar_rows)
+                        df_bar["Group"] = df_bar["Rider"] + " " + df_bar["Metric"]
+                        fig_d = px.bar(df_bar, x="Circuit", y="Δ (mm)", color="Group", barmode="group",
+                                       color_discrete_sequence=["#0078D4","#66B2E8","#E74C3C","#F1948A",
+                                                                 "#27AE60","#82E0AA","#E67E22","#FAD7A0"],
+                                       labels={"Δ (mm)": "Δ mm (FAST − SLOW)"})
+                        fig_d.add_hline(y=0, line_dash="dash", line_color="#555", line_width=1.5)
+                        chart_layout(fig_d, height=360, title="Suspension Direction: positive = more compression when fast")
+                        st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
+
+                    # ── Setup recommendation text ──────────
+                    st.divider()
+                    st.markdown('<p class="section-title">Setup Direction Summary</p>', unsafe_allow_html=True)
+                    for _, sr in df_sum.iterrows():
+                        rider = sr["Rider"]; circ = sr["Circuit"]
+                        parts = []
+                        for col, short in bar_metrics:
+                            v = sr.get(col)
+                            if v is None or (isinstance(v, float) and pd.isna(v)): continue
+                            if abs(v) < 0.3:
+                                parts.append(f"{short}: ≈ same")
+                            elif v > 0:
+                                parts.append(f"{short}: **+{v:.1f} mm** ↑ (more compression when fast)")
+                            else:
+                                parts.append(f"{short}: **{v:.1f} mm** ↓ (less compression when fast)")
+                        if parts:
+                            with st.expander(f"**{rider} @ {circ}** — {sr['N Sessions']} sessions · Best {sr['Best Lap']}", expanded=False):
+                                for p in parts:
+                                    st.markdown(f"  • {p}")
+
+                # ── Detail table ──────────────────────────
+                st.divider()
+                st.markdown('<p class="section-title">All Matched Sessions</p>', unsafe_allow_html=True)
+                disp_m = df_m_f[["rider","circuit","date","run","best_s","tier",
+                                  "apex_susF","apex_susR","brk_susF","brk_susR",
+                                  "apex_whlF","apex_whlR","apex_spd"]].copy()
+                disp_m["best_lap"] = disp_m["best_s"].apply(
+                    lambda s: f"{int(s)//60}:{s%60:06.3f}" if pd.notna(s) else "—")
+                disp_m = disp_m.drop(columns=["best_s"])
+                disp_m.columns = ["Rider","Circuit","Date","Run","Tier","Lap",
+                                   "APX SusF","APX SusR","Brk SusF","Brk SusR",
+                                   "APX WhlF","APX WhlR","APX Spd","Best Lap"]
+
+                def _tier_color(v):
+                    return {"FAST":"background-color:#C6EFCE","MED":"background-color:#FFEB9C",
+                            "SLOW":"background-color:#FFC7CE"}.get(v,"")
+
+                st.dataframe(
+                    disp_m.style.applymap(_tier_color, subset=["Tier"]),
+                    use_container_width=True, height=360
+                )
 
     # ═══════════════════════════════════════════════════
     # PAGE 7 — Trend Analysis
