@@ -7,7 +7,7 @@ echo.
 
 set SCRIPT_DIR=%~dp0
 set ROOT_DIR=%SCRIPT_DIR%..
-set EXCEL=%ROOT_DIR%\02_DATABASE\PUCCETTI_DB_MASTER.xlsx
+set EXCEL=%ROOT_DIR%\02_DATABASE\TS24 DB Master.xlsx
 set CACHE=%ROOT_DIR%\02_DATABASE\all_sessions.json
 
 echo Excel : %EXCEL%

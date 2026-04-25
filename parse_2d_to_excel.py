@@ -6,13 +6,13 @@ Scans all round folders for MES directories, extracts:
   - Lap times from .LAP files
   - Setup & session info from .HED files
   - Tyre data from .HED files
-Writes results to PUCCETTI_DB_MASTER.xlsx (LAP_TIMES, SESSION_SUMMARY, TYRE_LOG sheets)
+Writes results to TS24 DB Master.xlsx (LAP_TIMES, SESSION_SUMMARY, TYRE_LOG sheets)
 
 Usage:
   python parse_2d_to_excel.py [ROOT_FOLDER] [EXCEL_PATH]
 
 Default ROOT_FOLDER: same directory as this script (looks for *2D DATA* folders)
-Default EXCEL_PATH:  ../02_DATABASE/PUCCETTI_DB_MASTER.xlsx
+Default EXCEL_PATH:  ../02_DATABASE/TS24 DB Master.xlsx
 """
 
 import json
@@ -722,12 +722,12 @@ if __name__ == "__main__":
     #
     # ROOT_FOLDER  : folder containing new round data to scan
     #                (pass "NONE" or omit to run cache-only rebuild)
-    # EXCEL_PATH   : path to PUCCETTI_DB_MASTER.xlsx
+    # EXCEL_PATH   : path to TS24 DB Master.xlsx
     # CACHE_JSON   : path to all_sessions.json (default: 02_DATABASE/all_sessions.json)
 
     root_arg = sys.argv[1] if len(sys.argv) >= 2 else None
     excel    = Path(sys.argv[2]) if len(sys.argv) >= 3 else \
-               script_dir.parent / "02_DATABASE" / "PUCCETTI_DB_MASTER.xlsx"
+               script_dir.parent / "02_DATABASE" / "TS24 DB Master.xlsx"
     cache    = Path(sys.argv[3]) if len(sys.argv) >= 4 else \
                script_dir.parent / "02_DATABASE" / "all_sessions.json"
 

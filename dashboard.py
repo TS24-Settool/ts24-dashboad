@@ -456,11 +456,11 @@ def load_run_log():
     return pd.DataFrame()
 
 # ── Dynamics & Correlation data loader ───────────
-_DYNAMICS_EXCEL = SCRIPT_DIR.parent / "02_DATABASE" / "PUCCETTI_DB_MASTER.xlsx"
+_DYNAMICS_EXCEL = SCRIPT_DIR.parent / "02_DATABASE" / "TS24 DB Master.xlsx"
 
 @st.cache_data(ttl=120)
 def _load_dynamics_data():
-    """Load DYNAMICS_ANALYSIS and LAP_TIMES from PUCCETTI_DB_MASTER.xlsx.
+    """Load DYNAMICS_ANALYSIS and LAP_TIMES from TS24 DB Master.xlsx.
     Returns (df_dyn, df_lt) — both empty DataFrames if file not found."""
     if not _DYNAMICS_EXCEL.exists():
         return pd.DataFrame(), pd.DataFrame()
@@ -2327,7 +2327,7 @@ with _content_col:
         df_dyn, _ = _load_dynamics_data()
 
         if df_dyn.empty:
-            st.warning("⚠️ PUCCETTI_DB_MASTER.xlsx が見つかりません。\n\n"
+            st.warning("⚠️ TS24 DB Master.xlsx が見つかりません。\n\n"
                        "run_full_analysis.command を実行してデータを生成してください。")
         else:
             # ── Filters ──────────────────────────────────────
@@ -2475,7 +2475,7 @@ with _content_col:
         df_dyn, df_lt = _load_dynamics_data()
 
         if df_dyn.empty:
-            st.warning("⚠️ PUCCETTI_DB_MASTER.xlsx が見つかりません。\n\n"
+            st.warning("⚠️ TS24 DB Master.xlsx が見つかりません。\n\n"
                        "run_full_analysis.command を実行してデータを生成してください。")
         else:
             # ── Re-compute correlation in pandas ───────────
@@ -2513,8 +2513,9 @@ with _content_col:
             # Aggregate LT map to best lap
             lt_best = {k: min(v) for k, v in lt_map.items()}
 
-            # Build dynamics lookup
+            # Build dynamics lookup (copy to avoid mutating cached DataFrame)
             dy_map = {}
+            df_dyn = df_dyn.copy()
             df_dyn["Circuit_n"] = df_dyn["Circuit"].apply(_dyn_norm_circuit)
             df_dyn["Date_s"]    = df_dyn["Date"].astype(str)
             for _, dr in df_dyn.iterrows():
@@ -2619,8 +2620,9 @@ with _content_col:
                         else:          return "background-color:#FFEB9C; color:#7D6608"
 
                     delta_cols = [c for c in df_sum.columns if c.startswith("Δ ")]
+                    _styler_fn = getattr(df_sum.style, "map", None) or getattr(df_sum.style, "applymap")
                     st.dataframe(
-                        df_sum.style.applymap(_color_delta, subset=delta_cols),
+                        _styler_fn(_color_delta, subset=delta_cols),
                         use_container_width=True, height=320
                     )
 
@@ -2679,7 +2681,7 @@ with _content_col:
                 disp_m["best_lap"] = disp_m["best_s"].apply(
                     lambda s: f"{int(s)//60}:{s%60:06.3f}" if pd.notna(s) else "—")
                 disp_m = disp_m.drop(columns=["best_s"])
-                disp_m.columns = ["Rider","Circuit","Date","Run","Tier","Lap",
+                disp_m.columns = ["Rider","Circuit","Date","Run","Tier",
                                    "APX SusF","APX SusR","Brk SusF","Brk SusR",
                                    "APX WhlF","APX WhlR","APX Spd","Best Lap"]
 
@@ -2687,8 +2689,9 @@ with _content_col:
                     return {"FAST":"background-color:#C6EFCE","MED":"background-color:#FFEB9C",
                             "SLOW":"background-color:#FFC7CE"}.get(v,"")
 
+                _styler_fn2 = getattr(disp_m.style, "map", None) or getattr(disp_m.style, "applymap")
                 st.dataframe(
-                    disp_m.style.applymap(_tier_color, subset=["Tier"]),
+                    _styler_fn2(_tier_color, subset=["Tier"]),
                     use_container_width=True, height=360
                 )
 

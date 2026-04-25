@@ -12,7 +12,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-EXCEL="$ROOT_DIR/02_DATABASE/PUCCETTI_DB_MASTER.xlsx"
+EXCEL="$ROOT_DIR/02_DATABASE/TS24 DB Master.xlsx"
 CACHE="$ROOT_DIR/02_DATABASE/all_sessions.json"
 
 echo "========================================="
