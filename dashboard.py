@@ -496,14 +496,16 @@ def _load_dynamics_data():
         return df_dyn, df_lt
 
     # ── 2. JSON フォールバック（Streamlit Cloud）────────────
+    # convert_dates=False: 日付文字列を datetime に自動変換しない（文字列のまま保持）
+    # これにより LT の str(date) と DYN の Date_s が同じ '2025-01-01' 形式で一致する
     try:
-        df_dyn = pd.read_json(str(_JSON_DYN)) if _JSON_DYN.exists() else pd.DataFrame()
+        df_dyn = pd.read_json(str(_JSON_DYN), convert_dates=False) if _JSON_DYN.exists() else pd.DataFrame()
         if not df_dyn.empty:
             df_dyn = _coerce_dyn_numerics(df_dyn)
     except Exception:
         df_dyn = pd.DataFrame()
     try:
-        df_lt = pd.read_json(str(_JSON_LT)) if _JSON_LT.exists() else pd.DataFrame()
+        df_lt = pd.read_json(str(_JSON_LT), convert_dates=False) if _JSON_LT.exists() else pd.DataFrame()
     except Exception:
         df_lt = pd.DataFrame()
 
