@@ -614,8 +614,47 @@ def analyze_mes(mes_path: Path, event_meta: dict | None = None) -> dict | None:
         rider_kg = 75
     mass_kg  = bike_kg + rider_kg
 
+    # ── ラウンド名の正規化マッピング
+    # フォルダ名から抽出した event_key → 統一ラウンド名
+    # Data_Bace_TS24_ORIGINAL と SESSION_SUMMARY に合わせた命名規則
+    _ROUND_NORM: dict[str, str] = {
+        # レースラウンド
+        "R01": "ROUND1", "R1": "ROUND1",
+        "R02": "ROUND2", "R2": "ROUND2",
+        "R03": "ROUND3", "R3": "ROUND3",
+        "R04": "ROUND4", "R4": "ROUND4",
+        "R05": "ROUND5", "R5": "ROUND5",
+        # テスト (フォルダ形式: T02_Jerez, T03_PORTIMAO, T05_CREMONA)
+        "T01": "TEST1",  "T1": "TEST1",
+        "T02": "TEST2",  "T2": "TEST2",
+        "T03": "TEST3",  "T3": "TEST3",
+        "T04": "TEST4",  "T4": "TEST4",
+        "T05": "TEST5",  "T5": "TEST5",
+        "T06": "TEST6",  "T6": "TEST6",
+        # テスト (フォルダ形式: 20251203-TEST1-..., 20260121-TEST2-...)
+        "TEST1": "TEST1", "TEST2": "TEST2", "TEST3": "TEST3",
+        "TEST4": "TEST4", "TEST5": "TEST5", "TEST6": "TEST6",
+        # ワークショップ
+        "WORKSHOP": "WORKSHOP",
+    }
+
     # セッション情報
-    event   = hed.get("Event", "")
+    # event (ラウンド名) はフォルダパスから取得し正規化する。
+    # HED の Event フィールドは "T04 PHILLIP ISLAND" などブレが多いため使わない。
+    _raw_ekey = _event_key_from_path(mes_path)
+    event = _ROUND_NORM.get(_raw_ekey or "", "") if _raw_ekey else ""
+    if not event:
+        # フォルダから取れない場合は HED の Event フィールドを正規化して使用
+        # 例: "T04 PHILLIP ISLAND" → T04 → TEST4
+        #     "T3_PORTIMAO"        → T3  → TEST3
+        #     "R02_PORTIMAO"       → R02 → ROUND2
+        hed_event = hed.get("Event", "").strip()
+        _m_evt = re.match(r"^(R\d+|T\d+)(?:[^0-9]|$)", hed_event.upper())
+        if _m_evt:
+            event = _ROUND_NORM.get(_m_evt.group(1), hed_event)
+        else:
+            # キーそのままで照合 (例: "TEST1", "WORKSHOP")
+            event = _ROUND_NORM.get(hed_event.upper(), hed_event)
     session = hed.get("Session", "")
     # ランナンバーはHEDが常に"01"を返すためファイル名末尾の数字を使用
     # 例: D1-#77-03.MES → 3, D2-JA52-09.MES → 9

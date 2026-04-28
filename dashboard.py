@@ -512,6 +512,51 @@ def _load_dynamics_data():
     return df_dyn, df_lt
 
 
+_JSON_LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
+
+@st.cache_data(ttl=120)
+def _load_lap_suspension():
+    """LAP_SUSPENSION データを読み込む。
+    優先: TS24 DB Master.xlsx (ローカル) → ts24_unified.db → JSON フォールバック"""
+    _NUM_COLS = ["LAP_TIME_S","APEX_CNT","APEX_SPD_AVG","APEX_SUSF_AVG","APEX_SUSR_AVG",
+                 "BRK_CNT","BRK_SPD_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
+                 "FULLBRK_CNT","FULLBRK_SUSF","FULLBRK_SUSR",
+                 "LAP_SUSF_MEAN","LAP_SUSF_MIN","LAP_SUSF_MAX","LAP_SUSR_MEAN","RUN_NO","LAP_NO"]
+
+    def _coerce(df):
+        df.columns = [c.upper() for c in df.columns]
+        for c in _NUM_COLS:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+        return df.dropna(how="all").reset_index(drop=True)
+
+    # 1. ローカル Excel
+    if _DYNAMICS_EXCEL.exists():
+        try:
+            df = pd.read_excel(str(_DYNAMICS_EXCEL), sheet_name="LAP_SUSPENSION", header=1)
+            return _coerce(df)
+        except Exception:
+            pass
+    # 2. ローカル SQLite
+    try:
+        _udb = _DYNAMICS_EXCEL.parent / "ts24_unified.db"
+        if _udb.exists():
+            conn = sqlite3.connect(str(_udb))
+            df = pd.read_sql("SELECT * FROM lap_suspension ORDER BY round,circuit,session,rider,run_no,lap_no", conn)
+            conn.close()
+            return _coerce(df)
+    except Exception:
+        pass
+    # 3. JSON フォールバック（Streamlit Cloud）
+    try:
+        if _JSON_LAP_SUS.exists():
+            df = pd.read_json(str(_JSON_LAP_SUS), convert_dates=False)
+            return _coerce(df)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
 def _dyn_norm_circuit(c):
     c = str(c or "").upper().strip()
     if c in ("PHILLIPISLAND","PHILLIP ISLAND","PHI","AUSTRALIA","WORKSHOP","PHILLIP_ISLAND"):
@@ -831,6 +876,7 @@ with _nav_col:
         "📐  Lap Analysis",
         "🏎  2D Lap Data",
         "🔬  Suspension Dynamics",
+        "📊  Lap Sus Stats",
         "🎯  Setup Target",
         "📋  Session Detail",
         "📉  Trend Analysis",
@@ -2478,6 +2524,171 @@ with _content_col:
                     disp_cols_p = [c for c in disp_cols_p if c in df_dyn_w.columns]
                     st.dataframe(df_dyn_w[disp_cols_p].rename(columns={"Circuit_n":"Circuit","Session_n":"Session"}).reset_index(drop=True),
                                  use_container_width=True, height=280)
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Lap Sus Stats (ラップ別サスペンション統計)
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "📊  Lap Sus Stats":
+        st.markdown('<p class="section-title">📊 Lap Sus Stats — ラップ別サスペンション統計</p>',
+                    unsafe_allow_html=True)
+
+        df_ls = _load_lap_suspension()
+
+        if df_ls.empty:
+            st.warning("⚠️ LAP_SUSPENSION データが見つかりません。\n\n"
+                       "Mac で `python lap_suspension_stats.py` を実行後、再起動してください。")
+        else:
+            # ── フィルター ──────────────────────────────────
+            fc1, fc2, fc3, fc4 = st.columns(4)
+            _ls_riders   = sorted(df_ls["RIDER"].dropna().unique())   if "RIDER"   in df_ls.columns else []
+            _ls_circuits = sorted(df_ls["CIRCUIT"].dropna().unique()) if "CIRCUIT" in df_ls.columns else []
+            _ls_sessions = sorted(df_ls["SESSION"].dropna().unique()) if "SESSION" in df_ls.columns else []
+            with fc1:
+                _f_ls_rider = st.multiselect("Rider", _ls_riders, default=_ls_riders, key="ls_rider")
+            with fc2:
+                _f_ls_circ  = st.multiselect("Circuit", _ls_circuits, default=_ls_circuits, key="ls_circ")
+            with fc3:
+                _f_ls_sess  = st.multiselect("Session", _ls_sessions, default=_ls_sessions, key="ls_sess")
+            with fc4:
+                _ls_rounds = sorted(df_ls["ROUND"].dropna().unique()) if "ROUND" in df_ls.columns else []
+                _f_ls_rnd  = st.multiselect("Round", _ls_rounds, default=_ls_rounds, key="ls_rnd")
+
+            dfW = df_ls.copy()
+            if _f_ls_rider   and "RIDER"   in dfW.columns: dfW = dfW[dfW["RIDER"].isin(_f_ls_rider)]
+            if _f_ls_circ    and "CIRCUIT" in dfW.columns: dfW = dfW[dfW["CIRCUIT"].isin(_f_ls_circ)]
+            if _f_ls_sess    and "SESSION" in dfW.columns: dfW = dfW[dfW["SESSION"].isin(_f_ls_sess)]
+            if _f_ls_rnd     and "ROUND"   in dfW.columns: dfW = dfW[dfW["ROUND"].isin(_f_ls_rnd)]
+
+            if dfW.empty:
+                st.info("No data for current filter.")
+            else:
+                # x軸ラベル: Circuit + Session + RunNo + LapNo
+                dfW = dfW.copy()
+                dfW["run_label"] = (dfW.get("CIRCUIT","").astype(str).str[:5] + " "
+                                    + dfW.get("SESSION","").astype(str) + " R"
+                                    + dfW.get("RUN_NO", pd.Series(dtype=str)).astype(str))
+                dfW["lap_label"] = dfW["run_label"] + " L" + dfW.get("LAP_NO", pd.Series(dtype=str)).astype(str)
+
+                RIDER_COLOR = {"DA77": DA77_COLOR, "JA52": JA52_COLOR}
+
+                tab_apex, tab_brake, tab_laptime, tab_table = st.tabs(
+                    ["🔺 APEX per Lap", "🛑 Brake per Lap", "⏱ Lap Time Trend", "📋 Data Table"]
+                )
+
+                # ── APEX タブ ───────────────────────────────
+                with tab_apex:
+                    st.caption("各ラップのAPEX (コーナー最低速) 時の平均サスペンションポジション")
+                    if "APEX_SUSF_AVG" in dfW.columns and dfW["APEX_SUSF_AVG"].notna().any():
+                        rows_a = []
+                        for _, r in dfW.iterrows():
+                            if pd.notna(r.get("APEX_SUSF_AVG")):
+                                rows_a.append({"Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
+                                               "Metric":"SusF (Front)", "Value": r["APEX_SUSF_AVG"],
+                                               "Run": r["run_label"], "LapNo": r.get("LAP_NO",0)})
+                            if pd.notna(r.get("APEX_SUSR_AVG")):
+                                rows_a.append({"Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
+                                               "Metric":"SusR (Rear)", "Value": r["APEX_SUSR_AVG"],
+                                               "Run": r["run_label"], "LapNo": r.get("LAP_NO",0)})
+                        if rows_a:
+                            dfa = pd.DataFrame(rows_a)
+                            fig_a = px.scatter(dfa, x="LapNo", y="Value", color="Rider",
+                                               symbol="Metric", facet_col="Run", facet_col_wrap=4,
+                                               color_discrete_map=RIDER_COLOR,
+                                               labels={"LapNo":"Lap No","Value":"Sus (mm)"},
+                                               title="APEX Suspension per Lap")
+                            fig_a.update_traces(marker=dict(size=8), opacity=0.8)
+                            chart_layout(fig_a, height=420, title="APEX Suspension per Lap")
+                            st.plotly_chart(fig_a, use_container_width=True, config={"displayModeBar": False})
+
+                    # ラン別 APEX SusF 平均比較
+                    st.divider()
+                    st.markdown("**ラン別 APEX SusF 平均**")
+                    if "APEX_SUSF_AVG" in dfW.columns:
+                        grp = dfW.groupby(["run_label","RIDER"])["APEX_SUSF_AVG"].mean().reset_index()
+                        grp.columns = ["Run","Rider","APEX SusF avg (mm)"]
+                        fig_b = px.bar(grp, x="Run", y="APEX SusF avg (mm)", color="Rider",
+                                       barmode="group", color_discrete_map=RIDER_COLOR,
+                                       title="Run Average APEX SusF")
+                        chart_layout(fig_b, height=300, title="Run Average APEX SusF")
+                        fig_b.update_layout(xaxis_tickangle=-35)
+                        st.plotly_chart(fig_b, use_container_width=True, config={"displayModeBar": False})
+
+                # ── ブレーキ タブ ────────────────────────────
+                with tab_brake:
+                    st.caption("各ラップのブレーキ直前・フルブレーキング時の平均サスペンションポジション")
+                    brk_ok = "BRK_SUSF_AVG" in dfW.columns and dfW["BRK_SUSF_AVG"].notna().any()
+                    fb_ok  = "FULLBRK_SUSF"  in dfW.columns and dfW["FULLBRK_SUSF"].notna().any()
+
+                    if brk_ok:
+                        rows_br = []
+                        for _, r in dfW.iterrows():
+                            if pd.notna(r.get("BRK_SUSF_AVG")):
+                                rows_br.append({"Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
+                                                "Type":"Brake Entry SusF", "Value": r["BRK_SUSF_AVG"],
+                                                "LapNo": r.get("LAP_NO",0), "Run": r["run_label"]})
+                            if fb_ok and pd.notna(r.get("FULLBRK_SUSF")):
+                                rows_br.append({"Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
+                                                "Type":"Full Brake SusF", "Value": r["FULLBRK_SUSF"],
+                                                "LapNo": r.get("LAP_NO",0), "Run": r["run_label"]})
+                        if rows_br:
+                            dfbr = pd.DataFrame(rows_br)
+                            fig_br = px.scatter(dfbr, x="LapNo", y="Value", color="Rider",
+                                                symbol="Type", facet_col="Run", facet_col_wrap=4,
+                                                color_discrete_map=RIDER_COLOR,
+                                                labels={"LapNo":"Lap No","Value":"Sus (mm)"},
+                                                title="Braking Suspension per Lap")
+                            fig_br.update_traces(marker=dict(size=8), opacity=0.8)
+                            chart_layout(fig_br, height=420, title="Braking Suspension per Lap")
+                            st.plotly_chart(fig_br, use_container_width=True, config={"displayModeBar": False})
+                    else:
+                        st.info("ブレーキデータがありません。")
+
+                # ── ラップタイム タブ ─────────────────────────
+                with tab_laptime:
+                    st.caption("ラップタイム推移と APEX SusF の相関")
+                    lt_ok = "LAP_TIME_S" in dfW.columns and dfW["LAP_TIME_S"].notna().any()
+
+                    if lt_ok:
+                        # ラップタイム推移 (ラン別)
+                        fig_lt = px.line(dfW, x="LAP_NO", y="LAP_TIME_S", color="RIDER",
+                                         line_dash="run_label", markers=True,
+                                         color_discrete_map=RIDER_COLOR,
+                                         labels={"LAP_NO":"Lap No","LAP_TIME_S":"Lap Time (s)"},
+                                         title="Lap Time per Lap")
+                        chart_layout(fig_lt, height=340, title="Lap Time per Lap")
+                        st.plotly_chart(fig_lt, use_container_width=True, config={"displayModeBar": False})
+
+                        # APEX SusF vs Lap Time 散布図
+                        if "APEX_SUSF_AVG" in dfW.columns and dfW["APEX_SUSF_AVG"].notna().any():
+                            st.divider()
+                            st.markdown("**APEX SusF vs Lap Time — 相関散布図**")
+                            dfXY = dfW.dropna(subset=["APEX_SUSF_AVG","LAP_TIME_S"])
+                            if not dfXY.empty:
+                                fig_xy = px.scatter(dfXY, x="APEX_SUSF_AVG", y="LAP_TIME_S",
+                                                    color="RIDER", hover_data=["run_label","LAP_NO"],
+                                                    color_discrete_map=RIDER_COLOR,
+                                                    trendline="ols",
+                                                    labels={"APEX_SUSF_AVG":"APEX SusF (mm)",
+                                                            "LAP_TIME_S":"Lap Time (s)"},
+                                                    title="APEX SusF vs Lap Time Correlation")
+                                chart_layout(fig_xy, height=350, title="APEX SusF vs Lap Time")
+                                st.plotly_chart(fig_xy, use_container_width=True, config={"displayModeBar": False})
+                                st.caption("傾向線はOLS(最小二乗)回帰。傾きが負 = SusF 沈み増加 → タイム短縮の傾向")
+                    else:
+                        st.info("ラップタイムデータがありません。")
+
+                # ── データテーブル タブ ──────────────────────
+                with tab_table:
+                    disp_cols_ls = ["RUN_ID","LAP_ID","ROUND","CIRCUIT","SESSION","RIDER",
+                                    "RUN_NO","LAP_NO","LAP_TIME","LAP_TIME_S",
+                                    "APEX_CNT","APEX_SUSF_AVG","APEX_SUSR_AVG","APEX_SPD_AVG",
+                                    "BRK_CNT","BRK_SUSF_AVG","BRK_SUSR_AVG",
+                                    "FULLBRK_SUSF","FULLBRK_SUSR",
+                                    "LAP_SUSF_MEAN","LAP_SUSF_MIN","LAP_SUSF_MAX","LAP_SUSR_MEAN"]
+                    disp_cols_ls = [c for c in disp_cols_ls if c in dfW.columns]
+                    st.dataframe(dfW[disp_cols_ls].reset_index(drop=True),
+                                 use_container_width=True, height=420)
+                    st.caption(f"表示: {len(dfW)} ラップ / 全 {len(df_ls)} ラップ")
 
     # ═══════════════════════════════════════════════════
     # PAGE — Setup Target
