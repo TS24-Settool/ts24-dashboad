@@ -2577,28 +2577,61 @@ with _content_col:
 
                 # ── APEX タブ ───────────────────────────────
                 with tab_apex:
-                    st.caption("各ラップのAPEX (コーナー最低速) 時の平均サスペンションポジション")
-                    if "APEX_SUSF_AVG" in dfW.columns and dfW["APEX_SUSF_AVG"].notna().any():
-                        rows_a = []
-                        for _, r in dfW.iterrows():
-                            if pd.notna(r.get("APEX_SUSF_AVG")):
-                                rows_a.append({"Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
-                                               "Metric":"SusF (Front)", "Value": r["APEX_SUSF_AVG"],
-                                               "Run": r["run_label"], "LapNo": r.get("LAP_NO",0)})
-                            if pd.notna(r.get("APEX_SUSR_AVG")):
-                                rows_a.append({"Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
-                                               "Metric":"SusR (Rear)", "Value": r["APEX_SUSR_AVG"],
-                                               "Run": r["run_label"], "LapNo": r.get("LAP_NO",0)})
-                        if rows_a:
-                            dfa = pd.DataFrame(rows_a)
-                            fig_a = px.scatter(dfa, x="LapNo", y="Value", color="Rider",
-                                               symbol="Metric", facet_col="Run", facet_col_wrap=4,
-                                               color_discrete_map=RIDER_COLOR,
-                                               labels={"LapNo":"Lap No","Value":"Sus (mm)"},
-                                               title="APEX Suspension per Lap")
-                            fig_a.update_traces(marker=dict(size=8), opacity=0.8)
-                            chart_layout(fig_a, height=420, title="APEX Suspension per Lap")
-                            st.plotly_chart(fig_a, use_container_width=True, config={"displayModeBar": False})
+                    st.caption(
+                        "**3定義によるAPEX比較** — "
+                        "①ACC_Y Peak: 幾何学的Apex (純旋回荷重) / "
+                        "②Brake Off: ブレーキ解放点 (縦+横の複合荷重ピーク) / "
+                        "③Thr On: アクセルON点 (ライダー体感Apex)"
+                    )
+
+                    # ── 3定義 SusF ラップ別比較 ─────────────────
+                    apex_cols = [
+                        ("APEX_SUSF_AVG",  "① AccY Peak (SusF)"),
+                        ("BOFF_SUSF_AVG",  "② Brake Off (SusF)"),
+                        ("THRON_SUSF_AVG", "③ Thr On   (SusF)"),
+                    ]
+                    rows_3 = []
+                    for _, r in dfW.iterrows():
+                        for col, label in apex_cols:
+                            if col in dfW.columns and pd.notna(r.get(col)):
+                                rows_3.append({
+                                    "Lap": r["lap_label"], "Rider": r.get("RIDER","?"),
+                                    "Definition": label, "SusF (mm)": r[col],
+                                    "Run": r["run_label"], "LapNo": r.get("LAP_NO", 0)
+                                })
+                    if rows_3:
+                        df3 = pd.DataFrame(rows_3)
+                        fig_3 = px.scatter(df3, x="LapNo", y="SusF (mm)",
+                                           color="Rider", symbol="Definition",
+                                           facet_col="Run", facet_col_wrap=4,
+                                           color_discrete_map=RIDER_COLOR,
+                                           labels={"LapNo":"Lap No"},
+                                           title="APEX SusF — 3定義比較 per Lap")
+                        fig_3.update_traces(marker=dict(size=8), opacity=0.8)
+                        chart_layout(fig_3, height=440, title="APEX SusF 3定義比較")
+                        st.plotly_chart(fig_3, use_container_width=True, config={"displayModeBar": False})
+
+                    # ── ラン別平均 棒グラフ ─────────────────────
+                    st.divider()
+                    st.markdown("**ラン別 APEX SusF 平均 (3定義)**")
+                    rows_bar = []
+                    for col, label in apex_cols:
+                        if col in dfW.columns:
+                            grp = dfW.groupby(["run_label","RIDER"])[col].mean().reset_index()
+                            grp["Definition"] = label
+                            grp.rename(columns={col: "SusF avg (mm)"}, inplace=True)
+                            rows_bar.append(grp)
+                    if rows_bar:
+                        import pandas as pd_
+                        df_bar = pd_.concat(rows_bar, ignore_index=True)
+                        fig_bar = px.bar(df_bar, x="run_label", y="SusF avg (mm)",
+                                         color="Definition", barmode="group",
+                                         facet_row="RIDER",
+                                         labels={"run_label":"Run"},
+                                         title="Run Average APEX SusF — 3定義")
+                        chart_layout(fig_bar, height=500, title="Run Avg APEX SusF 3定義")
+                        fig_bar.update_layout(xaxis_tickangle=-35)
+                        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
                     # ラン別 APEX SusF 平均比較
                     st.divider()
@@ -2725,7 +2758,11 @@ with _content_col:
                 with tab_table:
                     disp_cols_ls = ["RUN_ID","LAP_ID","ROUND","CIRCUIT","SESSION","RIDER",
                                     "RUN_NO","LAP_NO","LAP_TIME","LAP_TIME_S",
+                                    # 3定義
                                     "APEX_CNT","APEX_SUSF_AVG","APEX_SUSR_AVG","APEX_SPD_AVG",
+                                    "BOFF_CNT","BOFF_SUSF_AVG","BOFF_SUSR_AVG","BOFF_SPD_AVG",
+                                    "THRON_CNT","THRON_SUSF_AVG","THRON_SUSR_AVG","THRON_SPD_AVG",
+                                    # ブレーキ / ラップ全体
                                     "BRK_CNT","BRK_SUSF_AVG","BRK_SUSR_AVG",
                                     "FULLBRK_SUSF","FULLBRK_SUSR",
                                     "LAP_SUSF_MEAN","LAP_SUSF_MIN","LAP_SUSF_MAX","LAP_SUSR_MEAN"]

@@ -42,7 +42,22 @@ DATA_2D_ROOT  = SCRIPT_DIR.parent / "DATA 2D"
 DB_DIR        = SCRIPT_DIR.parent / "02_DATABASE"
 EXCEL_PATH    = DB_DIR / "TS24 DB Master.xlsx"
 UNIFIED_DB    = DB_DIR / "ts24_unified.db"
+BACKUP_PATH   = DB_DIR / "TS24 DB Master Back UP.xlsx"
 OUTPUT_SHEET  = "LAP_SUSPENSION"
+
+# ─────────────────────────────────────────────────────────
+#  APEX 3定義の検出パラメータ
+# ─────────────────────────────────────────────────────────
+# ① ACC_Y Peak (幾何学的Apex) — detect_apexes_accy() が担当
+# ② BRAKE_OFF  : ブレーキ解放点 (縦+横の複合荷重ピーク)
+BRAKE_OFF_THRESHOLD      = 0.5    # BRAKE_FRONT がこれ以下に下がった点 [bar or unit]
+BRAKE_OFF_WIN_BEFORE_S   = 1.5    # Apex前何秒まで探すか
+BRAKE_OFF_WIN_AFTER_S    = 0.3    # Apex後何秒まで探すか (トレールブレーキが遅い場合)
+# ③ THR_ON     : アクセルON開始点 (ライダーが体感する瞬間)
+THR_ON_MIN_PCT           = 5.0    # この値以下を「アクセル全閉」とみなす [%]
+THR_ON_TARGET_PCT        = 10.0   # この値を超えたらアクセルON確定 [%]
+THR_ON_WIN_BEFORE_S      = 0.3    # Apex前から探し始める (早開けライダー対応)
+THR_ON_WIN_AFTER_S       = 2.0    # Apex後何秒まで探すか
 
 # ─────────────────────────────────────────────────────────
 #  parse_2d_channels.py から必要な関数をインポート
@@ -67,6 +82,7 @@ susp_at_speed_index = p2d.susp_at_speed_index
 susp_mean_in_range  = p2d.susp_mean_in_range
 safe_mean           = p2d.safe_mean
 detect_apexes       = p2d.detect_apexes
+detect_apexes_accy  = p2d.detect_apexes_accy
 detect_brake_entries        = p2d.detect_brake_entries
 detect_full_braking_sus     = p2d.detect_full_braking_sus
 find_tyre_channel           = p2d.find_tyre_channel
@@ -273,6 +289,24 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
         brake_f_raw = read_channel(mes_path, base, chs[brake_ch_key])
     brake_scale = len(brake_f_raw) / len(sf_raw) if len(brake_f_raw) > 0 and len(sf_raw) > 0 else 1.0
 
+    # ACC_Y (横G最大点APEX検出 — Primary method)
+    acc_y_raw = np.array([], dtype=np.float32)
+    acc_y_ch_key = next((k for k in chs if k.upper() == "ACC_Y" and chs[k].get("ext")), None)
+    if acc_y_ch_key:
+        acc_y_raw = read_channel(mes_path, base, chs[acc_y_ch_key])
+    accy_ratio = max(1, round(len(acc_y_raw) / len(sf_raw))) if len(acc_y_raw) > 0 else 1
+
+    # GAS / GAS_SMOOTH (アクセルON点検出 — THR_ON method)
+    gas_raw = np.array([], dtype=np.float32)
+    gas_ch_key = next(
+        (k for k in ("GAS_SMOOTH", "GAS", "TPS", "TPS_A", "SEN_TPSA1")
+         if k in chs and chs[k].get("ext")),
+        None
+    )
+    if gas_ch_key:
+        gas_raw = read_channel(mes_path, base, chs[gas_ch_key])
+    gas_ratio = max(1, round(len(gas_raw) / len(sf_raw))) if len(gas_raw) > 0 else 1
+
     # ── ラップ境界 ────────────────────────────────────────
     n_laps, lap_times_ms = parse_lap(mes_path, base)
 
@@ -312,8 +346,8 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
 
         lap_id = make_lap_id(run_id, lap_no)
 
-        # APEX 検出
-        apexes = detect_apexes(sf_raw, lap_start, lap_end, sr)
+        # APEX 検出 (横G最大点 Primary / 速度最小点 Fallback)
+        apexes = detect_apexes_accy(acc_y_raw, sf_raw, lap_start, lap_end, sr, accy_ratio)
         apex_spds, apex_susF, apex_susR = [], [], []
         for ai in apexes:
             v = float(sf_raw[ai])
@@ -349,7 +383,67 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
                 if ev["susF_mm"] is not None: fb_susF.append(ev["susF_mm"])
                 if ev["susR_mm"] is not None: fb_susR.append(ev["susR_mm"])
 
-        # ラップ全体 SusF / SusR 統計
+        # ── ② BRAKE_OFF 検出: Apex前後でブレーキが解放される点 ──────────
+        # 縦荷重(ブレーキ)+横荷重(旋回)の複合ピーク = トレールブレーキ終了点
+        boff_spds, boff_susF, boff_susR = [], [], []
+        if len(brake_f_raw) > 0:
+            win_b = int(BRAKE_OFF_WIN_BEFORE_S * sr)
+            win_a = int(BRAKE_OFF_WIN_AFTER_S  * sr)
+            for ai in apexes:
+                ws = max(lap_start, ai - win_b)
+                we = min(lap_end,   ai + win_a)
+                b0 = int(ws * brake_scale)
+                b1 = int(min(we * brake_scale, len(brake_f_raw)))
+                if b1 <= b0:
+                    continue
+                brk_win = brake_f_raw[b0:b1].astype(np.float64)
+                # 閾値以上(ブレーキON)の最後のサンプル → ブレーキ解放点
+                above = np.where(brk_win > BRAKE_OFF_THRESHOLD)[0]
+                if len(above) == 0:
+                    continue   # このコーナーはブレーキ未使用
+                last_above = int(above[-1])
+                bi_global  = int((b0 + last_above) / brake_scale)
+                bi_global  = max(lap_start, min(lap_end - 1, bi_global))
+                v  = float(sf_raw[bi_global])
+                sF = susp_at_speed_index(sus_f_raw, bi_global, susp_ratio)
+                sR = susp_at_speed_index(sus_r_raw, bi_global, susp_ratio) if len(sus_r_raw) > 0 else float("nan")
+                boff_spds.append(v)
+                if not math.isnan(sF): boff_susF.append(sF)
+                if not math.isnan(sR): boff_susR.append(sR)
+
+        # ── ③ THR_ON 検出: アクセルON開始点 (ライダーが体感する瞬間) ────
+        # GASが全閉(< THR_ON_MIN_PCT)から THR_ON_TARGET_PCT を超える最初の点
+        thron_spds, thron_susF, thron_susR = [], [], []
+        if len(gas_raw) > 0:
+            win_gb = int(THR_ON_WIN_BEFORE_S * sr * gas_ratio)
+            win_ga = int(THR_ON_WIN_AFTER_S  * sr * gas_ratio)
+            for ai in apexes:
+                g0 = int(max(lap_start * gas_ratio, ai * gas_ratio - win_gb))
+                g1 = int(min(lap_end   * gas_ratio, ai * gas_ratio + win_ga))
+                g1 = min(g1, len(gas_raw))
+                if g1 <= g0:
+                    continue
+                gas_win = gas_raw[g0:g1].astype(np.float64)
+                # ウィンドウ内のGAS最小点を探す
+                min_idx = int(np.argmin(gas_win))
+                if float(gas_win[min_idx]) > THR_ON_TARGET_PCT:
+                    continue   # 最小でも10%超 → 高速コーナーで常時開 → skip
+                # 最小点以降で TARGET_PCT を初めて超える点
+                after_min = gas_win[min_idx:]
+                crosses = np.where(after_min > THR_ON_TARGET_PCT)[0]
+                if len(crosses) == 0:
+                    continue
+                cross_local = min_idx + int(crosses[0])
+                gi_global   = int((g0 + cross_local) / gas_ratio)
+                gi_global   = max(lap_start, min(lap_end - 1, gi_global))
+                v  = float(sf_raw[gi_global])
+                sF = susp_at_speed_index(sus_f_raw, gi_global, susp_ratio)
+                sR = susp_at_speed_index(sus_r_raw, gi_global, susp_ratio) if len(sus_r_raw) > 0 else float("nan")
+                thron_spds.append(v)
+                if not math.isnan(sF): thron_susF.append(sF)
+                if not math.isnan(sR): thron_susR.append(sR)
+
+        # ── ラップ全体 SusF / SusR 統計 ──────────────────────────────────
         si_start = lap_start * susp_ratio
         si_end   = min(lap_end * susp_ratio, len(sus_f_raw))
         lap_susF_seg = sus_f_raw[si_start:si_end]
@@ -375,12 +469,22 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
             "date":          date_fmt,
             "lap_time_s":    round(lap_t_s, 3),
             "lap_time_fmt":  sec_to_laptime(lap_t_s),
-            # APEX
+            # ① APEX — ACC_Y Peak (幾何学的Apex / 純旋回荷重)
             "apex_count":    len(apex_spds),
             "apex_spd_avg":  _mean(apex_spds),
             "apex_susF_avg": _mean(apex_susF),
             "apex_susR_avg": _mean(apex_susR),
-            # BRAKE
+            # ② BRAKE_OFF — ブレーキ解放点 (縦+横の複合荷重ピーク)
+            "boff_count":    len(boff_spds),
+            "boff_spd_avg":  _mean(boff_spds),
+            "boff_susF_avg": _mean(boff_susF),
+            "boff_susR_avg": _mean(boff_susR),
+            # ③ THR_ON — アクセルON点 (ライダー体感Apex)
+            "thron_count":   len(thron_spds),
+            "thron_spd_avg": _mean(thron_spds),
+            "thron_susF_avg":_mean(thron_susF),
+            "thron_susR_avg":_mean(thron_susR),
+            # BRAKE ENTRY
             "brk_count":     len(brk_spds),
             "brk_spd_avg":   _mean(brk_spds),
             "brk_susF_avg":  _mean(brk_susF),
@@ -391,8 +495,8 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
             "fullbrk_susR":  _mean(fb_susR),
             # ラップ全体
             "lap_susF_mean": lap_susF_mean,
-            "lap_susF_min":  lap_susF_min,   # 最大圧縮 = 最小値
-            "lap_susF_max":  lap_susF_max,   # 最大伸び = 最大値
+            "lap_susF_min":  lap_susF_min,
+            "lap_susF_max":  lap_susF_max,
             "lap_susR_mean": lap_susR_mean,
         })
 
@@ -405,18 +509,32 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
 HEADERS = [
     "RUN_ID", "LAP_ID", "ROUND", "CIRCUIT", "SESSION", "RIDER",
     "RUN_NO", "LAP_NO", "DATE", "LAP_TIME", "LAP_TIME_S",
-    "APEX_CNT", "APEX_SPD_AVG", "APEX_SUSF_AVG", "APEX_SUSR_AVG",
-    "BRK_CNT",  "BRK_SPD_AVG",  "BRK_SUSF_AVG",  "BRK_SUSR_AVG",
+    # ① ACC_Y Peak (幾何学的Apex)
+    "APEX_CNT",   "APEX_SPD_AVG",   "APEX_SUSF_AVG",   "APEX_SUSR_AVG",
+    # ② BRAKE_OFF (ブレーキ解放点 = 縦+横の複合荷重ピーク)
+    "BOFF_CNT",   "BOFF_SPD_AVG",   "BOFF_SUSF_AVG",   "BOFF_SUSR_AVG",
+    # ③ THR_ON (アクセルON点 = ライダー体感Apex)
+    "THRON_CNT",  "THRON_SPD_AVG",  "THRON_SUSF_AVG",  "THRON_SUSR_AVG",
+    # BRAKE ENTRY / FULL BRK
+    "BRK_CNT",    "BRK_SPD_AVG",    "BRK_SUSF_AVG",    "BRK_SUSR_AVG",
     "FULLBRK_CNT", "FULLBRK_SUSF", "FULLBRK_SUSR",
+    # LAP OVERALL
     "LAP_SUSF_MEAN", "LAP_SUSF_MIN", "LAP_SUSF_MAX", "LAP_SUSR_MEAN",
 ]
 
 FIELDS = [
     "run_id", "lap_id", "round", "circuit", "session", "rider",
     "run_no", "lap_no", "date", "lap_time_fmt", "lap_time_s",
-    "apex_count", "apex_spd_avg", "apex_susF_avg", "apex_susR_avg",
-    "brk_count",  "brk_spd_avg",  "brk_susF_avg",  "brk_susR_avg",
+    # ①
+    "apex_count",  "apex_spd_avg",  "apex_susF_avg",  "apex_susR_avg",
+    # ②
+    "boff_count",  "boff_spd_avg",  "boff_susF_avg",  "boff_susR_avg",
+    # ③
+    "thron_count", "thron_spd_avg", "thron_susF_avg", "thron_susR_avg",
+    # BRAKE
+    "brk_count",   "brk_spd_avg",   "brk_susF_avg",   "brk_susR_avg",
     "fullbrk_count", "fullbrk_susF", "fullbrk_susR",
+    # LAP
     "lap_susF_mean", "lap_susF_min", "lap_susF_max", "lap_susR_mean",
 ]
 
@@ -504,54 +622,72 @@ def write_to_excel(all_rows: list, path: Path, dry_run: bool = False):
 #  SQLite 書き込み
 # ─────────────────────────────────────────────────────────
 CREATE_LAP_SUSPENSION = """
-CREATE TABLE IF NOT EXISTS lap_suspension (
-    lap_id          TEXT PRIMARY KEY,
-    run_id          TEXT,
-    round           TEXT,
-    circuit         TEXT,
-    session         TEXT,
-    rider           TEXT,
-    run_no          INTEGER,
-    lap_no          INTEGER,
-    date            TEXT,
-    lap_time_s      REAL,
-    lap_time_fmt    TEXT,
-    apex_count      INTEGER,
-    apex_spd_avg    REAL,
-    apex_susF_avg   REAL,
-    apex_susR_avg   REAL,
-    brk_count       INTEGER,
-    brk_spd_avg     REAL,
-    brk_susF_avg    REAL,
-    brk_susR_avg    REAL,
-    fullbrk_count   INTEGER,
-    fullbrk_susF    REAL,
-    fullbrk_susR    REAL,
-    lap_susF_mean   REAL,
-    lap_susF_min    REAL,
-    lap_susF_max    REAL,
-    lap_susR_mean   REAL,
-    updated_at      TEXT DEFAULT (datetime('now'))
+DROP TABLE IF EXISTS lap_suspension;
+CREATE TABLE lap_suspension (
+    lap_id           TEXT PRIMARY KEY,
+    run_id           TEXT,
+    round            TEXT,
+    circuit          TEXT,
+    session          TEXT,
+    rider            TEXT,
+    run_no           INTEGER,
+    lap_no           INTEGER,
+    date             TEXT,
+    lap_time_s       REAL,
+    lap_time_fmt     TEXT,
+    -- ① ACC_Y Peak : 幾何学的Apex (純旋回荷重)
+    apex_count       INTEGER,
+    apex_spd_avg     REAL,
+    apex_susF_avg    REAL,
+    apex_susR_avg    REAL,
+    -- ② BRAKE_OFF : ブレーキ解放点 (縦+横の複合荷重ピーク)
+    boff_count       INTEGER,
+    boff_spd_avg     REAL,
+    boff_susF_avg    REAL,
+    boff_susR_avg    REAL,
+    -- ③ THR_ON : アクセルON点 (ライダー体感Apex)
+    thron_count      INTEGER,
+    thron_spd_avg    REAL,
+    thron_susF_avg   REAL,
+    thron_susR_avg   REAL,
+    -- ブレーキ進入 / フルブレーキング
+    brk_count        INTEGER,
+    brk_spd_avg      REAL,
+    brk_susF_avg     REAL,
+    brk_susR_avg     REAL,
+    fullbrk_count    INTEGER,
+    fullbrk_susF     REAL,
+    fullbrk_susR     REAL,
+    -- ラップ全体
+    lap_susF_mean    REAL,
+    lap_susF_min     REAL,
+    lap_susF_max     REAL,
+    lap_susR_mean    REAL,
+    updated_at       TEXT DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_lapsus_run    ON lap_suspension(run_id);
+CREATE INDEX IF NOT EXISTS idx_lapsus_run     ON lap_suspension(run_id);
 CREATE INDEX IF NOT EXISTS idx_lapsus_circuit ON lap_suspension(circuit);
-CREATE INDEX IF NOT EXISTS idx_lapsus_rider  ON lap_suspension(rider);
+CREATE INDEX IF NOT EXISTS idx_lapsus_rider   ON lap_suspension(rider);
 """
 
 INSERT_SQL = """
 INSERT OR REPLACE INTO lap_suspension (
     lap_id, run_id, round, circuit, session, rider, run_no, lap_no, date,
     lap_time_s, lap_time_fmt,
-    apex_count, apex_spd_avg, apex_susF_avg, apex_susR_avg,
-    brk_count, brk_spd_avg, brk_susF_avg, brk_susR_avg,
+    apex_count,  apex_spd_avg,  apex_susF_avg,  apex_susR_avg,
+    boff_count,  boff_spd_avg,  boff_susF_avg,  boff_susR_avg,
+    thron_count, thron_spd_avg, thron_susF_avg, thron_susR_avg,
+    brk_count,   brk_spd_avg,   brk_susF_avg,   brk_susR_avg,
     fullbrk_count, fullbrk_susF, fullbrk_susR,
     lap_susF_mean, lap_susF_min, lap_susF_max, lap_susR_mean,
     updated_at
 ) VALUES (
     :lap_id, :run_id, :round, :circuit, :session, :rider, :run_no, :lap_no, :date,
     :lap_time_s, :lap_time_fmt,
-    :apex_count, :apex_spd_avg, :apex_susF_avg, :apex_susR_avg,
-    :brk_count, :brk_spd_avg, :brk_susF_avg, :brk_susR_avg,
+    :apex_count,  :apex_spd_avg,  :apex_susF_avg,  :apex_susR_avg,
+    :boff_count,  :boff_spd_avg,  :boff_susF_avg,  :boff_susR_avg,
+    :thron_count, :thron_spd_avg, :thron_susF_avg, :thron_susR_avg,
+    :brk_count,   :brk_spd_avg,   :brk_susF_avg,   :brk_susR_avg,
     :fullbrk_count, :fullbrk_susF, :fullbrk_susR,
     :lap_susF_mean, :lap_susF_min, :lap_susF_max, :lap_susR_mean,
     datetime('now')
@@ -565,7 +701,12 @@ def write_to_sqlite(all_rows: list, db_path: Path, dry_run: bool = False):
         return
 
     conn = sqlite3.connect(db_path)
-    conn.executescript(CREATE_LAP_SUSPENSION)
+    # DROP TABLE + CREATE を一括実行 (スキーマ変更に対応)
+    for stmt in CREATE_LAP_SUSPENSION.strip().split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            conn.execute(stmt)
+    conn.commit()
 
     inserted = 0
     for row in all_rows:

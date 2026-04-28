@@ -65,13 +65,24 @@ RIDER_PARAMS = {
     },
 }
 
-# APEX検出パラメータ (局所極小点 + プロミネンスフィルタ方式)
+# APEX検出パラメータ (局所極小点 + プロミネンスフィルタ方式) — 速度最小点フォールバック用
 APEX_SPEED_THRESHOLD_RATIO = 0.92  # ラップ最高速の92%以下のみAPEX候補とする
 APEX_MIN_GAP_S             = 0.25  # 隣接APEX間の最小間隔 [秒] (シケイン対応)
 APEX_SMOOTH_WINDOW_S       = 0.3   # Speed Fスムージング [秒]
 APEX_MIN_PROMINENCE_KMH    = 15.0  # APEX前後 ±4秒の最高速との最低落差 [km/h]
 #   → 直線上の微細な速度変動(5〜10km/h)を除外し、真のコーナーのみ検出
 APEX_PROMINENCE_WINDOW_S   = 4.0   # プロミネンス判定ウィンドウ [秒]
+
+# APEX検出パラメータ — 横G最大点(ACC_Y Peak)方式 [Primary]
+# 物理的根拠: |ACC_Y|最大 ≡ コーナー半径最小 ≡ 幾何学的Apex
+#   ACC_Y(body frame) = g·sin(θ) + (v²/R)·cos(θ)
+#   → バンク角・旋回半径・速度を統合した不変量
+#   → IMU固体センサーのためキャリブレーションズレなし(BIKE_ANGLEより信頼性大)
+APEX_ACCY_MIN_MS2          = 1.5   # コーナー判定の最小横G閾値 [m/s²]  (≈0.15g)
+APEX_ACCY_SMOOTH_S         = 0.25  # ACC_Yスムージングウィンドウ [秒]
+APEX_ACCY_MIN_GAP_S        = 0.40  # 隣接APEX最小間隔 [秒]
+APEX_ACCY_PROMINENCE_MS2   = 0.60  # プロミネンス閾値 [m/s²] (直線ノイズ除外)
+APEX_ACCY_QUALITY_RATIO    = 0.70  # ACC_Y検出数/速度検出数の最低比率(品質チェック)
 MIN_LAP_DURATION_S         = 60.0  # これ未満のラップはアウトラップ/フォーメーション等として除外
 
 # ピットレーンリミッターパラメータ
@@ -336,6 +347,115 @@ def detect_apexes(speed_kmh: np.ndarray, lap_start: int, lap_end: int,
             last_local = idx
 
     return apexes
+
+
+# ── APEX 検出 v2 — 横G最大点 (ACC_Y Peak) ───────────────────────────
+def detect_apexes_accy(accy_raw: np.ndarray,
+                       speed_raw: np.ndarray,
+                       lap_start: int, lap_end: int,
+                       sr: float,
+                       accy_ratio: int = 1) -> list:
+    """
+    横G絶対値最大点 (Peak Lateral G) によるAPEX検出 [推奨・将来標準]
+
+    【物理的根拠】
+      バイクがコーナーを走行するとき、ボディ固定座標の横方向加速度は:
+        ACC_Y ≈ g·sin(θ) + (v²/R)·cos(θ)
+      θ=バンク角、R=コーナー半径、v=速度
+      この式の最大点 = バンク角最大 かつ 旋回半径最小 = 幾何学的Apex
+
+    【速度最小点との比較】
+      速度最小点はライダーがアクセルを微開け(5〜15%)した後に発生し、
+      幾何学的Apexより平均50〜200ms遅れる。
+      ACC_Yピークは遅れなく幾何学的Apexを指す。
+
+    【BIKE_ANGLE(バンク角)より信頼性が高い理由】
+      - IMU(三軸加速度計)は固体センサーで経年劣化・キャリブレーションズレが少ない
+      - バンク角センサーは取付角度誤差・温度ドリフトの影響を受けやすい
+
+    【フォールバック】
+      ACC_Y未使用/品質不足 → detect_apexes()(速度最小点)に自動切替
+
+    Args:
+        accy_raw  : ACC_Y チャンネル配列 [m/s²]、空配列可
+        speed_raw : SPEED_FRONT チャンネル配列 [km/h]
+        lap_start : speed_rawのラップ開始インデックス(グローバル)
+        lap_end   : speed_rawのラップ終了インデックス(グローバル)
+        sr        : speed_rawのサンプルレート [Hz]
+        accy_ratio: len(accy_raw)/len(speed_raw) の整数比率
+
+    Returns:
+        speed_raw チャンネルのグローバルインデックスリスト
+        ACC_Y品質不足の場合は detect_apexes() の結果を返す
+    """
+    # ── ACC_Y の品質チェック ──────────────────────────────────────
+    if len(accy_raw) == 0:
+        return detect_apexes(speed_raw, lap_start, lap_end, sr)
+
+    ay0 = int(lap_start * accy_ratio)
+    ay1 = int(min(lap_end * accy_ratio, len(accy_raw)))
+    if ay1 - ay0 < 20:
+        return detect_apexes(speed_raw, lap_start, lap_end, sr)
+
+    seg_ay = accy_raw[ay0:ay1].astype(np.float64)
+    abs_ay = np.abs(seg_ay)
+
+    # 最大横Gが閾値未満 → コーナーデータなしと判断してフォールバック
+    if float(np.max(abs_ay)) < APEX_ACCY_MIN_MS2 * 1.5:
+        return detect_apexes(speed_raw, lap_start, lap_end, sr)
+
+    # ── スムージング ──────────────────────────────────────────────
+    sw = max(3, int(APEX_ACCY_SMOOTH_S * sr * accy_ratio))
+    abs_ay_s = smooth(abs_ay, sw)
+
+    # ── 局所極大(負→正の勾配符号変化)を抽出 ─────────────────────
+    grad = np.gradient(abs_ay_s)
+    pos_to_neg = (grad[:-1] >= 0) & (grad[1:] < 0)
+    local_max  = np.where(pos_to_neg)[0]
+
+    # ── フィルタ1: 最小横G閾値 ───────────────────────────────────
+    valid = local_max[abs_ay_s[local_max] >= APEX_ACCY_MIN_MS2]
+
+    # ── フィルタ2: プロミネンス (周辺との落差) ───────────────────
+    pw      = max(10, int(APEX_PROMINENCE_WINDOW_S * sr * accy_ratio))
+    min_gap = max(5, int(APEX_ACCY_MIN_GAP_S * sr * accy_ratio))
+    apexes  = []
+    last_i  = -min_gap
+
+    for idx in valid:
+        idx = int(idx)
+        w0 = max(0, idx - pw)
+        w1 = min(len(abs_ay_s), idx + pw)
+        surrounding = np.concatenate([abs_ay_s[w0:idx], abs_ay_s[idx+1:w1]])
+        if len(surrounding) == 0:
+            continue
+        prominence = float(abs_ay_s[idx]) - float(np.max(surrounding))
+        if prominence < -APEX_ACCY_PROMINENCE_MS2:   # 周囲より十分突出していない
+            continue
+        if idx - last_i < min_gap:
+            # 同じ間隔内なら横Gが大きい方を優先
+            if apexes and float(abs_ay_s[idx]) > float(abs_ay_s[apexes[-1] - ay0]):
+                apexes[-1] = ay0 + idx
+            continue
+        apexes.append(ay0 + idx)   # accy_raw のグローバルインデックス
+        last_i = idx
+
+    # ── ACC_Y インデックス → speed_raw インデックスに変換 ────────
+    speed_apexes = []
+    for ai_global in apexes:
+        si = int(round(ai_global / accy_ratio))
+        si = max(lap_start, min(lap_end - 1, si))
+        speed_apexes.append(si)
+
+    # ── 品質チェック: 速度最小点と検出数の比較 ───────────────────
+    fallback = detect_apexes(speed_raw, lap_start, lap_end, sr)
+    if len(fallback) > 0:
+        ratio_detected = len(speed_apexes) / len(fallback)
+        if ratio_detected < APEX_ACCY_QUALITY_RATIO or len(speed_apexes) == 0:
+            # 検出数が速度最小点の70%未満 → フォールバック
+            return fallback
+
+    return speed_apexes if speed_apexes else fallback
 
 
 # ── ピットレーンリミッター区間検出 ───────────────────────────────────
@@ -771,6 +891,13 @@ def analyze_mes(mes_path: Path, event_meta: dict | None = None) -> dict | None:
     # float スケールで対応（BRAKE SR が SPEED SR より低い場合も正しくマッピング）
     brake_scale = len(brake_f_raw) / len(sf_raw) if len(brake_f_raw) > 0 and len(sf_raw) > 0 else 1.0
 
+    # オプションチャンネル: ACC_Y（横G最大点APEX検出 — Primary method）
+    acc_y_raw   = np.array([], dtype=np.float32)
+    acc_y_ch_key = next((k for k in chs if k.upper() == "ACC_Y" and chs[k].get("ext")), None)
+    if acc_y_ch_key:
+        acc_y_raw = read_channel(mes_path, base, chs[acc_y_ch_key])
+    accy_ratio = max(1, round(len(acc_y_raw) / len(sf_raw))) if len(acc_y_raw) > 0 else 1
+
     # オプションチャンネル: タイヤ内圧 Front / Rear
     tyre_f_ch  = find_tyre_channel(chs, "F")
     tyre_r_ch  = find_tyre_channel(chs, "R")
@@ -823,8 +950,8 @@ def analyze_mes(mes_path: Path, event_meta: dict | None = None) -> dict | None:
         if lap_end - lap_start < 20:
             continue
 
-        # 1. APEX 検出 (全コーナー局所極小方式)
-        apexes = detect_apexes(sf_raw, lap_start, lap_end, sr)
+        # 1. APEX 検出 (横G最大点 Primary / 速度最小点 Fallback)
+        apexes = detect_apexes_accy(acc_y_raw, sf_raw, lap_start, lap_end, sr, accy_ratio)
         for ai in apexes:
             v_kmh = sf_raw[ai]
             if v_kmh < 0:
