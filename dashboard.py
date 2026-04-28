@@ -2648,30 +2648,74 @@ with _content_col:
                     st.caption("ラップタイム推移と APEX SusF の相関")
                     lt_ok = "LAP_TIME_S" in dfW.columns and dfW["LAP_TIME_S"].notna().any()
 
+                    # ラップタイム フォーマット helper: 秒 → "m:ss.00"
+                    def _fmt_lt(s):
+                        try:
+                            s = float(s)
+                            m = int(s) // 60
+                            return f"{m}:{s % 60:05.2f}"
+                        except Exception:
+                            return str(s)
+
+                    def _lt_yaxis(fig, series):
+                        """Y軸ティックを m:ss.00 形式に設定"""
+                        valid = series.dropna()
+                        if valid.empty:
+                            return
+                        lo = float(valid.min())
+                        hi = float(valid.max())
+                        step = 1.0  # 1秒刻み
+                        import math
+                        t_lo = math.floor(lo / step) * step
+                        t_hi = math.ceil(hi / step) * step
+                        ticks = []
+                        v = t_lo
+                        while v <= t_hi + 0.001:
+                            ticks.append(round(v, 3))
+                            v += step
+                        labels = [_fmt_lt(t) for t in ticks]
+                        fig.update_yaxes(
+                            tickvals=ticks,
+                            ticktext=labels,
+                            title_text="Lap Time"
+                        )
+
                     if lt_ok:
                         # ラップタイム推移 (ラン別)
-                        fig_lt = px.line(dfW, x="LAP_NO", y="LAP_TIME_S", color="RIDER",
+                        dfW_lt = dfW.copy()
+                        dfW_lt["LAP_TIME_FMT"] = dfW_lt["LAP_TIME_S"].apply(_fmt_lt)
+                        fig_lt = px.line(dfW_lt, x="LAP_NO", y="LAP_TIME_S", color="RIDER",
                                          line_dash="run_label", markers=True,
                                          color_discrete_map=RIDER_COLOR,
-                                         labels={"LAP_NO":"Lap No","LAP_TIME_S":"Lap Time (s)"},
+                                         hover_data={"LAP_TIME_S": False, "LAP_TIME_FMT": True,
+                                                     "run_label": True, "LAP_NO": True},
+                                         labels={"LAP_NO":"Lap No","LAP_TIME_S":"Lap Time",
+                                                 "LAP_TIME_FMT":"Lap Time","run_label":"Run"},
                                          title="Lap Time per Lap")
                         chart_layout(fig_lt, height=340, title="Lap Time per Lap")
+                        _lt_yaxis(fig_lt, dfW_lt["LAP_TIME_S"])
                         st.plotly_chart(fig_lt, use_container_width=True, config={"displayModeBar": False})
 
                         # APEX SusF vs Lap Time 散布図
                         if "APEX_SUSF_AVG" in dfW.columns and dfW["APEX_SUSF_AVG"].notna().any():
                             st.divider()
                             st.markdown("**APEX SusF vs Lap Time — 相関散布図**")
-                            dfXY = dfW.dropna(subset=["APEX_SUSF_AVG","LAP_TIME_S"])
+                            dfXY = dfW_lt.dropna(subset=["APEX_SUSF_AVG","LAP_TIME_S"])
                             if not dfXY.empty:
                                 fig_xy = px.scatter(dfXY, x="APEX_SUSF_AVG", y="LAP_TIME_S",
-                                                    color="RIDER", hover_data=["run_label","LAP_NO"],
+                                                    color="RIDER",
+                                                    hover_data={"LAP_TIME_S": False,
+                                                                "LAP_TIME_FMT": True,
+                                                                "run_label": True, "LAP_NO": True},
                                                     color_discrete_map=RIDER_COLOR,
                                                     trendline="ols",
                                                     labels={"APEX_SUSF_AVG":"APEX SusF (mm)",
-                                                            "LAP_TIME_S":"Lap Time (s)"},
+                                                            "LAP_TIME_S":"Lap Time",
+                                                            "LAP_TIME_FMT":"Lap Time",
+                                                            "run_label":"Run"},
                                                     title="APEX SusF vs Lap Time Correlation")
                                 chart_layout(fig_xy, height=350, title="APEX SusF vs Lap Time")
+                                _lt_yaxis(fig_xy, dfXY["LAP_TIME_S"])
                                 st.plotly_chart(fig_xy, use_container_width=True, config={"displayModeBar": False})
                                 st.caption("傾向線はOLS(最小二乗)回帰。傾きが負 = SusF 沈み増加 → タイム短縮の傾向")
                     else:
