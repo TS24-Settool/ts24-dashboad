@@ -2664,7 +2664,7 @@ with _content_col:
                             return
                         lo = float(valid.min())
                         hi = float(valid.max())
-                        step = 1.0  # 1秒刻み
+                        step = 5.0  # 5秒刻み
                         import math
                         t_lo = math.floor(lo / step) * step
                         t_hi = math.ceil(hi / step) * step
