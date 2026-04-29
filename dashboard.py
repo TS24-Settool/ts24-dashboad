@@ -3042,13 +3042,58 @@ with _content_col:
                                                  "Δ (mm)":  float(v)})
                     if bar_rows:
                         df_bar = pd.DataFrame(bar_rows)
-                        df_bar["Group"] = df_bar["Rider"] + " " + df_bar["Metric"]
-                        fig_d = px.bar(df_bar, x="Circuit", y="Δ (mm)", color="Group", barmode="group",
-                                       color_discrete_sequence=["#0078D4","#66B2E8","#E74C3C","#F1948A",
-                                                                 "#27AE60","#82E0AA","#E67E22","#FAD7A0"],
-                                       labels={"Δ (mm)": "Δ mm (FAST − SLOW)"})
-                        fig_d.add_hline(y=0, line_dash="dash", line_color="#555", line_width=1.5)
-                        chart_layout(fig_d, height=360, title="Suspension Direction: positive = more compression when fast")
+                        _metric_colors = {
+                            "THR_ON SusF": "#0078D4",
+                            "THR_ON SusR": "#50B0F0",
+                            "Brk SusF":    "#E8543A",
+                            "Brk SusR":    "#F4A28C",
+                        }
+                        _riders_sorted = sorted(df_bar["Rider"].unique())
+                        _n_riders = len(_riders_sorted)
+                        fig_d = px.bar(
+                            df_bar, x="Circuit", y="Δ (mm)",
+                            color="Metric", barmode="group",
+                            facet_col="Rider",
+                            facet_col_wrap=_n_riders,
+                            color_discrete_map=_metric_colors,
+                            category_orders={"Rider": _riders_sorted},
+                            labels={"Δ (mm)": "Δ mm (FAST − SLOW)", "Circuit": ""},
+                        )
+                        fig_d.add_hline(y=0, line_color="#222", line_width=2)
+                        fig_d.update_traces(marker_line_width=0)
+                        fig_d.update_layout(
+                            height=460,
+                            bargap=0.35,
+                            bargroupgap=0.06,
+                            plot_bgcolor="white",
+                            paper_bgcolor="white",
+                            legend=dict(
+                                title="Metric",
+                                orientation="v",
+                                x=1.01, xanchor="left", y=0.5,
+                                font=dict(size=12),
+                                bgcolor="white",
+                            ),
+                            margin=dict(t=70, b=60, l=60, r=160),
+                            title=dict(
+                                text="Suspension Direction: positive = more compression when fast",
+                                font=dict(size=13, color="#333"),
+                                x=0, xanchor="left",
+                            ),
+                            xaxis=dict(showgrid=False, linecolor="#CCCCCC", tickfont=dict(size=11)),
+                            yaxis=dict(
+                                gridcolor="#E5E7EB", gridwidth=1,
+                                linecolor="#CCCCCC", zeroline=False,
+                                ticksuffix=" mm", tickfont=dict(size=11),
+                            ),
+                        )
+                        for axis in [k for k in fig_d.layout._props if k.startswith("xaxis") or k.startswith("yaxis")]:
+                            fig_d.layout[axis].update(showgrid=False if axis.startswith("xaxis") else True,
+                                                      gridcolor="#E5E7EB")
+                        fig_d.for_each_annotation(lambda a: a.update(
+                            text=a.text.split("=")[-1],
+                            font=dict(size=13, color="#333"),
+                        ))
                         st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
 
                     # ── Setup recommendation text ──────────
