@@ -3071,9 +3071,14 @@ with _content_col:
                         # Zero reference line
                         fig_d.add_hline(y=0, line_color="#222", line_width=1.8,
                                         line_dash="dot")
-                        # Shade positive / negative regions subtly
-                        fig_d.add_hrect(y0=0, y1=999,  fillcolor="#0078D4", opacity=0.04, line_width=0)
-                        fig_d.add_hrect(y0=-999, y1=0, fillcolor="#E8543A", opacity=0.04, line_width=0)
+                        # Y-axis range: data range + 30% padding
+                        _y_vals = df_bar["Δ (mm)"].dropna()
+                        _y_pad  = max(abs(_y_vals.max()), abs(_y_vals.min())) * 0.35
+                        _y_min  = _y_vals.min() - _y_pad
+                        _y_max  = _y_vals.max() + _y_pad
+                        # Shade positive / negative regions within data range
+                        fig_d.add_hrect(y0=0,     y1=_y_max, fillcolor="#0078D4", opacity=0.05, line_width=0)
+                        fig_d.add_hrect(y0=_y_min, y1=0,     fillcolor="#E8543A", opacity=0.05, line_width=0)
                         fig_d.update_layout(
                             height=480,
                             plot_bgcolor="white",
@@ -3098,6 +3103,7 @@ with _content_col:
                             tickfont=dict(size=11), tickangle=-20,
                         )
                         fig_d.update_yaxes(
+                            range=[_y_min, _y_max],
                             gridcolor="#E5E7EB", gridwidth=1,
                             linecolor="#CCCCCC", zeroline=False,
                             ticksuffix=" mm", tickfont=dict(size=11),
