@@ -1834,12 +1834,12 @@ with _content_col:
     elif _NAV == "⏱  Race Pace":
 
         def fmt_laptime(sec):
-            """97.901 → '1:37.901'"""
+            """97.901 → '1:37.90'"""
             if sec is None or pd.isna(sec):
                 return "—"
             m = int(sec // 60)
             s = sec - m * 60
-            return f"{m}:{s:06.3f}"
+            return f"{m}:{s:05.2f}"
 
         if laps.empty:
             st.info("No lap time data. Run lap_sync.py first.")
@@ -2200,7 +2200,7 @@ with _content_col:
                     if s is None or (isinstance(s, float) and pd.isna(s)):
                         return "—"
                     m = int(s) // 60
-                    return f"{m}:{s % 60:06.3f}"
+                    return f"{m}:{s % 60:05.2f}"
 
                 rows = []
                 for ses in sessions_avail:
@@ -2304,6 +2304,8 @@ with _content_col:
                             line=dict(color="#2ECC71", width=2, dash="dot"),
                             mode="lines+markers",
                             marker=dict(size=7, symbol="diamond"),
+                            customdata=[fmt_lap(v) for v in p1_ref.values()],
+                            hovertemplate="%{x}  <b>%{customdata}</b><extra>P1 Rider Avg</extra>",
                         ))
 
                     for rider in riders_to_show:
@@ -2318,15 +2320,43 @@ with _content_col:
                             marker=dict(size=9),
                             text=[f"P1+{g:.3f}s" for g in rd["P1 Gap (s)"]],
                             textposition="top center",
+                            customdata=list(zip(
+                                [fmt_lap(v) for v in rd["Best (s)"]],
+                                [f"+{g:.3f}s" for g in rd["P1 Gap (s)"]],
+                            )),
+                            hovertemplate="%{x}  <b>%{customdata[0]}</b>  (%{customdata[1]})<extra>" + rider + "</extra>",
                         ))
+
+                    # Y-axis tick range in mm:ss.00
+                    _evo_y_all = list(p1_ref.values()) + [
+                        float(v) for r in riders_to_show
+                        for v in df_m[df_m["Rider"] == r]["Best (s)"].dropna()
+                    ]
+                    if _evo_y_all:
+                        import numpy as _np
+                        _evo_lo = min(_evo_y_all) - 0.4
+                        _evo_hi = max(_evo_y_all) + 0.4
+                        _step = 0.5
+                        _evo_ticks = list(_np.arange(
+                            _np.floor(_evo_lo / _step) * _step,
+                            _np.ceil(_evo_hi / _step) * _step + _step,
+                            _step,
+                        ))
+                        _evo_yaxis = dict(
+                            tickvals=_evo_ticks,
+                            ticktext=[fmt_lap(v) for v in _evo_ticks],
+                            range=[_evo_hi, _evo_lo],   # reversed: faster = top
+                        )
+                    else:
+                        _evo_yaxis = dict(autorange="reversed")
 
                     fig_evo.update_layout(
                         xaxis_title="Session",
-                        yaxis_title="Lap Time (s)",
-                        yaxis_autorange="reversed",   # lower = faster = top
+                        yaxis_title="Lap Time",
+                        yaxis=_evo_yaxis,
                         legend=dict(orientation="h", y=1.12),
                         height=420,
-                        margin=dict(l=50, r=20, t=40, b=40),
+                        margin=dict(l=60, r=20, t=40, b=40),
                         plot_bgcolor="#FAFAFA",
                         paper_bgcolor="white",
                     )
