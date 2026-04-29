@@ -2554,9 +2554,13 @@ with _content_col:
                 _riders_2d  = sorted(df_2ds["rider"].dropna().unique())
                 _stypes_2d  = sorted(df_2ds["session_type"].dropna().unique())
 
-                # 最新ラウンドをデフォルトに
-                _2d_latest_rnd = _rounds_2d[-1] if _rounds_2d else None
-                _2d_default_rnd = [_2d_latest_rnd] if _2d_latest_rnd else _rounds_2d
+                # 最新ラウンドをデフォルトに（日付ベースで判定）
+                try:
+                    _2d_latest_date = df_2ds["date"].dropna().max()
+                    _2d_latest_rnd  = df_2ds.loc[df_2ds["date"] == _2d_latest_date, "round"].iloc[0]
+                    _2d_default_rnd = [_2d_latest_rnd] if _2d_latest_rnd in _rounds_2d else _rounds_2d
+                except Exception:
+                    _2d_default_rnd = _rounds_2d
 
                 with col_f1:
                     _sel_round = st.multiselect("Round",   _rounds_2d, default=_2d_default_rnd, key="2d_round")
