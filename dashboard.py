@@ -2867,13 +2867,41 @@ with _content_col:
                        "Mac で run_full_analysis.command を実行後、git push してください。")
             st.caption(f"DYN JSON exists: {_JSON_DYN.exists()} | LT JSON exists: {_JSON_LT.exists()} | Excel exists: {_DYNAMICS_EXCEL.exists()}")
         else:
-            # ── Re-compute correlation in pandas ───────────
+            # ── Apex定義: THR_ON (③アクセルON点) を使用 ──────────
             MIN_LAP_S_CORR = 80.0
 
-            # Build LT key → best lap
+            # ── LAP_SUSPENSION から THR_ON / BRK をラン別集計 ────
+            df_ls = _load_lap_suspension()
+            ls_map = {}
+            if not df_ls.empty:
+                for nc in ["THRON_SUSF_AVG","THRON_SUSR_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
+                           "THRON_CNT","BRK_CNT","APEX_SPD_AVG","APEX_CNT"]:
+                    if nc in df_ls.columns:
+                        df_ls[nc] = pd.to_numeric(df_ls[nc], errors="coerce")
+                _grp_cols = [c for c in ["RIDER","CIRCUIT","DATE","RUN_NO"] if c in df_ls.columns]
+                if _grp_cols:
+                    for _gkey, _gdf in df_ls.groupby(_grp_cols):
+                        if len(_grp_cols) == 4:
+                            rider_g, circ_g, date_g, run_g = _gkey
+                        else:
+                            continue
+                        circ_n = _dyn_norm_circuit(circ_g)
+                        date_s = str(date_g or "")
+                        try: run_i = int(run_g or 0)
+                        except: run_i = 0
+                        g_thron = _gdf[_gdf["THRON_CNT"] > 0] if "THRON_CNT" in _gdf.columns else _gdf
+                        g_brk   = _gdf[_gdf["BRK_CNT"] > 0]   if "BRK_CNT"   in _gdf.columns else _gdf
+                        ls_map[(rider_g, circ_n, date_s, run_i)] = {
+                            "thron_susF": g_thron["THRON_SUSF_AVG"].dropna().mean() if not g_thron.empty else None,
+                            "thron_susR": g_thron["THRON_SUSR_AVG"].dropna().mean() if not g_thron.empty else None,
+                            "brk_susF":   g_brk["BRK_SUSF_AVG"].dropna().mean()    if not g_brk.empty   else None,
+                            "brk_susR":   g_brk["BRK_SUSR_AVG"].dropna().mean()    if not g_brk.empty   else None,
+                            "apex_spd":   _gdf["APEX_SPD_AVG"].dropna().mean()      if "APEX_SPD_AVG" in _gdf.columns else None,
+                        }
+
+            # ── LAP_TIMES からラン最良タイム ────────────────────
             lt_map = {}
             if not df_lt.empty:
-                # Try common column names
                 lt_rider_col  = next((c for c in df_lt.columns if str(c).lower() in ("rider","rider_id")), None)
                 lt_circ_col   = next((c for c in df_lt.columns if str(c).lower() in ("circuit","circ")), None)
                 lt_date_col   = next((c for c in df_lt.columns if str(c).lower() in ("date","session_date")), None)
@@ -2882,7 +2910,6 @@ with _content_col:
                                       ("lap_time_s","laptime_s","lap time s","time (s)")), None)
                 lt_outlap_col = next((c for c in df_lt.columns if str(c).lower() in
                                       ("outlap","is_outlap","out_lap","outlap?")), None)
-
                 if all([lt_rider_col, lt_circ_col, lt_date_col, lt_run_col, lt_ts_col]):
                     for _, lr in df_lt.iterrows():
                         rider = str(lr[lt_rider_col] or "")
@@ -2892,52 +2919,35 @@ with _content_col:
                         if not isinstance(ts, (int, float)) or ts < MIN_LAP_S_CORR or ts > 400: continue
                         circ = _dyn_norm_circuit(lr[lt_circ_col])
                         date = str(lr[lt_date_col] or "")
-                        try:
-                            run = int(lr[lt_run_col] or 0)
-                        except Exception:
-                            run = 0
-                        key = (rider, circ, date, run)
-                        lt_map.setdefault(key, []).append(float(ts))
-
-            # Aggregate LT map to best lap
+                        try: run = int(lr[lt_run_col] or 0)
+                        except: run = 0
+                        lt_map.setdefault((rider, circ, date, run), []).append(float(ts))
             lt_best = {k: min(v) for k, v in lt_map.items()}
 
-            # Build dynamics lookup (copy to avoid mutating cached DataFrame)
-            dy_map = {}
-            df_dyn = df_dyn.copy()
-            df_dyn["Circuit_n"] = df_dyn["Circuit"].apply(_dyn_norm_circuit)
-            df_dyn["Date_s"]    = df_dyn["Date"].astype(str)
-            for _, dr in df_dyn.iterrows():
-                rider = str(dr.get("Rider","") or "")
-                if not rider: continue
-                try:
-                    run = int(dr.get("Run", 0) or 0)
-                except Exception:
-                    run = 0
-                key = (rider, dr["Circuit_n"], dr["Date_s"], run)
-                dy_map[key] = dr
-
-            # Join
+            # ── THR_ON データ × LAP_TIMES をジョイン ────────────
             matched_rows = []
             for key, best_s in lt_best.items():
-                if key not in dy_map: continue
-                dr = dy_map[key]
+                if key not in ls_map: continue
+                ld = ls_map[key]
                 rider, circ, date, run = key
                 matched_rows.append({
                     "rider": rider, "circuit": circ, "date": date, "run": run,
                     "best_s": best_s,
-                    "apex_susF": dr.get("APEX SusF (mm)"), "apex_susR": dr.get("APEX SusR (mm)"),
-                    "apex_whlF": dr.get("APEX WhlF (N)"),  "apex_whlR": dr.get("APEX WhlR (N)"),
-                    "apex_spd":  dr.get("APEX Spd (km/h)"),
-                    "brk_susF":  dr.get("Brk SusF (mm)"),  "brk_susR":  dr.get("Brk SusR (mm)"),
-                    "brk_spd":   dr.get("Brk Spd (km/h)"),
+                    "apex_susF": ld.get("thron_susF"),  # ③ THR_ON SusF
+                    "apex_susR": ld.get("thron_susR"),  # ③ THR_ON SusR
+                    "apex_whlF": None,
+                    "apex_whlR": None,
+                    "apex_spd":  ld.get("apex_spd"),
+                    "brk_susF":  ld.get("brk_susF"),
+                    "brk_susR":  ld.get("brk_susR"),
+                    "brk_spd":   None,
                 })
 
             if not matched_rows:
-                st.info(f"マッチするセッションが見つかりません（DYN={len(dy_map)}件 / LT={len(lt_best)}件）。\n\n"
-                        "run_full_analysis.command を実行後、git push してください。")
+                st.info(f"マッチするセッションが見つかりません（LAP_SUS={len(ls_map)}件 / LT={len(lt_best)}件）。\n\n"
+                        "lap_suspension_data.json が最新か確認してください。")
             else:
-                st.caption(f"✅ マッチ: {len(matched_rows)} セッション")
+                st.caption(f"✅ THR_ON Apex / {len(matched_rows)} セッションマッチ")
                 df_m = pd.DataFrame(matched_rows)
 
                 # Tier classification per rider×circuit（groupby.apply を避けて手動ループ）
@@ -2959,12 +2969,12 @@ with _content_col:
                             t = "MED"
                         df_m.at[orig_idx, "tier"] = t
 
-                METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_whlF","apex_whlR","apex_spd"]
+                # apex_whlF/R は THR_ON ソースにないので除外
+                METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_spd"]
                 METRIC_LABELS = {
-                    "apex_susF": "APEX SusF (mm)", "apex_susR": "APEX SusR (mm)",
-                    "brk_susF":  "Brk SusF (mm)",  "brk_susR":  "Brk SusR (mm)",
-                    "apex_whlF": "APEX WhlF (N)",   "apex_whlR": "APEX WhlR (N)",
-                    "apex_spd":  "APEX Spd (km/h)"
+                    "apex_susF": "THR_ON SusF (mm)", "apex_susR": "THR_ON SusR (mm)",
+                    "brk_susF":  "Brk SusF (mm)",    "brk_susR":  "Brk SusR (mm)",
+                    "apex_spd":  "APEX Spd (km/h)",
                 }
 
                 # ── Rider filter ──────────────────────────
@@ -3019,8 +3029,8 @@ with _content_col:
                     st.divider()
                     st.markdown('<p class="section-title">Δ (FAST − SLOW) — Suspension Direction per Circuit</p>',
                                 unsafe_allow_html=True)
-                    bar_metrics = [("Δ APEX SusF (mm)", "APEX SusF"), ("Δ APEX SusR (mm)", "APEX SusR"),
-                                   ("Δ Brk SusF (mm)",  "Brk SusF"),  ("Δ Brk SusR (mm)",  "Brk SusR")]
+                    bar_metrics = [("Δ THR_ON SusF (mm)", "THR_ON SusF"), ("Δ THR_ON SusR (mm)", "THR_ON SusR"),
+                                   ("Δ Brk SusF (mm)",    "Brk SusF"),   ("Δ Brk SusR (mm)",    "Brk SusR")]
                     bar_rows = []
                     for _, sr in df_sum.iterrows():
                         for col, short in bar_metrics:
@@ -3065,14 +3075,13 @@ with _content_col:
                 st.divider()
                 st.markdown('<p class="section-title">All Matched Sessions</p>', unsafe_allow_html=True)
                 disp_m = df_m_f[["rider","circuit","date","run","best_s","tier",
-                                  "apex_susF","apex_susR","brk_susF","brk_susR",
-                                  "apex_whlF","apex_whlR","apex_spd"]].copy()
+                                  "apex_susF","apex_susR","brk_susF","brk_susR","apex_spd"]].copy()
                 disp_m["best_lap"] = disp_m["best_s"].apply(
                     lambda s: f"{int(s)//60}:{s%60:06.3f}" if pd.notna(s) else "—")
                 disp_m = disp_m.drop(columns=["best_s"])
                 disp_m.columns = ["Rider","Circuit","Date","Run","Tier",
-                                   "APX SusF","APX SusR","Brk SusF","Brk SusR",
-                                   "APX WhlF","APX WhlR","APX Spd","Best Lap"]
+                                   "THR_ON SusF","THR_ON SusR","Brk SusF","Brk SusR",
+                                   "APEX Spd","Best Lap"]
 
                 def _tier_color(v):
                     return {"FAST":"background-color:#C6EFCE","MED":"background-color:#FFEB9C",
