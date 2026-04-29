@@ -767,9 +767,8 @@ def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
 # FLOATING CHAT — always-visible AI assistant button
 # ══════════════════════════════════════════════════════════════
 
-FLOAT_CHAT_CSS = """
+FLOAT_CHAT_HTML = """
 <style>
-/* Floating Chat FAB */
 #ts24-float-fab {
     position: fixed;
     bottom: 28px;
@@ -780,15 +779,11 @@ FLOAT_CHAT_CSS = """
     border-radius: 50%;
     background: linear-gradient(135deg, #0078D4 60%, #005fa3 100%);
     color: white;
-    border: none;
+    border: 3px solid white;
     cursor: pointer;
-    font-size: 26px;
+    font-size: 24px;
     box-shadow: 0 4px 16px rgba(0,120,212,0.45);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     transition: transform 0.15s, box-shadow 0.15s;
-    text-decoration: none;
 }
 #ts24-float-fab:hover {
     transform: scale(1.10);
@@ -797,7 +792,7 @@ FLOAT_CHAT_CSS = """
 #ts24-float-fab-label {
     position: fixed;
     bottom: 92px;
-    right: 22px;
+    right: 18px;
     z-index: 99999;
     background: rgba(0,0,0,0.72);
     color: white;
@@ -809,19 +804,28 @@ FLOAT_CHAT_CSS = """
     font-family: Arial, sans-serif;
 }
 </style>
+<script>
+function ts24ToggleChat() {
+    var doc = window.parent.document;
+    // Streamlit sidebar collapse/expand button
+    var btn = doc.querySelector('[data-testid="collapsedControl"]');
+    if (btn) { btn.click(); return; }
+    // When sidebar is open, its close button is inside the sidebar
+    var sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+    if (sidebar) {
+        var inner = sidebar.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
+                    sidebar.querySelector('button[kind="header"]');
+        if (inner) { inner.click(); return; }
+    }
+}
+</script>
+<span id="ts24-float-fab-label">AI Chat</span>
+<button id="ts24-float-fab" onclick="ts24ToggleChat()" title="AI Analysis Partner">🤖</button>
 """
 
-def render_float_fab(chat_open: bool):
-    """Inject the floating chat button. Clicking toggles ?chat=1/0 in URL."""
-    next_val = "0" if chat_open else "1"
-    icon     = "✕" if chat_open else "🤖"
-    label    = "Close Chat" if chat_open else "AI Chat"
-    st.markdown(
-        FLOAT_CHAT_CSS +
-        f'<span id="ts24-float-fab-label">{label}</span>'
-        f'<a id="ts24-float-fab" href="?chat={next_val}" title="{label}">{icon}</a>',
-        unsafe_allow_html=True,
-    )
+def render_float_fab():
+    """Inject the floating chat FAB. Uses JS sidebar toggle — no page reload."""
+    st.markdown(FLOAT_CHAT_HTML, unsafe_allow_html=True)
 
 
 def render_sidebar_chat(api_key: str, page_context: dict, memory: dict):
@@ -1008,7 +1012,7 @@ st.set_page_config(
     page_title="TS24 Dashboard",
     page_icon="🏍",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ── Global CSS ────────────────────────────────────
@@ -1196,9 +1200,8 @@ sessions, tags, results, sectors, laps = load_data()
 if "race_memory" not in st.session_state:
     st.session_state["race_memory"] = load_race_memory()
 
-# ── Floating Chat — read URL param ────────────────
-_chat_open = st.query_params.get("chat", "0") == "1"
-render_float_fab(_chat_open)
+# ── Floating Chat FAB — JS sidebar toggle (no page reload) ────
+render_float_fab()
 
 # ── Main layout: left nav column + right content column ──────
 # Using columns instead of st.sidebar so the nav is always visible
@@ -1404,32 +1407,36 @@ with _content_col:
     # ── Navigation routing (sidebar radio → content area) ──────────
     _NAV = nav_sel  # shorthand
 
-    # ── Floating Chat — sidebar panel (always rendered when chat open) ────
-    if _chat_open and claude_ready:
-        # Build page-aware data snapshot for context injection
-        _snap_lines = []
-        if sel_circuit != "All":
-            _snap_lines.append(f"Circuit filter: {sel_circuit}")
-        if sel_rider != "All":
-            _snap_lines.append(f"Rider filter: {sel_rider}")
-        _snap_lines.append(f"Sessions in view: {len(df_s)}")
-        _snap_lines.append(f"Problem tags in view: {len(df_t_event)}")
-        _page_ctx = {
-            "page":          _NAV.strip().lstrip("📊🗺📈🏁⏱📐🏎🔬📊🎯📋📉🔍🏆🤖💬").strip(),
-            "circuit":       sel_circuit,
-            "rider":         sel_rider,
-            "data_snapshot": "\n".join(_snap_lines),
-        }
+    # ── Floating Chat — sidebar panel (always rendered, toggled by JS FAB) ─
+    _snap_lines = []
+    if sel_circuit != "All":
+        _snap_lines.append(f"Circuit filter: {sel_circuit}")
+    if sel_rider != "All":
+        _snap_lines.append(f"Rider filter: {sel_rider}")
+    _snap_lines.append(f"Sessions in view: {len(df_s)}")
+    _snap_lines.append(f"Problem tags in view: {len(df_t_event)}")
+    _page_ctx = {
+        "page":          _NAV.strip().lstrip("📊🗺📈🏁⏱📐🏎🔬📊🎯📋📉🔍🏆🤖💬 ").strip(),
+        "circuit":       sel_circuit,
+        "rider":         sel_rider,
+        "data_snapshot": "\n".join(_snap_lines),
+    }
+    if claude_ready:
         render_sidebar_chat(
-            api_key   = st.session_state.get("claude_api_key", ""),
+            api_key      = st.session_state.get("claude_api_key", ""),
             page_context = _page_ctx,
-            memory    = st.session_state["race_memory"],
+            memory       = st.session_state["race_memory"],
         )
-        # Reload memory after potential updates
         st.session_state["race_memory"] = load_race_memory()
-    elif _chat_open and not claude_ready:
+    else:
         with st.sidebar:
-            st.warning("⚠️  APIキーが必要です。左ナビの **Claude AI** 欄で設定してください。")
+            st.markdown(
+                "<div style='text-align:center;padding:16px 8px'>"
+                "<span style='font-size:32px'>🤖</span><br>"
+                "<span style='font-weight:700;color:#0078D4'>AI Analysis Partner</span>"
+                "</div>", unsafe_allow_html=True
+            )
+            st.warning("⚠️  APIキーが必要です。\n\n左ナビの **Claude AI** 欄で設定してください。")
 
     # ═══════════════════════════════════════════════════
     # PAGE 1 — Problem Analysis
