@@ -2856,11 +2856,16 @@ with _content_col:
                    "FAST = top 33%, SLOW = bottom 33%. "
                    "Δ = FAST avg − SLOW avg (positive = front compresses more when fast).")
 
-        df_dyn, df_lt = _load_dynamics_data()
+        try:
+            df_dyn, df_lt = _load_dynamics_data()
+        except Exception as _ld_err:
+            st.error(f"データ読み込みエラー: {_ld_err}")
+            df_dyn = pd.DataFrame(); df_lt = pd.DataFrame()
 
         if df_dyn.empty:
-            st.warning("⚠️ データが見つかりません。\n\n"
+            st.warning("⚠️ データが見つかりません（dynamics_data.json / TS24 DB Master.xlsx）。\n\n"
                        "Mac で run_full_analysis.command を実行後、git push してください。")
+            st.caption(f"DYN JSON exists: {_JSON_DYN.exists()} | LT JSON exists: {_JSON_LT.exists()} | Excel exists: {_DYNAMICS_EXCEL.exists()}")
         else:
             # ── Re-compute correlation in pandas ───────────
             MIN_LAP_S_CORR = 80.0
@@ -2929,30 +2934,30 @@ with _content_col:
                 })
 
             if not matched_rows:
-                st.info("No matched sessions between DYNAMICS_ANALYSIS and LAP_TIMES.\n\n"
-                        "Ensure run_full_analysis.command has been executed with current data.")
+                st.info(f"マッチするセッションが見つかりません（DYN={len(dy_map)}件 / LT={len(lt_best)}件）。\n\n"
+                        "run_full_analysis.command を実行後、git push してください。")
             else:
+                st.caption(f"✅ マッチ: {len(matched_rows)} セッション")
                 df_m = pd.DataFrame(matched_rows)
 
-                # Tier classification per rider×circuit
-                def assign_tier(grp):
-                    grp = grp.sort_values("best_s").reset_index(drop=True)
-                    n = len(grp)
-                    tiers = []
-                    for i in range(n):
-                        pct = i / max(n-1, 1)
+                # Tier classification per rider×circuit（groupby.apply を避けて手動ループ）
+                df_m = df_m.copy()
+                df_m["tier"] = "MED"
+                for (rider_k, circ_k), idx in df_m.groupby(["rider","circuit"]).groups.items():
+                    sub = df_m.loc[idx].sort_values("best_s")
+                    n = len(sub)
+                    idxs = list(sub.index)
+                    for rank, orig_idx in enumerate(idxs):
+                        pct = rank / max(n - 1, 1)
                         if n < 3:
-                            tiers.append("FAST" if i == 0 else "SLOW")
+                            t = "FAST" if rank == 0 else "SLOW"
                         elif pct <= 0.33:
-                            tiers.append("FAST")
+                            t = "FAST"
                         elif pct >= 0.67:
-                            tiers.append("SLOW")
+                            t = "SLOW"
                         else:
-                            tiers.append("MED")
-                    grp["tier"] = tiers
-                    return grp
-
-                df_m = df_m.groupby(["rider","circuit"], group_keys=False).apply(assign_tier)
+                            t = "MED"
+                        df_m.at[orig_idx, "tier"] = t
 
                 METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_whlF","apex_whlR","apex_spd"]
                 METRIC_LABELS = {
@@ -3078,6 +3083,7 @@ with _content_col:
                     _styler_fn2(_tier_color, subset=["Tier"]),
                     use_container_width=True, height=360
                 )
+
 
     # ═══════════════════════════════════════════════════
     # PAGE 7 — Trend Analysis
