@@ -302,6 +302,9 @@ def login_page():
         border:1px solid #2C3E50;max-width:420px;margin:60px auto;}
     input{background:#0F1923!important;color:#FFFFFF!important;border:1px solid #2C3E50!important;}
     #MainMenu,footer,header{visibility:hidden;}
+    @media (max-width:480px){
+        div[data-testid="stForm"]{padding:24px 16px!important;margin:20px 12px!important;}
+    }
     </style>""", unsafe_allow_html=True)
 
     st.markdown("<h2 style='text-align:center;color:#0078D4;margin-bottom:4px'>🏍 TS24 Dashboard</h2>", unsafe_allow_html=True)
@@ -891,6 +894,25 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
       flex:1; display:flex; align-items:center; justify-content:center;
       color:#AAA; font-size:12px; text-align:center; line-height:1.6;
     }}
+    @media (max-width: 768px) {{
+      #ts24-panel {{
+        width: calc(100vw - 20px) !important;
+        right: 10px !important;
+        left: 10px !important;
+        height: 70vh !important;
+        bottom: 90px !important;
+      }}
+      #ts24-fab {{
+        bottom: 16px !important;
+        right: 16px !important;
+        width: 48px !important;
+        height: 48px !important;
+      }}
+      #ts24-fab-tip {{
+        bottom: 74px !important;
+        right: 10px !important;
+      }}
+    }}
   `;
   doc.head.appendChild(s);
 
@@ -1228,6 +1250,94 @@ st.markdown("""
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child::-webkit-scrollbar-thumb {
         background: #DDE1E7;
         border-radius: 4px;
+    }
+
+    /* ── Mobile / iPhone responsive (max-width: 768px) ── */
+    @media (max-width: 768px) {
+
+        /* Stack nav column above content */
+        div[data-testid="stHorizontalBlock"] {
+            flex-direction: column !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+
+        /* Remove sticky from nav column on mobile */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+            position: static !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        /* Nav radio: horizontal scrollable pill bar */
+        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] > div:last-child {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            gap: 4px !important;
+            padding: 4px 0 8px !important;
+            scrollbar-width: none !important;
+        }
+        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] > div:last-child::-webkit-scrollbar {
+            display: none !important;
+        }
+        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] label {
+            white-space: nowrap !important;
+            width: auto !important;
+            min-width: auto !important;
+            padding: 6px 10px !important;
+            font-size: 12px !important;
+            flex-shrink: 0 !important;
+            border-radius: 16px !important;
+        }
+        /* Active nav pill on mobile: bottom border instead of left border */
+        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] label:has(input:checked) {
+            border-left: none !important;
+            border-bottom: 2px solid #0078D4 !important;
+            padding-left: 10px !important;
+        }
+
+        /* Reduce page padding */
+        div[data-testid="block-container"] {
+            padding: 1rem 0.75rem !important;
+            max-width: 100% !important;
+        }
+
+        /* Metric cards: compact */
+        div[data-testid="stMetricValue"] {
+            font-size: 20px !important;
+        }
+        div[data-testid="metric-container"] {
+            padding: 10px 12px !important;
+        }
+
+        /* Tabs: compact text */
+        button[data-baseweb="tab"] {
+            font-size: 11px !important;
+            padding: 8px 6px !important;
+        }
+
+        /* Charts: full width */
+        div[data-testid="stPlotlyChart"] {
+            width: 100% !important;
+        }
+
+        /* Section title: slightly smaller */
+        .section-title {
+            font-size: 11px !important;
+        }
+
+        /* Detail rows: allow wrapping */
+        .detail-row {
+            flex-wrap: wrap !important;
+            font-size: 12px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
