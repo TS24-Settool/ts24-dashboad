@@ -2554,8 +2554,12 @@ with _content_col:
                 _riders_2d  = sorted(df_2ds["rider"].dropna().unique())
                 _stypes_2d  = sorted(df_2ds["session_type"].dropna().unique())
 
+                # 最新ラウンドをデフォルトに
+                _2d_latest_rnd = _rounds_2d[-1] if _rounds_2d else None
+                _2d_default_rnd = [_2d_latest_rnd] if _2d_latest_rnd else _rounds_2d
+
                 with col_f1:
-                    _sel_round = st.multiselect("Round",   _rounds_2d, default=_rounds_2d, key="2d_round")
+                    _sel_round = st.multiselect("Round",   _rounds_2d, default=_2d_default_rnd, key="2d_round")
                 with col_f2:
                     _sel_rider = st.multiselect("Rider",   _riders_2d, default=_riders_2d, key="2d_rider")
                 with col_f3:
@@ -2813,10 +2817,20 @@ with _content_col:
             _dyn_circuits = sorted(df_dyn["Circuit"].apply(_dyn_norm_circuit).dropna().unique())
             _dyn_sessions = sorted(df_dyn["Session"].apply(_dyn_norm_session).dropna().unique())
 
+            # 最新イベントのサーキットをデフォルトに
+            try:
+                _dyn_latest_date = df_dyn["Date"].dropna().max()
+                _dyn_latest_circ = _dyn_norm_circuit(
+                    df_dyn.loc[df_dyn["Date"] == _dyn_latest_date, "Circuit"].iloc[0]
+                )
+                _dyn_default_circ = [_dyn_latest_circ] if _dyn_latest_circ in _dyn_circuits else _dyn_circuits
+            except Exception:
+                _dyn_default_circ = _dyn_circuits
+
             with fc1:
                 _f_rider = st.multiselect("Rider", _dyn_riders, default=_dyn_riders, key="dyn_rider")
             with fc2:
-                _f_circuit = st.multiselect("Circuit", _dyn_circuits, default=_dyn_circuits, key="dyn_circ")
+                _f_circuit = st.multiselect("Circuit", _dyn_circuits, default=_dyn_default_circ, key="dyn_circ")
             with fc3:
                 _f_session = st.multiselect("Session", _dyn_sessions, default=_dyn_sessions, key="dyn_sess")
 
@@ -2957,15 +2971,27 @@ with _content_col:
             _ls_riders   = sorted(df_ls["RIDER"].dropna().unique())   if "RIDER"   in df_ls.columns else []
             _ls_circuits = sorted(df_ls["CIRCUIT"].dropna().unique()) if "CIRCUIT" in df_ls.columns else []
             _ls_sessions = sorted(df_ls["SESSION"].dropna().unique()) if "SESSION" in df_ls.columns else []
+            _ls_rounds   = sorted(df_ls["ROUND"].dropna().unique())   if "ROUND"   in df_ls.columns else []
+
+            # 最新イベントをデフォルトに
+            try:
+                _ls_latest_date = df_ls["DATE"].dropna().max() if "DATE" in df_ls.columns else None
+                _ls_latest_circ = df_ls.loc[df_ls["DATE"] == _ls_latest_date, "CIRCUIT"].iloc[0] if _ls_latest_date else None
+                _ls_latest_rnd  = df_ls.loc[df_ls["DATE"] == _ls_latest_date, "ROUND"].iloc[0]  if _ls_latest_date else None
+                _ls_default_circ = [_ls_latest_circ] if _ls_latest_circ in _ls_circuits else _ls_circuits
+                _ls_default_rnd  = [_ls_latest_rnd]  if _ls_latest_rnd  in _ls_rounds  else _ls_rounds
+            except Exception:
+                _ls_default_circ = _ls_circuits
+                _ls_default_rnd  = _ls_rounds
+
             with fc1:
                 _f_ls_rider = st.multiselect("Rider", _ls_riders, default=_ls_riders, key="ls_rider")
             with fc2:
-                _f_ls_circ  = st.multiselect("Circuit", _ls_circuits, default=_ls_circuits, key="ls_circ")
+                _f_ls_circ  = st.multiselect("Circuit", _ls_circuits, default=_ls_default_circ, key="ls_circ")
             with fc3:
                 _f_ls_sess  = st.multiselect("Session", _ls_sessions, default=_ls_sessions, key="ls_sess")
             with fc4:
-                _ls_rounds = sorted(df_ls["ROUND"].dropna().unique()) if "ROUND" in df_ls.columns else []
-                _f_ls_rnd  = st.multiselect("Round", _ls_rounds, default=_ls_rounds, key="ls_rnd")
+                _f_ls_rnd  = st.multiselect("Round", _ls_rounds, default=_ls_default_rnd, key="ls_rnd")
 
             dfW = df_ls.copy()
             if _f_ls_rider   and "RIDER"   in dfW.columns: dfW = dfW[dfW["RIDER"].isin(_f_ls_rider)]
