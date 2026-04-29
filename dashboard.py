@@ -764,208 +764,256 @@ def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# FLOATING CHAT — always-visible AI assistant button
+# FLOATING CHAT — parent-DOM injection via st.components.v1.html
+# No sidebar, no URL params, no page reload.
 # ══════════════════════════════════════════════════════════════
 
-FLOAT_CHAT_HTML = """
-<style>
-#ts24-float-fab {
-    position: fixed;
-    bottom: 28px;
-    right: 28px;
-    z-index: 99999;
-    width: 58px;
-    height: 58px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #0078D4 60%, #005fa3 100%);
-    color: white;
-    border: 3px solid white;
-    cursor: pointer;
-    font-size: 24px;
-    box-shadow: 0 4px 16px rgba(0,120,212,0.45);
-    transition: transform 0.15s, box-shadow 0.15s;
-}
-#ts24-float-fab:hover {
-    transform: scale(1.10);
-    box-shadow: 0 6px 20px rgba(0,120,212,0.60);
-}
-#ts24-float-fab-label {
-    position: fixed;
-    bottom: 92px;
-    right: 18px;
-    z-index: 99999;
-    background: rgba(0,0,0,0.72);
-    color: white;
-    font-size: 11px;
-    padding: 3px 8px;
-    border-radius: 4px;
-    pointer-events: none;
-    white-space: nowrap;
-    font-family: Arial, sans-serif;
-}
-</style>
+def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
+    """
+    Inject a floating chat panel directly into the parent page DOM using a
+    zero-height st.components.v1.html iframe.  The panel makes fetch() calls
+    to the Claude API from JavaScript — no Streamlit rerun on send.
+    """
+    import streamlit.components.v1 as components
+
+    circ  = page_ctx.get("circuit", "All")
+    rider = page_ctx.get("rider",   "All")
+    page  = page_ctx.get("page",    "Dashboard")
+    snap  = page_ctx.get("data_snapshot", "")
+
+    memory_ctx = build_memory_context(memory, circ, rider)
+    system_prompt = (
+        "あなたはWorldSSPモーターサイクルレーシングチームのシニアエンジニアです。"
+        f"現在のダッシュボード: ページ={page}, サーキット={circ}, ライダー={rider}。"
+        "ライダーはDA77とJA52の2名。"
+        "サスペンションデータはTHR_ON / BRAKE_OFF / ACC_Y Peakの3定義を使用。"
+        "具体的な数値と範囲を示して答えてください。日本語で回答してください。"
+        + (f"\n\n[現在の表示データ]\n{snap}" if snap else "")
+        + memory_ctx
+    )
+
+    mem_count = sum(
+        len(v) for c in memory.get("circuit_insights", {}).values()
+        for v in c.values()
+    ) + len(memory.get("global_insights", []))
+
+    # Escape for JS string embedding
+    api_key_js     = json.dumps(api_key)
+    sys_prompt_js  = json.dumps(system_prompt)
+    mem_count_js   = json.dumps(mem_count)
+    page_label_js  = json.dumps(f"{page}" + (f" · {circ}" if circ != "All" else "") +
+                                (f" · {rider}" if rider != "All" else ""))
+
+    html = f"""
 <script>
-function ts24ToggleChat() {
-    var doc = window.parent.document;
-    // Streamlit sidebar collapse/expand button
-    var btn = doc.querySelector('[data-testid="collapsedControl"]');
-    if (btn) { btn.click(); return; }
-    // When sidebar is open, its close button is inside the sidebar
-    var sidebar = doc.querySelector('section[data-testid="stSidebar"]');
-    if (sidebar) {
-        var inner = sidebar.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
-                    sidebar.querySelector('button[kind="header"]');
-        if (inner) { inner.click(); return; }
-    }
-}
+(function() {{
+  var doc = window.parent.document;
+
+  /* ── Update context on every Streamlit rerun without re-building the UI ── */
+  var meta = doc.getElementById('ts24-chat-meta');
+  if (meta) {{
+    meta.dataset.sys   = {sys_prompt_js};
+    meta.dataset.label = {page_label_js};
+    meta.dataset.mem   = {mem_count_js};
+    var lbl = doc.getElementById('ts24-ctx-label');
+    if (lbl) lbl.textContent = {page_label_js};
+    var mcnt = doc.getElementById('ts24-mem-count');
+    if (mcnt) mcnt.textContent = {mem_count_js} + ' memories';
+    return;   /* panel already exists */
+  }}
+
+  /* ── First render: inject styles + panel ── */
+  var s = doc.createElement('style');
+  s.textContent = `
+    #ts24-fab {{
+      position:fixed; bottom:26px; right:26px; z-index:99999;
+      width:56px; height:56px; border-radius:50%;
+      background:linear-gradient(135deg,#0078D4,#005fa3);
+      color:#fff; border:3px solid #fff; cursor:pointer;
+      font-size:22px; box-shadow:0 4px 18px rgba(0,120,212,.5);
+      transition:transform .15s,box-shadow .15s;
+      display:flex; align-items:center; justify-content:center;
+    }}
+    #ts24-fab:hover {{ transform:scale(1.10); box-shadow:0 6px 22px rgba(0,120,212,.65); }}
+    #ts24-fab-tip {{
+      position:fixed; bottom:88px; right:16px; z-index:99999;
+      background:rgba(0,0,0,.72); color:#fff; font-size:11px;
+      padding:3px 9px; border-radius:4px; pointer-events:none;
+      white-space:nowrap; font-family:Arial,sans-serif;
+    }}
+    #ts24-panel {{
+      position:fixed; bottom:96px; right:26px; z-index:99998;
+      width:360px; height:520px;
+      background:#fff; border-radius:14px;
+      box-shadow:0 8px 32px rgba(0,0,0,.18);
+      display:none; flex-direction:column;
+      font-family:Arial,sans-serif; overflow:hidden;
+      border:1px solid #DDE1E7;
+    }}
+    #ts24-panel.open {{ display:flex; }}
+    #ts24-ph {{
+      background:linear-gradient(135deg,#0078D4,#005fa3);
+      color:#fff; padding:12px 14px 8px;
+      display:flex; flex-direction:column; gap:2px; flex-shrink:0;
+    }}
+    #ts24-ph-top {{ display:flex; align-items:center; justify-content:space-between; }}
+    #ts24-ph-title {{ font-weight:700; font-size:14px; }}
+    #ts24-ph-close {{
+      background:rgba(255,255,255,.2); border:none; color:#fff;
+      width:24px; height:24px; border-radius:50%; cursor:pointer;
+      font-size:14px; display:flex; align-items:center; justify-content:center;
+    }}
+    #ts24-ctx-label {{ font-size:10px; opacity:.8; }}
+    #ts24-mem-count {{ font-size:10px; opacity:.7; }}
+    #ts24-msgs {{
+      flex:1; overflow-y:auto; padding:12px 10px; display:flex;
+      flex-direction:column; gap:8px;
+    }}
+    .ts24-msg {{ max-width:88%; padding:8px 11px; border-radius:10px; font-size:13px; line-height:1.45; word-break:break-word; }}
+    .ts24-user {{ align-self:flex-end; background:#0078D4; color:#fff; border-bottom-right-radius:3px; }}
+    .ts24-bot  {{ align-self:flex-start; background:#F0F4F8; color:#111; border-bottom-left-radius:3px; }}
+    .ts24-typing {{ opacity:.6; font-style:italic; }}
+    #ts24-input-row {{
+      display:flex; gap:6px; padding:8px 10px 12px;
+      border-top:1px solid #EEE; flex-shrink:0;
+    }}
+    #ts24-input {{
+      flex:1; border:1px solid #DDE1E7; border-radius:8px;
+      padding:7px 10px; font-size:13px; resize:none;
+      outline:none; font-family:Arial,sans-serif;
+    }}
+    #ts24-send {{
+      background:#0078D4; color:#fff; border:none; border-radius:8px;
+      padding:0 14px; cursor:pointer; font-size:18px; flex-shrink:0;
+    }}
+    #ts24-send:disabled {{ background:#AAC8E8; cursor:default; }}
+    #ts24-empty {{
+      flex:1; display:flex; align-items:center; justify-content:center;
+      color:#AAA; font-size:12px; text-align:center; line-height:1.6;
+    }}
+  `;
+  doc.head.appendChild(s);
+
+  /* ── Hidden meta element: updated on every Streamlit rerun ── */
+  var meta = doc.createElement('div');
+  meta.id = 'ts24-chat-meta';
+  meta.style.display = 'none';
+  meta.dataset.sys   = {sys_prompt_js};
+  meta.dataset.label = {page_label_js};
+  meta.dataset.key   = {api_key_js};
+  meta.dataset.mem   = {mem_count_js};
+  doc.body.appendChild(meta);
+
+  /* ── Panel HTML ── */
+  var wrap = doc.createElement('div');
+  wrap.innerHTML = `
+    <span id="ts24-fab-tip">AI Chat</span>
+    <button id="ts24-fab" onclick="ts24Toggle()" title="AI Analysis Partner">🤖</button>
+    <div id="ts24-panel">
+      <div id="ts24-ph">
+        <div id="ts24-ph-top">
+          <span id="ts24-ph-title">🤖 AI Analysis Partner</span>
+          <button id="ts24-ph-close" onclick="ts24Toggle()">✕</button>
+        </div>
+        <div id="ts24-ctx-label">{page_label_js.strip('"')}</div>
+        <div id="ts24-mem-count">{mem_count_js} memories</div>
+      </div>
+      <div id="ts24-msgs">
+        <div id="ts24-empty">データを見ながら<br>何でも聞いてください。<br><small>過去の知見も踏まえて答えます。</small></div>
+      </div>
+      <div id="ts24-input-row">
+        <textarea id="ts24-input" rows="2" placeholder="気づいたことを聞いてください…"></textarea>
+        <button id="ts24-send" onclick="ts24Send()">➤</button>
+      </div>
+    </div>
+  `;
+  doc.body.appendChild(wrap);
+
+  /* ── State ── */
+  var history = [];
+  var open    = false;
+
+  /* ── Toggle ── */
+  window.ts24Toggle = function() {{
+    open = !open;
+    doc.getElementById('ts24-panel').classList.toggle('open', open);
+    doc.getElementById('ts24-fab').textContent = open ? '✕' : '🤖';
+    doc.getElementById('ts24-fab-tip').textContent = open ? 'チャットを閉じる' : 'AI Chat';
+    if (open) doc.getElementById('ts24-input').focus();
+  }};
+
+  /* ── Add message bubble ── */
+  function addMsg(role, text) {{
+    var empty = doc.getElementById('ts24-empty');
+    if (empty) empty.remove();
+    var msgs = doc.getElementById('ts24-msgs');
+    var d = doc.createElement('div');
+    d.className = 'ts24-msg ' + (role === 'user' ? 'ts24-user' : 'ts24-bot');
+    if (text === '…') d.classList.add('ts24-typing');
+    d.id = (text === '…') ? 'ts24-typing-bubble' : '';
+    // Simple markdown: **bold**
+    d.innerHTML = text.replace(/\\n/g,'<br>')
+                      .replace(/\\*\\*(.*?)\\*\\*/g,'<b>$1</b>');
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }}
+
+  /* ── Send ── */
+  window.ts24Send = async function() {{
+    var meta   = doc.getElementById('ts24-chat-meta');
+    var apiKey = meta ? meta.dataset.key : '';
+    var sys    = meta ? meta.dataset.sys : '';
+    var input  = doc.getElementById('ts24-input');
+    var sendBtn= doc.getElementById('ts24-send');
+    var text   = input.value.trim();
+    if (!text) return;
+    if (!apiKey) {{ addMsg('bot','⚠️ APIキーが設定されていません。左ナビで設定してください。'); return; }}
+
+    input.value = '';
+    addMsg('user', text);
+    history.push({{role:'user', content:text}});
+    sendBtn.disabled = true;
+    var typing = addMsg('bot', '…');
+
+    try {{
+      var resp = await fetch('https://api.anthropic.com/v1/messages', {{
+        method:'POST',
+        headers:{{
+          'x-api-key': apiKey,
+          'anthropic-version':'2023-06-01',
+          'content-type':'application/json'
+        }},
+        body: JSON.stringify({{
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1200,
+          system: sys,
+          messages: history
+        }})
+      }});
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error.message);
+      var reply = data.content[0].text;
+      typing.remove();
+      addMsg('bot', reply);
+      history.push({{role:'assistant', content:reply}});
+    }} catch(e) {{
+      typing.remove();
+      addMsg('bot', '⚠️ エラー: ' + e.message);
+    }}
+    sendBtn.disabled = false;
+    input.focus();
+  }};
+
+  /* ── Enter key (Shift+Enter = newline) ── */
+  doc.getElementById('ts24-input').addEventListener('keydown', function(e) {{
+    if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); ts24Send(); }}
+  }});
+
+}})();
 </script>
-<span id="ts24-float-fab-label">AI Chat</span>
-<button id="ts24-float-fab" onclick="ts24ToggleChat()" title="AI Analysis Partner">🤖</button>
 """
-
-def render_float_fab():
-    """Inject the floating chat FAB. Uses JS sidebar toggle — no page reload."""
-    st.markdown(FLOAT_CHAT_HTML, unsafe_allow_html=True)
-
-
-def render_sidebar_chat(api_key: str, page_context: dict, memory: dict):
-    """Render the always-open chat panel in st.sidebar."""
-    with st.sidebar:
-        st.markdown(
-            "<div style='text-align:center;padding:8px 0 4px'>"
-            "<span style='font-size:22px'>🤖</span> "
-            "<span style='font-weight:700;font-size:15px;color:#0078D4'>AI Analysis Partner</span>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        circ  = page_context.get("circuit", "All")
-        rider = page_context.get("rider", "All")
-        page  = page_context.get("page", "Dashboard")
-
-        # Context badge
-        ctx_badge = f"📍 {page}"
-        if circ  != "All": ctx_badge += f" · {circ}"
-        if rider != "All": ctx_badge += f" · {rider}"
-        st.markdown(
-            f"<div style='font-size:11px;color:#888;text-align:center;"
-            f"padding:2px 0 8px'>{ctx_badge}</div>",
-            unsafe_allow_html=True,
-        )
-
-        # Init session state
-        if "float_chat_history" not in st.session_state:
-            st.session_state["float_chat_history"] = []
-
-        col_cl1, col_cl2 = st.columns([3, 1])
-        with col_cl2:
-            if st.button("🗑", key="float_chat_clear", help="Clear chat"):
-                # Save insights before clearing
-                if (st.session_state["float_chat_history"] and api_key):
-                    extract_and_save_insights(
-                        api_key,
-                        st.session_state["float_chat_history"],
-                        page_context,
-                    )
-                st.session_state["float_chat_history"] = []
-                st.rerun()
-        with col_cl1:
-            mem_keys = len(memory.get("setup_learnings", [])) + \
-                       sum(len(v) for c in memory.get("circuit_insights", {}).values()
-                           for v in c.values())
-            st.markdown(
-                f"<span style='font-size:11px;color:#888'>💾 {mem_keys} memories</span>",
-                unsafe_allow_html=True,
-            )
-
-        st.divider()
-
-        # Chat history
-        history_container = st.container(height=380)
-        with history_container:
-            if not st.session_state["float_chat_history"]:
-                st.markdown(
-                    "<div style='color:#999;font-size:12px;text-align:center;"
-                    "padding:20px 0'>データを見ながら何でも聞いてください。<br>"
-                    "過去の知見も踏まえて答えます。</div>",
-                    unsafe_allow_html=True,
-                )
-            for msg in st.session_state["float_chat_history"]:
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
-
-        # Build system prompt with memory context
-        memory_ctx = build_memory_context(memory, circ, rider)
-        SYSTEM = (
-            "You are a senior motorcycle racing engineer (WorldSSP). "
-            "You are the team's AI analysis partner — knowledgeable, direct, and practical. "
-            f"Current dashboard context: Page={page}, Circuit={circ}, Rider={rider}. "
-            "Riders: DA77 and JA52. "
-            "Suspension data uses THR_ON / BRAKE_OFF / ACC_Y Peak definitions. "
-            "Give specific values and ranges. Respond in Japanese unless data terms require English."
-            + memory_ctx
-        )
-
-        # Input
-        user_input = st.chat_input("気づいたことを聞いてください…", key="float_chat_input")
-        if user_input and api_key:
-            with history_container:
-                with st.chat_message("user"):
-                    st.markdown(user_input)
-            st.session_state["float_chat_history"].append(
-                {"role": "user", "content": user_input}
-            )
-
-            # Include current data snapshot in first user message
-            data_snap = page_context.get("data_snapshot", "")
-            api_content = user_input
-            if data_snap and len(st.session_state["float_chat_history"]) <= 2:
-                api_content = user_input + f"\n\n[現在の表示データ]\n{data_snap}"
-
-            messages = []
-            for h in st.session_state["float_chat_history"][:-1]:
-                messages.append({"role": h["role"], "content": h["content"]})
-            messages.append({"role": "user", "content": api_content})
-
-            payload = {
-                "model": CLAUDE_API_MODEL, "max_tokens": 1200,
-                "system": SYSTEM, "messages": messages,
-            }
-            data_b = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                CLAUDE_API_URL, data=data_b,
-                headers={"x-api-key": api_key,
-                         "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-            )
-            with history_container:
-                with st.chat_message("assistant"):
-                    with st.spinner("考え中..."):
-                        try:
-                            with urllib.request.urlopen(req, timeout=90) as resp:
-                                result = json.loads(resp.read().decode("utf-8"))
-                                reply  = result["content"][0]["text"]
-                        except urllib.error.HTTPError as e:
-                            body  = e.read().decode("utf-8", errors="replace")
-                            reply = f"API Error {e.code}: {body[:200]}"
-                        except Exception as ex:
-                            reply = f"Error: {ex}"
-                    st.markdown(reply)
-
-            st.session_state["float_chat_history"].append(
-                {"role": "assistant", "content": reply}
-            )
-
-            # Auto-extract insights every 4 exchanges
-            n_msg = len(st.session_state["float_chat_history"])
-            if api_key and n_msg % 8 == 0:
-                extract_and_save_insights(
-                    api_key,
-                    st.session_state["float_chat_history"],
-                    page_context,
-                )
-
-        elif user_input and not api_key:
-            st.warning("⚠️ API Keyが必要です。サイドバー上部で設定してください。")
+    components.html(html, height=0, scrolling=False)
 
 
 def chart_layout(fig, height=300, title=""):
@@ -1028,18 +1076,9 @@ st.markdown("""
         color: #111111 !important;
     }
 
-    /* Sidebar — used for floating chat panel */
-    section[data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #DDE1E7 !important;
-        min-width: 340px !important;
-        max-width: 380px !important;
-    }
-    section[data-testid="stSidebar"] * { color: #111111 !important; }
-    /* Chat messages in sidebar */
-    section[data-testid="stSidebar"] .stChatMessage {
-        font-size: 13px !important;
-    }
+    /* Sidebar — hidden (not used; chat uses DOM-inject overlay) */
+    section[data-testid="stSidebar"] { display: none !important; }
+    [data-testid="collapsedControl"]  { display: none !important; }
 
     /* KPI metric cards */
     div[data-testid="metric-container"] {
@@ -1200,8 +1239,8 @@ sessions, tags, results, sectors, laps = load_data()
 if "race_memory" not in st.session_state:
     st.session_state["race_memory"] = load_race_memory()
 
-# ── Floating Chat FAB — JS sidebar toggle (no page reload) ────
-render_float_fab()
+# ── Floating Chat — injected after layout is known ────────────
+# (called later, after _NAV and filters are resolved)
 
 # ── Main layout: left nav column + right content column ──────
 # Using columns instead of st.sidebar so the nav is always visible
@@ -1407,7 +1446,7 @@ with _content_col:
     # ── Navigation routing (sidebar radio → content area) ──────────
     _NAV = nav_sel  # shorthand
 
-    # ── Floating Chat — sidebar panel (always rendered, toggled by JS FAB) ─
+    # ── Floating Chat — DOM-inject (no sidebar, no page reload) ──
     _snap_lines = []
     if sel_circuit != "All":
         _snap_lines.append(f"Circuit filter: {sel_circuit}")
@@ -1421,22 +1460,11 @@ with _content_col:
         "rider":         sel_rider,
         "data_snapshot": "\n".join(_snap_lines),
     }
-    if claude_ready:
-        render_sidebar_chat(
-            api_key      = st.session_state.get("claude_api_key", ""),
-            page_context = _page_ctx,
-            memory       = st.session_state["race_memory"],
-        )
-        st.session_state["race_memory"] = load_race_memory()
-    else:
-        with st.sidebar:
-            st.markdown(
-                "<div style='text-align:center;padding:16px 8px'>"
-                "<span style='font-size:32px'>🤖</span><br>"
-                "<span style='font-weight:700;color:#0078D4'>AI Analysis Partner</span>"
-                "</div>", unsafe_allow_html=True
-            )
-            st.warning("⚠️  APIキーが必要です。\n\n左ナビの **Claude AI** 欄で設定してください。")
+    render_float_chat_component(
+        api_key  = st.session_state.get("claude_api_key", ""),
+        memory   = st.session_state["race_memory"],
+        page_ctx = _page_ctx,
+    )
 
     # ═══════════════════════════════════════════════════
     # PAGE 1 — Problem Analysis
