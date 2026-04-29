@@ -302,6 +302,9 @@ def login_page():
         border:1px solid #2C3E50;max-width:420px;margin:60px auto;}
     input{background:#0F1923!important;color:#FFFFFF!important;border:1px solid #2C3E50!important;}
     #MainMenu,footer,header{visibility:hidden;}
+    @media (max-width:480px){
+        div[data-testid="stForm"]{padding:24px 16px!important;margin:20px 12px!important;}
+    }
     </style>""", unsafe_allow_html=True)
 
     st.markdown("<h2 style='text-align:center;color:#0078D4;margin-bottom:4px'>🏍 TS24 Dashboard</h2>", unsafe_allow_html=True)
@@ -891,6 +894,25 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
       flex:1; display:flex; align-items:center; justify-content:center;
       color:#AAA; font-size:12px; text-align:center; line-height:1.6;
     }}
+    @media (max-width: 768px) {{
+      #ts24-panel {{
+        width: calc(100vw - 20px) !important;
+        right: 10px !important;
+        left: 10px !important;
+        height: 70vh !important;
+        bottom: 90px !important;
+      }}
+      #ts24-fab {{
+        bottom: 16px !important;
+        right: 16px !important;
+        width: 48px !important;
+        height: 48px !important;
+      }}
+      #ts24-fab-tip {{
+        bottom: 74px !important;
+        right: 10px !important;
+      }}
+    }}
   `;
   doc.head.appendChild(s);
 
@@ -1009,6 +1031,141 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   doc.getElementById('ts24-input').addEventListener('keydown', function(e) {{
     if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); ts24Send(); }}
   }});
+
+}})();
+</script>
+
+<script>
+/* ── Mobile hamburger nav menu ── */
+(function() {{
+  var doc  = window.parent.document;
+  var isMobile = window.parent.innerWidth <= 768;
+  var NAV_LABEL = {page_label_js};
+
+  /* ── On every rerun: update page name & close overlay ── */
+  var existing = doc.getElementById('ts24-mobile-header');
+  if (existing) {{
+    var nameEl = doc.getElementById('ts24-mobile-page-name');
+    if (nameEl) nameEl.textContent = NAV_LABEL;
+    if (isMobile) {{
+      var navCol = doc.querySelector(
+        'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child'
+      );
+      var bd  = doc.getElementById('ts24-nav-backdrop');
+      var btn = doc.getElementById('ts24-hamburger-btn');
+      if (navCol) navCol.classList.remove('ts24-nav-open');
+      if (bd)  bd.classList.remove('open');
+      if (btn) btn.textContent = '☰';
+    }}
+    return;
+  }}
+
+  /* ── First render: only create on mobile ── */
+  if (!isMobile) return;
+
+  /* ── Inject styles ── */
+  var s = doc.createElement('style');
+  s.id = 'ts24-mobile-nav-styles';
+  s.textContent = `
+    #ts24-mobile-header {{
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 99995;
+      height: 52px;
+      background: #FFFFFF;
+      border-bottom: 1px solid #DDE1E7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      font-family: Arial, sans-serif;
+    }}
+    #ts24-mobile-logo {{
+      font-weight: 800;
+      font-size: 15px;
+      color: #0078D4;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }}
+    #ts24-mobile-page-name {{
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333333;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin: 0 10px;
+    }}
+    #ts24-hamburger-btn {{
+      background: none;
+      border: 1px solid #DDE1E7;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 10px;
+      color: #333333;
+      border-radius: 8px;
+      line-height: 1.3;
+      white-space: nowrap;
+    }}
+    #ts24-nav-backdrop {{
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.42);
+      z-index: 99989;
+    }}
+    #ts24-nav-backdrop.open {{ display: block; }}
+  `;
+  doc.head.appendChild(s);
+
+  /* ── Header bar ── */
+  var header = doc.createElement('div');
+  header.id = 'ts24-mobile-header';
+  header.innerHTML =
+    '<span id="ts24-mobile-logo">🏍 TS24</span>' +
+    '<span id="ts24-mobile-page-name">' + NAV_LABEL + '</span>' +
+    '<button id="ts24-hamburger-btn" onclick="ts24NavToggle()" title="メニュー">☰</button>';
+  doc.body.appendChild(header);
+
+  /* ── Backdrop (tap outside to close) ── */
+  var backdrop = doc.createElement('div');
+  backdrop.id = 'ts24-nav-backdrop';
+  backdrop.onclick = function() {{ ts24NavClose(); }};
+  doc.body.appendChild(backdrop);
+
+  /* ── Toggle open / close ── */
+  window.ts24NavToggle = function() {{
+    var navCol = doc.querySelector(
+      'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child'
+    );
+    var bd  = doc.getElementById('ts24-nav-backdrop');
+    var btn = doc.getElementById('ts24-hamburger-btn');
+    if (!navCol) return;
+    var isOpen = navCol.classList.contains('ts24-nav-open');
+    if (isOpen) {{
+      navCol.classList.remove('ts24-nav-open');
+      if (bd)  bd.classList.remove('open');
+      if (btn) btn.textContent = '☰';
+    }} else {{
+      navCol.classList.add('ts24-nav-open');
+      if (bd)  bd.classList.add('open');
+      if (btn) btn.textContent = '✕';
+    }}
+  }};
+
+  window.ts24NavClose = function() {{
+    var navCol = doc.querySelector(
+      'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child'
+    );
+    var bd  = doc.getElementById('ts24-nav-backdrop');
+    var btn = doc.getElementById('ts24-hamburger-btn');
+    if (navCol) navCol.classList.remove('ts24-nav-open');
+    if (bd)  bd.classList.remove('open');
+    if (btn) btn.textContent = '☰';
+  }};
 
 }})();
 </script>
@@ -1228,6 +1385,78 @@ st.markdown("""
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child::-webkit-scrollbar-thumb {
         background: #DDE1E7;
         border-radius: 4px;
+    }
+
+    /* ── Mobile / iPhone responsive (max-width: 768px) ── */
+    @media (max-width: 768px) {
+
+        /* Content column: full width */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+
+        /* Nav column: hidden by default (hamburger menu controls visibility) */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+            display: none !important;
+            position: static !important;
+            max-height: none !important;
+        }
+
+        /* Nav overlay: shown when .ts24-nav-open class is added by JS */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child.ts24-nav-open {
+            display: block !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 280px !important;
+            height: 100vh !important;
+            z-index: 99990 !important;
+            background: #FFFFFF !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            padding: 60px 12px 24px !important;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.22) !important;
+            scrollbar-width: thin !important;
+        }
+
+        /* Top padding to clear the fixed header bar */
+        div[data-testid="block-container"] {
+            padding: 4.5rem 0.75rem 1rem !important;
+            max-width: 100% !important;
+        }
+
+        /* Metric cards: compact */
+        div[data-testid="stMetricValue"] {
+            font-size: 20px !important;
+        }
+        div[data-testid="metric-container"] {
+            padding: 10px 12px !important;
+        }
+
+        /* Tabs: compact text */
+        button[data-baseweb="tab"] {
+            font-size: 11px !important;
+            padding: 8px 6px !important;
+        }
+
+        /* Charts: full width */
+        div[data-testid="stPlotlyChart"] {
+            width: 100% !important;
+        }
+
+        /* Section title: slightly smaller */
+        .section-title {
+            font-size: 11px !important;
+        }
+
+        /* Detail rows: allow wrapping */
+        .detail-row {
+            flex-wrap: wrap !important;
+            font-size: 12px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
