@@ -24,7 +24,9 @@ import hashlib
 SCRIPT_DIR  = Path(__file__).resolve().parent
 CONFIG_FILE = SCRIPT_DIR / "ts24_config.json"
 # /tmp fallback: writable on Streamlit Cloud (where repo dir is read-only)
-_TMP_CONFIG = Path("/tmp/ts24_dashboard_config.json")
+_TMP_CONFIG    = Path("/tmp/ts24_dashboard_config.json")
+MEMORY_FILE    = SCRIPT_DIR / "race_memory.json"
+_TMP_MEMORY    = Path("/tmp/ts24_race_memory.json")
 
 def find_db():
     for base in [SCRIPT_DIR, SCRIPT_DIR.parent]:
@@ -627,6 +629,341 @@ def call_claude(api_key: str, user_msg: str, system_msg: str = "", max_tokens: i
     except Exception as e:
         return f"Error: {type(e).__name__}: {e}"
 
+# ══════════════════════════════════════════════════════════════
+# RACE MEMORY SYSTEM — persistent knowledge across sessions
+# ══════════════════════════════════════════════════════════════
+
+def load_race_memory() -> dict:
+    """Load persistent race memory. /tmp first (writable on Cloud), then repo."""
+    default = {
+        "version": 2,
+        "circuit_insights": {},          # {CIRCUIT: {RIDER: [insight, ...]}}
+        "global_insights": [],           # cross-circuit learnings
+        "setup_learnings": [],           # {date, circuit, rider, insight, page}
+        "conversation_summaries": [],    # {date, page, riders, summary}
+    }
+    for path in [_TMP_MEMORY, MEMORY_FILE]:
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                # Merge: fill missing keys from default
+                for k, v in default.items():
+                    if k not in data:
+                        data[k] = v
+                return data
+            except Exception:
+                pass
+    return default
+
+def save_race_memory(memory: dict):
+    """Save memory to both /tmp (Cloud) and repo (local)."""
+    blob = json.dumps(memory, ensure_ascii=False, indent=2)
+    for path in [_TMP_MEMORY, MEMORY_FILE]:
+        try:
+            path.write_text(blob, encoding="utf-8")
+        except Exception:
+            pass
+
+def extract_and_save_insights(api_key: str, conversation: list, context: dict):
+    """Call Claude to extract key insights from conversation, save to memory."""
+    if len(conversation) < 2:
+        return
+    conv_text = "\n".join([
+        f"{m['role'].upper()}: {m['content'][:400]}"
+        for m in conversation[-12:]
+    ])
+    prompt = (
+        "You are reviewing a motorcycle racing engineering conversation.\n"
+        "Extract up to 3 specific, actionable setup insights (numbers preferred).\n"
+        f"Context — Page: {context.get('page','?')}, "
+        f"Rider: {context.get('rider','All')}, "
+        f"Circuit: {context.get('circuit','All')}\n\n"
+        f"Conversation:\n{conv_text}\n\n"
+        "Return ONLY a JSON array of concise English insight strings, e.g.:\n"
+        '[\"DA77 needs +3mm THR_ON SusF at PORTIMAO\"]'
+    )
+    result = call_claude(api_key, prompt, max_tokens=400)
+    try:
+        insights = json.loads(result)
+        if not isinstance(insights, list):
+            return
+    except Exception:
+        return
+
+    import datetime
+    memory = load_race_memory()
+    today  = datetime.date.today().isoformat()
+    circ   = context.get("circuit", "ALL")
+    rider  = context.get("rider", "ALL")
+
+    # Store per-circuit per-rider
+    if circ and circ != "All":
+        memory["circuit_insights"].setdefault(circ, {})
+        memory["circuit_insights"][circ].setdefault(rider, [])
+        for ins in insights:
+            entry = f"[{today}] {ins}"
+            if entry not in memory["circuit_insights"][circ][rider]:
+                memory["circuit_insights"][circ][rider].append(entry)
+        # Keep last 20 per rider per circuit
+        memory["circuit_insights"][circ][rider] = \
+            memory["circuit_insights"][circ][rider][-20:]
+    else:
+        for ins in insights:
+            entry = f"[{today}] {ins}"
+            if entry not in memory["global_insights"]:
+                memory["global_insights"].append(entry)
+        memory["global_insights"] = memory["global_insights"][-30:]
+
+    # Conversation summary
+    if len(conversation) >= 4:
+        summary_prompt = (
+            "Summarize this racing engineering conversation in 1-2 sentences (English):\n"
+            + conv_text
+        )
+        summary = call_claude(api_key, summary_prompt, max_tokens=150)
+        memory["conversation_summaries"].append({
+            "date": today, "page": context.get("page","?"),
+            "rider": rider, "circuit": circ,
+            "summary": summary[:300],
+        })
+        memory["conversation_summaries"] = memory["conversation_summaries"][-50:]
+
+    save_race_memory(memory)
+
+def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
+    """Build a memory context string to inject into system prompt."""
+    lines = []
+
+    # Circuit-specific insights for this rider
+    if circuit and circuit != "All":
+        c_insights = memory.get("circuit_insights", {}).get(circuit, {})
+        for r in ([rider] if rider != "All" else list(c_insights.keys())):
+            r_ins = c_insights.get(r, [])
+            if r_ins:
+                lines.append(f"[{circuit} / {r} — past insights]")
+                lines.extend(f"  • {i}" for i in r_ins[-5:])
+
+    # Recent global insights
+    g_ins = memory.get("global_insights", [])
+    if g_ins:
+        lines.append("[Cross-circuit learnings]")
+        lines.extend(f"  • {i}" for i in g_ins[-4:])
+
+    # Recent conversation summaries
+    summaries = memory.get("conversation_summaries", [])
+    recent = [s for s in summaries[-6:] if
+              (circuit == "All" or s.get("circuit") in ("All", circuit))]
+    if recent:
+        lines.append("[Recent analysis sessions]")
+        for s in recent[-3:]:
+            lines.append(f"  • [{s['date']}] {s['summary']}")
+
+    if not lines:
+        return ""
+    return "\n\nPAST KNOWLEDGE BASE (use this to give more contextual answers):\n" + "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# FLOATING CHAT — always-visible AI assistant button
+# ══════════════════════════════════════════════════════════════
+
+FLOAT_CHAT_CSS = """
+<style>
+/* Floating Chat FAB */
+#ts24-float-fab {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 99999;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #0078D4 60%, #005fa3 100%);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 26px;
+    box-shadow: 0 4px 16px rgba(0,120,212,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s;
+    text-decoration: none;
+}
+#ts24-float-fab:hover {
+    transform: scale(1.10);
+    box-shadow: 0 6px 20px rgba(0,120,212,0.60);
+}
+#ts24-float-fab-label {
+    position: fixed;
+    bottom: 92px;
+    right: 22px;
+    z-index: 99999;
+    background: rgba(0,0,0,0.72);
+    color: white;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    white-space: nowrap;
+    font-family: Arial, sans-serif;
+}
+</style>
+"""
+
+def render_float_fab(chat_open: bool):
+    """Inject the floating chat button. Clicking toggles ?chat=1/0 in URL."""
+    next_val = "0" if chat_open else "1"
+    icon     = "✕" if chat_open else "🤖"
+    label    = "Close Chat" if chat_open else "AI Chat"
+    st.markdown(
+        FLOAT_CHAT_CSS +
+        f'<span id="ts24-float-fab-label">{label}</span>'
+        f'<a id="ts24-float-fab" href="?chat={next_val}" title="{label}">{icon}</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_chat(api_key: str, page_context: dict, memory: dict):
+    """Render the always-open chat panel in st.sidebar."""
+    with st.sidebar:
+        st.markdown(
+            "<div style='text-align:center;padding:8px 0 4px'>"
+            "<span style='font-size:22px'>🤖</span> "
+            "<span style='font-weight:700;font-size:15px;color:#0078D4'>AI Analysis Partner</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        circ  = page_context.get("circuit", "All")
+        rider = page_context.get("rider", "All")
+        page  = page_context.get("page", "Dashboard")
+
+        # Context badge
+        ctx_badge = f"📍 {page}"
+        if circ  != "All": ctx_badge += f" · {circ}"
+        if rider != "All": ctx_badge += f" · {rider}"
+        st.markdown(
+            f"<div style='font-size:11px;color:#888;text-align:center;"
+            f"padding:2px 0 8px'>{ctx_badge}</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Init session state
+        if "float_chat_history" not in st.session_state:
+            st.session_state["float_chat_history"] = []
+
+        col_cl1, col_cl2 = st.columns([3, 1])
+        with col_cl2:
+            if st.button("🗑", key="float_chat_clear", help="Clear chat"):
+                # Save insights before clearing
+                if (st.session_state["float_chat_history"] and api_key):
+                    extract_and_save_insights(
+                        api_key,
+                        st.session_state["float_chat_history"],
+                        page_context,
+                    )
+                st.session_state["float_chat_history"] = []
+                st.rerun()
+        with col_cl1:
+            mem_keys = len(memory.get("setup_learnings", [])) + \
+                       sum(len(v) for c in memory.get("circuit_insights", {}).values()
+                           for v in c.values())
+            st.markdown(
+                f"<span style='font-size:11px;color:#888'>💾 {mem_keys} memories</span>",
+                unsafe_allow_html=True,
+            )
+
+        st.divider()
+
+        # Chat history
+        history_container = st.container(height=380)
+        with history_container:
+            if not st.session_state["float_chat_history"]:
+                st.markdown(
+                    "<div style='color:#999;font-size:12px;text-align:center;"
+                    "padding:20px 0'>データを見ながら何でも聞いてください。<br>"
+                    "過去の知見も踏まえて答えます。</div>",
+                    unsafe_allow_html=True,
+                )
+            for msg in st.session_state["float_chat_history"]:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+
+        # Build system prompt with memory context
+        memory_ctx = build_memory_context(memory, circ, rider)
+        SYSTEM = (
+            "You are a senior motorcycle racing engineer (WorldSSP). "
+            "You are the team's AI analysis partner — knowledgeable, direct, and practical. "
+            f"Current dashboard context: Page={page}, Circuit={circ}, Rider={rider}. "
+            "Riders: DA77 and JA52. "
+            "Suspension data uses THR_ON / BRAKE_OFF / ACC_Y Peak definitions. "
+            "Give specific values and ranges. Respond in Japanese unless data terms require English."
+            + memory_ctx
+        )
+
+        # Input
+        user_input = st.chat_input("気づいたことを聞いてください…", key="float_chat_input")
+        if user_input and api_key:
+            with history_container:
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+            st.session_state["float_chat_history"].append(
+                {"role": "user", "content": user_input}
+            )
+
+            # Include current data snapshot in first user message
+            data_snap = page_context.get("data_snapshot", "")
+            api_content = user_input
+            if data_snap and len(st.session_state["float_chat_history"]) <= 2:
+                api_content = user_input + f"\n\n[現在の表示データ]\n{data_snap}"
+
+            messages = []
+            for h in st.session_state["float_chat_history"][:-1]:
+                messages.append({"role": h["role"], "content": h["content"]})
+            messages.append({"role": "user", "content": api_content})
+
+            payload = {
+                "model": CLAUDE_API_MODEL, "max_tokens": 1200,
+                "system": SYSTEM, "messages": messages,
+            }
+            data_b = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                CLAUDE_API_URL, data=data_b,
+                headers={"x-api-key": api_key,
+                         "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+            )
+            with history_container:
+                with st.chat_message("assistant"):
+                    with st.spinner("考え中..."):
+                        try:
+                            with urllib.request.urlopen(req, timeout=90) as resp:
+                                result = json.loads(resp.read().decode("utf-8"))
+                                reply  = result["content"][0]["text"]
+                        except urllib.error.HTTPError as e:
+                            body  = e.read().decode("utf-8", errors="replace")
+                            reply = f"API Error {e.code}: {body[:200]}"
+                        except Exception as ex:
+                            reply = f"Error: {ex}"
+                    st.markdown(reply)
+
+            st.session_state["float_chat_history"].append(
+                {"role": "assistant", "content": reply}
+            )
+
+            # Auto-extract insights every 4 exchanges
+            n_msg = len(st.session_state["float_chat_history"])
+            if api_key and n_msg % 8 == 0:
+                extract_and_save_insights(
+                    api_key,
+                    st.session_state["float_chat_history"],
+                    page_context,
+                )
+
+        elif user_input and not api_key:
+            st.warning("⚠️ API Keyが必要です。サイドバー上部で設定してください。")
+
+
 def chart_layout(fig, height=300, title=""):
     fig.update_layout(
         height=height,
@@ -687,12 +1024,18 @@ st.markdown("""
         color: #111111 !important;
     }
 
-    /* Sidebar */
+    /* Sidebar — used for floating chat panel */
     section[data-testid="stSidebar"] {
         background-color: #FFFFFF !important;
         border-right: 1px solid #DDE1E7 !important;
+        min-width: 340px !important;
+        max-width: 380px !important;
     }
     section[data-testid="stSidebar"] * { color: #111111 !important; }
+    /* Chat messages in sidebar */
+    section[data-testid="stSidebar"] .stChatMessage {
+        font-size: 13px !important;
+    }
 
     /* KPI metric cards */
     div[data-testid="metric-container"] {
@@ -848,6 +1191,14 @@ st.markdown("""
 
 # ── Load data ─────────────────────────────────────
 sessions, tags, results, sectors, laps = load_data()
+
+# ── Race Memory — load once per session ───────────
+if "race_memory" not in st.session_state:
+    st.session_state["race_memory"] = load_race_memory()
+
+# ── Floating Chat — read URL param ────────────────
+_chat_open = st.query_params.get("chat", "0") == "1"
+render_float_fab(_chat_open)
 
 # ── Main layout: left nav column + right content column ──────
 # Using columns instead of st.sidebar so the nav is always visible
@@ -1052,6 +1403,33 @@ with _content_col:
 
     # ── Navigation routing (sidebar radio → content area) ──────────
     _NAV = nav_sel  # shorthand
+
+    # ── Floating Chat — sidebar panel (always rendered when chat open) ────
+    if _chat_open and claude_ready:
+        # Build page-aware data snapshot for context injection
+        _snap_lines = []
+        if sel_circuit != "All":
+            _snap_lines.append(f"Circuit filter: {sel_circuit}")
+        if sel_rider != "All":
+            _snap_lines.append(f"Rider filter: {sel_rider}")
+        _snap_lines.append(f"Sessions in view: {len(df_s)}")
+        _snap_lines.append(f"Problem tags in view: {len(df_t_event)}")
+        _page_ctx = {
+            "page":          _NAV.strip().lstrip("📊🗺📈🏁⏱📐🏎🔬📊🎯📋📉🔍🏆🤖💬").strip(),
+            "circuit":       sel_circuit,
+            "rider":         sel_rider,
+            "data_snapshot": "\n".join(_snap_lines),
+        }
+        render_sidebar_chat(
+            api_key   = st.session_state.get("claude_api_key", ""),
+            page_context = _page_ctx,
+            memory    = st.session_state["race_memory"],
+        )
+        # Reload memory after potential updates
+        st.session_state["race_memory"] = load_race_memory()
+    elif _chat_open and not claude_ready:
+        with st.sidebar:
+            st.warning("⚠️  APIキーが必要です。左ナビの **Claude AI** 欄で設定してください。")
 
     # ═══════════════════════════════════════════════════
     # PAGE 1 — Problem Analysis
