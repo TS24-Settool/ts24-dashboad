@@ -1034,6 +1034,141 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
 
 }})();
 </script>
+
+<script>
+/* ── Mobile hamburger nav menu ── */
+(function() {{
+  var doc  = window.parent.document;
+  var isMobile = window.parent.innerWidth <= 768;
+  var NAV_LABEL = {page_label_js};
+
+  /* ── On every rerun: update page name & close overlay ── */
+  var existing = doc.getElementById('ts24-mobile-header');
+  if (existing) {{
+    var nameEl = doc.getElementById('ts24-mobile-page-name');
+    if (nameEl) nameEl.textContent = NAV_LABEL;
+    if (isMobile) {{
+      var navCol = doc.querySelector(
+        'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child'
+      );
+      var bd  = doc.getElementById('ts24-nav-backdrop');
+      var btn = doc.getElementById('ts24-hamburger-btn');
+      if (navCol) navCol.classList.remove('ts24-nav-open');
+      if (bd)  bd.classList.remove('open');
+      if (btn) btn.textContent = '☰';
+    }}
+    return;
+  }}
+
+  /* ── First render: only create on mobile ── */
+  if (!isMobile) return;
+
+  /* ── Inject styles ── */
+  var s = doc.createElement('style');
+  s.id = 'ts24-mobile-nav-styles';
+  s.textContent = `
+    #ts24-mobile-header {{
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 99995;
+      height: 52px;
+      background: #FFFFFF;
+      border-bottom: 1px solid #DDE1E7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      font-family: Arial, sans-serif;
+    }}
+    #ts24-mobile-logo {{
+      font-weight: 800;
+      font-size: 15px;
+      color: #0078D4;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }}
+    #ts24-mobile-page-name {{
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333333;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin: 0 10px;
+    }}
+    #ts24-hamburger-btn {{
+      background: none;
+      border: 1px solid #DDE1E7;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 10px;
+      color: #333333;
+      border-radius: 8px;
+      line-height: 1.3;
+      white-space: nowrap;
+    }}
+    #ts24-nav-backdrop {{
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.42);
+      z-index: 99989;
+    }}
+    #ts24-nav-backdrop.open {{ display: block; }}
+  `;
+  doc.head.appendChild(s);
+
+  /* ── Header bar ── */
+  var header = doc.createElement('div');
+  header.id = 'ts24-mobile-header';
+  header.innerHTML =
+    '<span id="ts24-mobile-logo">🏍 TS24</span>' +
+    '<span id="ts24-mobile-page-name">' + NAV_LABEL + '</span>' +
+    '<button id="ts24-hamburger-btn" onclick="ts24NavToggle()" title="メニュー">☰</button>';
+  doc.body.appendChild(header);
+
+  /* ── Backdrop (tap outside to close) ── */
+  var backdrop = doc.createElement('div');
+  backdrop.id = 'ts24-nav-backdrop';
+  backdrop.onclick = function() {{ ts24NavClose(); }};
+  doc.body.appendChild(backdrop);
+
+  /* ── Toggle open / close ── */
+  window.ts24NavToggle = function() {{
+    var navCol = doc.querySelector(
+      'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child'
+    );
+    var bd  = doc.getElementById('ts24-nav-backdrop');
+    var btn = doc.getElementById('ts24-hamburger-btn');
+    if (!navCol) return;
+    var isOpen = navCol.classList.contains('ts24-nav-open');
+    if (isOpen) {{
+      navCol.classList.remove('ts24-nav-open');
+      if (bd)  bd.classList.remove('open');
+      if (btn) btn.textContent = '☰';
+    }} else {{
+      navCol.classList.add('ts24-nav-open');
+      if (bd)  bd.classList.add('open');
+      if (btn) btn.textContent = '✕';
+    }}
+  }};
+
+  window.ts24NavClose = function() {{
+    var navCol = doc.querySelector(
+      'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child'
+    );
+    var bd  = doc.getElementById('ts24-nav-backdrop');
+    var btn = doc.getElementById('ts24-hamburger-btn');
+    if (navCol) navCol.classList.remove('ts24-nav-open');
+    if (bd)  bd.classList.remove('open');
+    if (btn) btn.textContent = '☰';
+  }};
+
+}})();
+</script>
 """
     components.html(html, height=0, scrolling=False)
 
@@ -1255,10 +1390,7 @@ st.markdown("""
     /* ── Mobile / iPhone responsive (max-width: 768px) ── */
     @media (max-width: 768px) {
 
-        /* Stack nav column above content */
-        div[data-testid="stHorizontalBlock"] {
-            flex-direction: column !important;
-        }
+        /* Content column: full width */
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             width: 100% !important;
             min-width: 100% !important;
@@ -1266,46 +1398,33 @@ st.markdown("""
             flex: 1 1 100% !important;
         }
 
-        /* Remove sticky from nav column on mobile */
+        /* Nav column: hidden by default (hamburger menu controls visibility) */
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+            display: none !important;
             position: static !important;
             max-height: none !important;
-            overflow: visible !important;
         }
 
-        /* Nav radio: horizontal scrollable pill bar */
-        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] > div:last-child {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch !important;
-            gap: 4px !important;
-            padding: 4px 0 8px !important;
-            scrollbar-width: none !important;
-        }
-        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] > div:last-child::-webkit-scrollbar {
-            display: none !important;
-        }
-        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] label {
-            white-space: nowrap !important;
-            width: auto !important;
-            min-width: auto !important;
-            padding: 6px 10px !important;
-            font-size: 12px !important;
-            flex-shrink: 0 !important;
-            border-radius: 16px !important;
-        }
-        /* Active nav pill on mobile: bottom border instead of left border */
-        div[data-testid="stVerticalBlock"] div[data-testid="stRadio"] label:has(input:checked) {
-            border-left: none !important;
-            border-bottom: 2px solid #0078D4 !important;
-            padding-left: 10px !important;
+        /* Nav overlay: shown when .ts24-nav-open class is added by JS */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child.ts24-nav-open {
+            display: block !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 280px !important;
+            height: 100vh !important;
+            z-index: 99990 !important;
+            background: #FFFFFF !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            padding: 60px 12px 24px !important;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.22) !important;
+            scrollbar-width: thin !important;
         }
 
-        /* Reduce page padding */
+        /* Top padding to clear the fixed header bar */
         div[data-testid="block-container"] {
-            padding: 1rem 0.75rem !important;
+            padding: 4.5rem 0.75rem 1rem !important;
             max-width: 100% !important;
         }
 
