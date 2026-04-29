@@ -933,8 +933,8 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   var history = [];
   var open    = false;
 
-  /* ── Toggle ── */
-  window.ts24Toggle = function() {{
+  /* ── Toggle — defined on parent window so onclick attrs in parent DOM can find it ── */
+  window.parent.ts24Toggle = function() {{
     open = !open;
     doc.getElementById('ts24-panel').classList.toggle('open', open);
     doc.getElementById('ts24-fab').textContent = open ? '✕' : '🤖';
@@ -959,8 +959,8 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
     return d;
   }}
 
-  /* ── Send ── */
-  window.ts24Send = async function() {{
+  /* ── Send — defined on parent window so onclick attrs in parent DOM can find it ── */
+  window.parent.ts24Send = async function() {{
     var meta   = doc.getElementById('ts24-chat-meta');
     var apiKey = meta ? meta.dataset.key : '';
     var sys    = meta ? meta.dataset.sys : '';
@@ -982,6 +982,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
         headers:{{
           'x-api-key': apiKey,
           'anthropic-version':'2023-06-01',
+          'anthropic-dangerous-allow-any-cors-origin': 'true',
           'content-type':'application/json'
         }},
         body: JSON.stringify({{
@@ -1007,7 +1008,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
 
   /* ── Enter key (Shift+Enter = newline) ── */
   doc.getElementById('ts24-input').addEventListener('keydown', function(e) {{
-    if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); ts24Send(); }}
+    if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); window.parent.ts24Send(); }}
   }});
 
 }})();
