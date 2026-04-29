@@ -86,6 +86,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "Claude Code作業: (1) dashboard.py フローティングチャット🤖ボタンの致命的バグ修正 — ts24Toggle/ts24Sendをiframeのwindowではなくwindow.parentに定義することでonclick属性から正しく呼び出せるよう修正。CORSヘッダー(anthropic-dangerous-allow-any-cors-origin)も追加。(2) race_memory.json初期ファイルを作成 — ROUND3 ASSEN完結時点までの全知見・セットアップ学習を記録。(3) GitHubへpush済み。"
+    },
+    {
+      "date": "2026-04-29",
+      "page": "Lap Analysis / Suspension Dynamics / Lap Sus Stats / 2D Lap Data",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Cowork Claude作業をClaude Codeがコミット: (1) 最新イベントをデフォルト表示 — Suspension Dynamics(最新日付のサーキット)・Lap Sus Stats(最新Circuit+Round)・2D Lap Data(最新ラウンド、アルファベット順バグをClaude Codeが日付ベースに修正)。(2) ラップタイム表示をmm:ss.00に統一 — fmt_laptime/fmt_lapを小数2桁に変更。(3) Best Lap EvolutionチャートのY軸をmm:ss.00形式tick(0.5s刻み)に変更・ホバーにmm:ss.00とP1 Gap表示を追加。commit: f9afae0"
     }
   ]
 }
