@@ -1037,80 +1037,95 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
 </script>
 
 <script>
-/* ── Mobile hamburger nav menu ── */
+/* ── Mobile hamburger nav menu (v4 — MutationObserver + multi-selector) ── */
 (function() {{
   var doc      = window.parent.document;
-  var isMobile = window.parent.innerWidth <= 768;
+  var win      = window.parent;
+  var isMobile = win.innerWidth <= 768;
   var NAV_LABEL = {page_label_js};
 
-  /* ── On every Streamlit rerun: update page name & close nav ── */
+  /* ── Find nav column: try multiple selectors + content check ── */
+  function getNavCol() {{
+    var candidates = [
+      doc.querySelector('[data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child'),
+      doc.querySelector('[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child'),
+      doc.querySelector('[data-testid="stHorizontalBlock"] > div:first-child')
+    ];
+    for (var i = 0; i < candidates.length; i++) {{
+      if (candidates[i] && candidates[i].textContent.indexOf('Set-UP Tool') > -1) return candidates[i];
+    }}
+    /* Fallback: search all stHorizontalBlock first children for known text */
+    var blocks = doc.querySelectorAll('[data-testid="stHorizontalBlock"]');
+    for (var j = 0; j < blocks.length; j++) {{
+      var fc = blocks[j].firstElementChild;
+      if (fc && fc.textContent.indexOf('Set-UP Tool') > -1) return fc;
+    }}
+    return null;
+  }}
+
+  /* ── Hide nav: inline style + MutationObserver to fight React re-renders ── */
+  function applyHide(nc) {{
+    if (nc) nc.style.setProperty('display', 'none', 'important');
+  }}
+
+  function startObserver(nc) {{
+    if (win._ts24Obs) win._ts24Obs.disconnect();
+    win._ts24Obs = new MutationObserver(function() {{
+      if (!win._ts24Open && nc.style.display !== 'none') {{
+        nc.style.setProperty('display', 'none', 'important');
+      }}
+    }});
+    win._ts24Obs.observe(nc, {{ attributes: true, attributeFilter: ['style', 'class'] }});
+  }}
+
+  function initHide() {{
+    var nc = getNavCol();
+    if (nc) {{ applyHide(nc); startObserver(nc); }}
+    else {{ setTimeout(initHide, 250); }}
+  }}
+
+  /* ── Every Streamlit rerun: refresh label + re-close nav ── */
   var existing = doc.getElementById('ts24-mobile-header');
   if (existing) {{
     var nameEl = doc.getElementById('ts24-mobile-page-name');
     if (nameEl) nameEl.textContent = NAV_LABEL;
     if (isMobile) {{
-      /* Close the overlay (body class approach — React-safe) */
+      win._ts24Open = false;
       doc.body.classList.remove('ts24-nav-open');
       var btn = doc.getElementById('ts24-hamburger-btn');
       if (btn) btn.textContent = '☰';
+      initHide();  /* re-hide after React re-render */
     }}
     return;
   }}
 
-  /* ── First render: only on mobile ── */
-  if (!isMobile) return;
+  if (!isMobile) return;  /* desktop: do nothing */
 
-  /* ── Inject CSS into <head> — outside React's control ──
-     body.ts24-mobile  : mobile mode active  → hide nav column
-     body.ts24-nav-open: overlay open        → show nav as side-panel  */
+  /* ── Inject CSS into <head> for overlay styles ── */
   var s = doc.createElement('style');
   s.id = 'ts24-mobile-nav-styles';
   s.textContent = `
     #ts24-mobile-header {{
-      position:fixed; top:0; left:0; right:0; z-index:99995;
-      height:52px; background:#FFFFFF; border-bottom:1px solid #DDE1E7;
+      position:fixed; top:0; left:0; right:0; z-index:99995; height:52px;
+      background:#FFFFFF; border-bottom:1px solid #DDE1E7;
       display:flex; align-items:center; justify-content:space-between;
-      padding:0 14px; box-shadow:0 2px 8px rgba(0,0,0,.08);
-      font-family:Arial,sans-serif;
+      padding:0 14px; box-shadow:0 2px 8px rgba(0,0,0,.08); font-family:Arial,sans-serif;
     }}
-    #ts24-mobile-logo {{
-      font-weight:800; font-size:15px; color:#0078D4; white-space:nowrap;
-    }}
+    #ts24-mobile-logo {{ font-weight:800; font-size:15px; color:#0078D4; white-space:nowrap; }}
     #ts24-mobile-page-name {{
-      flex:1; text-align:center; font-size:13px; font-weight:600;
-      color:#333; overflow:hidden; text-overflow:ellipsis;
-      white-space:nowrap; margin:0 10px;
+      flex:1; text-align:center; font-size:13px; font-weight:600; color:#333;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:0 10px;
     }}
     #ts24-hamburger-btn {{
       background:none; border:1px solid #DDE1E7; font-size:20px;
-      cursor:pointer; padding:4px 10px; color:#333;
-      border-radius:8px; line-height:1.3;
+      cursor:pointer; padding:4px 10px; color:#333; border-radius:8px; line-height:1.3;
     }}
-    #ts24-nav-backdrop {{
-      position:fixed; inset:0; background:rgba(0,0,0,.42);
-      z-index:99989; display:none;
-    }}
-    /* Mobile mode: hide nav column (CSS in <head>, not affected by React) */
-    body.ts24-mobile div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
-      display:none !important;
-      position:static !important;
-    }}
-    /* Nav open: show as left slide-in overlay */
-    body.ts24-mobile.ts24-nav-open div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
-      display:block !important;
-      position:fixed !important; top:0 !important; left:0 !important;
-      width:280px !important; height:100vh !important;
-      z-index:99990 !important; background-color:#FFFFFF !important;
-      overflow-y:auto !important; overflow-x:hidden !important;
-      padding:60px 12px 24px !important;
-      box-shadow:4px 0 24px rgba(0,0,0,.22) !important;
-    }}
+    #ts24-nav-backdrop {{ position:fixed; inset:0; background:rgba(0,0,0,.42); z-index:99989; display:none; }}
     body.ts24-nav-open #ts24-nav-backdrop {{ display:block; }}
   `;
   doc.head.appendChild(s);
 
-  /* Activate mobile mode via body class */
-  doc.body.classList.add('ts24-mobile');
+  win._ts24Open = false;
 
   /* ── Header bar ── */
   var header = doc.createElement('div');
@@ -1122,26 +1137,45 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   doc.body.appendChild(header);
 
   /* ── Backdrop ── */
-  var backdrop = doc.createElement('div');
-  backdrop.id = 'ts24-nav-backdrop';
-  backdrop.onclick = function() {{ ts24NavClose(); }};
-  doc.body.appendChild(backdrop);
+  var bd = doc.createElement('div');
+  bd.id = 'ts24-nav-backdrop';
+  bd.onclick = function() {{ win.ts24NavClose(); }};
+  doc.body.appendChild(bd);
 
-  /* ── Toggle open / close ── */
-  window.ts24NavToggle = function() {{
+  /* ── Start hiding nav column ── */
+  initHide();
+
+  /* ── Open overlay ── */
+  win.ts24NavToggle = function() {{
+    if (win._ts24Open) {{ win.ts24NavClose(); return; }}
+    var nc  = getNavCol();
     var btn = doc.getElementById('ts24-hamburger-btn');
-    if (doc.body.classList.contains('ts24-nav-open')) {{
-      ts24NavClose();
-    }} else {{
-      doc.body.classList.add('ts24-nav-open');
-      if (btn) btn.textContent = '✕';
-    }}
+    if (!nc) return;
+    win._ts24Open = true;
+    if (win._ts24Obs) win._ts24Obs.disconnect();  /* stop fighting React while open */
+    doc.body.classList.add('ts24-nav-open');
+    nc.style.setProperty('display',          'block',                      'important');
+    nc.style.setProperty('position',         'fixed',                      'important');
+    nc.style.setProperty('top',              '0',                          'important');
+    nc.style.setProperty('left',             '0',                          'important');
+    nc.style.setProperty('width',            '280px',                      'important');
+    nc.style.setProperty('height',           '100vh',                      'important');
+    nc.style.setProperty('z-index',          '99990',                      'important');
+    nc.style.setProperty('background-color', '#FFFFFF',                    'important');
+    nc.style.setProperty('overflow-y',       'auto',                       'important');
+    nc.style.setProperty('overflow-x',       'hidden',                     'important');
+    nc.style.setProperty('padding',          '60px 12px 24px',             'important');
+    nc.style.setProperty('box-shadow',       '4px 0 24px rgba(0,0,0,.22)','important');
+    if (btn) btn.textContent = '✕';
   }};
 
-  window.ts24NavClose = function() {{
+  /* ── Close overlay ── */
+  win.ts24NavClose = function() {{
     var btn = doc.getElementById('ts24-hamburger-btn');
+    win._ts24Open = false;
     doc.body.classList.remove('ts24-nav-open');
     if (btn) btn.textContent = '☰';
+    initHide();  /* re-hide with observer */
   }};
 
 }})();
