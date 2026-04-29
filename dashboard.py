@@ -3050,21 +3050,32 @@ with _content_col:
                         }
                         _riders_sorted = sorted(df_bar["Rider"].unique())
                         _n_riders = len(_riders_sorted)
-                        fig_d = px.bar(
+                        # ── Sort circuits alphabetically for consistent axis order
+                        _circ_order = sorted(df_bar["Circuit"].unique())
+                        fig_d = px.line(
                             df_bar, x="Circuit", y="Δ (mm)",
-                            color="Metric", barmode="group",
+                            color="Metric", markers=True,
                             facet_col="Rider",
                             facet_col_wrap=_n_riders,
                             color_discrete_map=_metric_colors,
-                            category_orders={"Rider": _riders_sorted},
+                            category_orders={"Rider": _riders_sorted, "Circuit": _circ_order},
                             labels={"Δ (mm)": "Δ mm (FAST − SLOW)", "Circuit": ""},
+                            custom_data=["Metric", "Rider"],
                         )
-                        fig_d.add_hline(y=0, line_color="#222", line_width=2)
-                        fig_d.update_traces(marker_line_width=0)
+                        # Marker style: large filled dots with white border
+                        fig_d.update_traces(
+                            mode="lines+markers",
+                            marker=dict(size=10, line=dict(width=2, color="white")),
+                            line=dict(width=2.5),
+                        )
+                        # Zero reference line
+                        fig_d.add_hline(y=0, line_color="#222", line_width=1.8,
+                                        line_dash="dot")
+                        # Shade positive / negative regions subtly
+                        fig_d.add_hrect(y0=0, y1=999,  fillcolor="#0078D4", opacity=0.04, line_width=0)
+                        fig_d.add_hrect(y0=-999, y1=0, fillcolor="#E8543A", opacity=0.04, line_width=0)
                         fig_d.update_layout(
-                            height=460,
-                            bargap=0.35,
-                            bargroupgap=0.06,
+                            height=480,
                             plot_bgcolor="white",
                             paper_bgcolor="white",
                             legend=dict(
@@ -3072,27 +3083,28 @@ with _content_col:
                                 orientation="v",
                                 x=1.01, xanchor="left", y=0.5,
                                 font=dict(size=12),
-                                bgcolor="white",
+                                bgcolor="rgba(255,255,255,0.9)",
+                                bordercolor="#E5E7EB", borderwidth=1,
                             ),
-                            margin=dict(t=70, b=60, l=60, r=160),
+                            margin=dict(t=70, b=60, l=60, r=170),
                             title=dict(
-                                text="Suspension Direction: positive = more compression when fast",
-                                font=dict(size=13, color="#333"),
+                                text="Suspension Trend: positive = more compression when fast  |  negative = less",
+                                font=dict(size=12, color="#555"),
                                 x=0, xanchor="left",
                             ),
-                            xaxis=dict(showgrid=False, linecolor="#CCCCCC", tickfont=dict(size=11)),
-                            yaxis=dict(
-                                gridcolor="#E5E7EB", gridwidth=1,
-                                linecolor="#CCCCCC", zeroline=False,
-                                ticksuffix=" mm", tickfont=dict(size=11),
-                            ),
                         )
-                        for axis in [k for k in fig_d.layout._props if k.startswith("xaxis") or k.startswith("yaxis")]:
-                            fig_d.layout[axis].update(showgrid=False if axis.startswith("xaxis") else True,
-                                                      gridcolor="#E5E7EB")
+                        fig_d.update_xaxes(
+                            showgrid=False, linecolor="#CCCCCC",
+                            tickfont=dict(size=11), tickangle=-20,
+                        )
+                        fig_d.update_yaxes(
+                            gridcolor="#E5E7EB", gridwidth=1,
+                            linecolor="#CCCCCC", zeroline=False,
+                            ticksuffix=" mm", tickfont=dict(size=11),
+                        )
                         fig_d.for_each_annotation(lambda a: a.update(
-                            text=a.text.split("=")[-1],
-                            font=dict(size=13, color="#333"),
+                            text=f"<b>{a.text.split('=')[-1]}</b>",
+                            font=dict(size=14, color="#222"),
                         ))
                         st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
 
