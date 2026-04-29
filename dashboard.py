@@ -2601,17 +2601,73 @@ with _content_col:
                                 })
                     if rows_3:
                         df3 = pd.DataFrame(rows_3)
-                        fig_3 = px.scatter(df3, x="LapNo", y="SusF (mm)",
-                                           color="Rider", symbol="Definition",
-                                           facet_col="Run", facet_col_wrap=4,
-                                           color_discrete_map=RIDER_COLOR,
-                                           labels={"LapNo":"Lap No"},
-                                           title="APEX SusF — 3定義比較 per Lap")
-                        fig_3.update_traces(marker=dict(size=8), opacity=0.8)
-                        chart_layout(fig_3, height=440, title="APEX SusF 3定義比較")
+
+                        # ── Power BI スタイル: 定義別カラー ─────────
+                        DEF_COLORS = {
+                            "① AccY Peak (SusF)": "#0078D4",   # Power BI blue
+                            "② Brake Off (SusF)": "#107C10",   # green
+                            "③ Thr On   (SusF)": "#C43E1C",   # orange-red
+                        }
+                        # ライダー別シンボル
+                        riders_u = sorted(df3["Rider"].unique())
+                        _syms = ["circle","square","diamond","cross","x","triangle-up"]
+                        sym_map = {r: _syms[i % len(_syms)] for i, r in enumerate(riders_u)}
+
+                        runs_u = sorted(df3["Run"].unique())
+                        n_runs = len(runs_u)
+                        cols_w = 2 if n_runs > 2 else n_runs   # 2列 → 各パネルを大きく
+                        n_rows_f = max(1, (n_runs + cols_w - 1) // cols_w)
+                        panel_h = 340
+                        total_h = max(520, panel_h * n_rows_f + 140)
+
+                        fig_3 = px.scatter(
+                            df3, x="LapNo", y="SusF (mm)",
+                            color="Definition", symbol="Rider",
+                            facet_col="Run", facet_col_wrap=cols_w,
+                            color_discrete_map=DEF_COLORS,
+                            symbol_map=sym_map,
+                            labels={"LapNo": "Lap No", "SusF (mm)": "SusF (mm)"},
+                        )
+                        fig_3.update_traces(
+                            marker=dict(size=14, line=dict(width=1.5, color="white")),
+                            opacity=0.92,
+                        )
+                        fig_3.update_layout(
+                            height=total_h,
+                            plot_bgcolor="white",
+                            paper_bgcolor="white",
+                            font=dict(family="Arial, sans-serif", size=12, color="#1F2937"),
+                            legend=dict(
+                                orientation="v", yanchor="top", y=1.0,
+                                xanchor="left", x=1.01,
+                                bgcolor="rgba(255,255,255,0.95)",
+                                bordercolor="#D1D5DB", borderwidth=1,
+                                font=dict(size=11), title_font=dict(size=11),
+                            ),
+                            margin=dict(l=60, r=220, t=40, b=60),
+                        )
+                        fig_3.update_xaxes(
+                            showgrid=True, gridcolor="#E5E7EB", gridwidth=1,
+                            zeroline=False, showline=True, linecolor="#9CA3AF", linewidth=1,
+                            tickfont=dict(size=11), title_font=dict(size=11),
+                            dtick=1,
+                        )
+                        fig_3.update_yaxes(
+                            showgrid=True, gridcolor="#E5E7EB", gridwidth=1,
+                            zeroline=False, showline=True, linecolor="#9CA3AF", linewidth=1,
+                            tickfont=dict(size=11), title_font=dict(size=12, color="#374151"),
+                            rangemode="tozero",
+                        )
+                        # ファセットタイトルを "Run=" プレフィックス除去
+                        fig_3.for_each_annotation(
+                            lambda a: a.update(
+                                text=a.text.replace("Run=", ""),
+                                font=dict(size=12, color="#374151"),
+                            )
+                        )
                         st.plotly_chart(fig_3, use_container_width=True, config={"displayModeBar": False})
 
-                    # ── ラン別平均 棒グラフ ─────────────────────
+                    # ── ラン別平均 棒グラフ（Power BI スタイル）──────
                     st.divider()
                     st.markdown("**ラン別 APEX SusF 平均 (3定義)**")
                     rows_bar = []
@@ -2622,29 +2678,48 @@ with _content_col:
                             grp.rename(columns={col: "SusF avg (mm)"}, inplace=True)
                             rows_bar.append(grp)
                     if rows_bar:
-                        import pandas as pd_
-                        df_bar = pd_.concat(rows_bar, ignore_index=True)
-                        fig_bar = px.bar(df_bar, x="run_label", y="SusF avg (mm)",
-                                         color="Definition", barmode="group",
-                                         facet_row="RIDER",
-                                         labels={"run_label":"Run"},
-                                         title="Run Average APEX SusF — 3定義")
-                        chart_layout(fig_bar, height=500, title="Run Avg APEX SusF 3定義")
-                        fig_bar.update_layout(xaxis_tickangle=-35)
+                        df_bar = pd.concat(rows_bar, ignore_index=True)
+                        riders_bar = sorted(df_bar["RIDER"].unique())
+                        n_r = len(riders_bar)
+                        bar_h = max(420, 240 * n_r + 80)
+                        fig_bar = px.bar(
+                            df_bar, x="run_label", y="SusF avg (mm)",
+                            color="Definition", barmode="group",
+                            facet_row="RIDER",
+                            color_discrete_map=DEF_COLORS if rows_3 else None,
+                            labels={"run_label": "Run", "SusF avg (mm)": "SusF avg (mm)"},
+                        )
+                        fig_bar.update_layout(
+                            height=bar_h,
+                            plot_bgcolor="white", paper_bgcolor="white",
+                            font=dict(family="Arial, sans-serif", size=12, color="#1F2937"),
+                            legend=dict(
+                                orientation="v", yanchor="top", y=1.0,
+                                xanchor="left", x=1.01,
+                                bgcolor="rgba(255,255,255,0.95)",
+                                bordercolor="#D1D5DB", borderwidth=1,
+                                font=dict(size=11),
+                            ),
+                            margin=dict(l=60, r=220, t=40, b=70),
+                            bargap=0.20, bargroupgap=0.08,
+                        )
+                        fig_bar.update_xaxes(
+                            showgrid=False, showline=True, linecolor="#9CA3AF",
+                            tickangle=-30, tickfont=dict(size=11),
+                        )
+                        fig_bar.update_yaxes(
+                            showgrid=True, gridcolor="#E5E7EB", gridwidth=1,
+                            zeroline=True, zerolinecolor="#9CA3AF",
+                            showline=True, linecolor="#9CA3AF",
+                            tickfont=dict(size=11),
+                        )
+                        fig_bar.for_each_annotation(
+                            lambda a: a.update(
+                                text=a.text.replace("RIDER=", ""),
+                                font=dict(size=12, color="#374151"),
+                            )
+                        )
                         st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
-
-                    # ラン別 APEX SusF 平均比較
-                    st.divider()
-                    st.markdown("**ラン別 APEX SusF 平均**")
-                    if "APEX_SUSF_AVG" in dfW.columns:
-                        grp = dfW.groupby(["run_label","RIDER"])["APEX_SUSF_AVG"].mean().reset_index()
-                        grp.columns = ["Run","Rider","APEX SusF avg (mm)"]
-                        fig_b = px.bar(grp, x="Run", y="APEX SusF avg (mm)", color="Rider",
-                                       barmode="group", color_discrete_map=RIDER_COLOR,
-                                       title="Run Average APEX SusF")
-                        chart_layout(fig_b, height=300, title="Run Average APEX SusF")
-                        fig_b.update_layout(xaxis_tickangle=-35)
-                        st.plotly_chart(fig_b, use_container_width=True, config={"displayModeBar": False})
 
                 # ── ブレーキ タブ ────────────────────────────
                 with tab_brake:
