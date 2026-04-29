@@ -1042,41 +1042,17 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   var doc      = window.parent.document;
   var isMobile = window.parent.innerWidth <= 768;
   var NAV_LABEL = {page_label_js};
-  var NAV_SEL  = 'div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child';
 
-  /* ── Hide nav column via inline style (retries for Streamlit async render) ── */
-  function hideNav(retries) {{
-    var nc = doc.querySelector(NAV_SEL);
-    if (nc) {{
-      nc.style.setProperty('display', 'none', 'important');
-      nc.style.removeProperty('position');
-      nc.style.removeProperty('top');
-      nc.style.removeProperty('left');
-      nc.style.removeProperty('width');
-      nc.style.removeProperty('height');
-      nc.style.removeProperty('z-index');
-      nc.style.removeProperty('background-color');
-      nc.style.removeProperty('overflow-y');
-      nc.style.removeProperty('overflow-x');
-      nc.style.removeProperty('padding');
-      nc.style.removeProperty('box-shadow');
-      window.parent.ts24NavIsOpen = false;
-    }} else if (retries > 0) {{
-      setTimeout(function() {{ hideNav(retries - 1); }}, 200);
-    }}
-  }}
-
-  /* ── On every Streamlit rerun: update page name & re-hide nav ── */
+  /* ── On every Streamlit rerun: update page name & close nav ── */
   var existing = doc.getElementById('ts24-mobile-header');
   if (existing) {{
     var nameEl = doc.getElementById('ts24-mobile-page-name');
     if (nameEl) nameEl.textContent = NAV_LABEL;
     if (isMobile) {{
-      var bd  = doc.getElementById('ts24-nav-backdrop');
+      /* Close the overlay (body class approach — React-safe) */
+      doc.body.classList.remove('ts24-nav-open');
       var btn = doc.getElementById('ts24-hamburger-btn');
-      if (bd)  bd.style.display = 'none';
       if (btn) btn.textContent = '☰';
-      hideNav(8);
     }}
     return;
   }}
@@ -1084,44 +1060,57 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   /* ── First render: only on mobile ── */
   if (!isMobile) return;
 
-  /* ── Inject styles ── */
+  /* ── Inject CSS into <head> — outside React's control ──
+     body.ts24-mobile  : mobile mode active  → hide nav column
+     body.ts24-nav-open: overlay open        → show nav as side-panel  */
   var s = doc.createElement('style');
   s.id = 'ts24-mobile-nav-styles';
   s.textContent = `
     #ts24-mobile-header {{
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 99995;
-      height: 52px;
-      background: #FFFFFF;
-      border-bottom: 1px solid #DDE1E7;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 14px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      font-family: Arial, sans-serif;
+      position:fixed; top:0; left:0; right:0; z-index:99995;
+      height:52px; background:#FFFFFF; border-bottom:1px solid #DDE1E7;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0 14px; box-shadow:0 2px 8px rgba(0,0,0,.08);
+      font-family:Arial,sans-serif;
     }}
     #ts24-mobile-logo {{
-      font-weight: 800; font-size: 15px;
-      color: #0078D4; letter-spacing: 0.5px; white-space: nowrap;
+      font-weight:800; font-size:15px; color:#0078D4; white-space:nowrap;
     }}
     #ts24-mobile-page-name {{
-      flex: 1; text-align: center; font-size: 13px; font-weight: 600;
-      color: #333333; overflow: hidden; text-overflow: ellipsis;
-      white-space: nowrap; margin: 0 10px;
+      flex:1; text-align:center; font-size:13px; font-weight:600;
+      color:#333; overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; margin:0 10px;
     }}
     #ts24-hamburger-btn {{
-      background: none; border: 1px solid #DDE1E7; font-size: 20px;
-      cursor: pointer; padding: 4px 10px; color: #333333;
-      border-radius: 8px; line-height: 1.3; white-space: nowrap;
+      background:none; border:1px solid #DDE1E7; font-size:20px;
+      cursor:pointer; padding:4px 10px; color:#333;
+      border-radius:8px; line-height:1.3;
     }}
     #ts24-nav-backdrop {{
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.42); z-index: 99989; display: none;
+      position:fixed; inset:0; background:rgba(0,0,0,.42);
+      z-index:99989; display:none;
     }}
+    /* Mobile mode: hide nav column (CSS in <head>, not affected by React) */
+    body.ts24-mobile div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
+      display:none !important;
+      position:static !important;
+    }}
+    /* Nav open: show as left slide-in overlay */
+    body.ts24-mobile.ts24-nav-open div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
+      display:block !important;
+      position:fixed !important; top:0 !important; left:0 !important;
+      width:280px !important; height:100vh !important;
+      z-index:99990 !important; background-color:#FFFFFF !important;
+      overflow-y:auto !important; overflow-x:hidden !important;
+      padding:60px 12px 24px !important;
+      box-shadow:4px 0 24px rgba(0,0,0,.22) !important;
+    }}
+    body.ts24-nav-open #ts24-nav-backdrop {{ display:block; }}
   `;
   doc.head.appendChild(s);
+
+  /* Activate mobile mode via body class */
+  doc.body.classList.add('ts24-mobile');
 
   /* ── Header bar ── */
   var header = doc.createElement('div');
@@ -1138,44 +1127,21 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   backdrop.onclick = function() {{ ts24NavClose(); }};
   doc.body.appendChild(backdrop);
 
-  /* ── Initial hide (with retries for Streamlit async rendering) ── */
-  window.parent.ts24NavIsOpen = false;
-  hideNav(10);
-
-  /* ── Open nav overlay ── */
+  /* ── Toggle open / close ── */
   window.ts24NavToggle = function() {{
-    var nc  = doc.querySelector(NAV_SEL);
-    var bd  = doc.getElementById('ts24-nav-backdrop');
     var btn = doc.getElementById('ts24-hamburger-btn');
-    if (!nc) return;
-    if (window.parent.ts24NavIsOpen) {{
+    if (doc.body.classList.contains('ts24-nav-open')) {{
       ts24NavClose();
     }} else {{
-      window.parent.ts24NavIsOpen = true;
-      nc.style.setProperty('display',          'block',                     'important');
-      nc.style.setProperty('position',         'fixed',                     'important');
-      nc.style.setProperty('top',              '0',                         'important');
-      nc.style.setProperty('left',             '0',                         'important');
-      nc.style.setProperty('width',            '280px',                     'important');
-      nc.style.setProperty('height',           '100vh',                     'important');
-      nc.style.setProperty('z-index',          '99990',                     'important');
-      nc.style.setProperty('background-color', '#FFFFFF',                   'important');
-      nc.style.setProperty('overflow-y',       'auto',                      'important');
-      nc.style.setProperty('overflow-x',       'hidden',                    'important');
-      nc.style.setProperty('padding',          '60px 12px 24px',            'important');
-      nc.style.setProperty('box-shadow',       '4px 0 24px rgba(0,0,0,.22)','important');
-      if (bd)  bd.style.display = 'block';
-      if (btn) btn.textContent  = '✕';
+      doc.body.classList.add('ts24-nav-open');
+      if (btn) btn.textContent = '✕';
     }}
   }};
 
-  /* ── Close nav overlay ── */
   window.ts24NavClose = function() {{
-    var bd  = doc.getElementById('ts24-nav-backdrop');
     var btn = doc.getElementById('ts24-hamburger-btn');
-    if (bd)  bd.style.display = 'none';
-    if (btn) btn.textContent  = '☰';
-    hideNav(5);
+    doc.body.classList.remove('ts24-nav-open');
+    if (btn) btn.textContent = '☰';
   }};
 
 }})();
