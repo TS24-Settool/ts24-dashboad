@@ -1,0 +1,98 @@
+{
+  "version": 2,
+  "circuit_insights": {
+    "ASSEN": {
+      "JA52": [
+        "[2026-04-19] Race2 P8確定。スイングアーム568mm・RサスショックR 340mmがベースセットアップ。FサスCOMP 18click（次戦16から評価推奨）。SCXがSC0より全フェーズで優位。",
+        "[2026-04-19] Race2グリッドP1（ポール）。T8-9型高速コーナーでのPH2（R push F）が継続課題。FサスCOMP最適値未確定。"
+      ],
+      "DA77": [
+        "[2026-04-19] Race1 P6（ベスト結果）。Race2はP15（接触あり、セットアップ評価除外）。",
+        "[2026-04-19] WUP2ベース: F-2mm/R-1mm down ✅、Ride Height 247mm、Fスプリング9.5N、FPreload 11.5mm。PH2 Turn in困難は慢性問題。バンク角不足仮説（Fへの荷重過多）。"
+      ]
+    },
+    "PORTIMAO": {
+      "JA52": [
+        "[2026-03-27] chattering_brake・nervousness・no_turn_in・push_rear_exitが出現。"
+      ],
+      "DA77": [
+        "[2026-03-27] chattering_brake・push_rear_exit・line_loss_exitが出現。S46ショックで苦戦。"
+      ]
+    },
+    "JEREZ": {
+      "JA52": [
+        "[2026-01-21] TEST1: chattering_brake・nervousness。",
+        "[2025-10-17] ROUND12 P2 ← 今季最良結果。"
+      ],
+      "DA77": [
+        "[2026-01-21] TEST1: chattering_brake・no_turn_in・understeer_apex・push_rear_exit。"
+      ]
+    },
+    "PHILLIP ISLAND": {
+      "JA52": [
+        "[2026-02-20] ROUND1 P10。no_turn_in・line_loss_exitが主課題。"
+      ],
+      "DA77": [
+        "[2026-02-20] ROUND1 Lapped。chattering_brake・no_turn_in・line_loss_exit。アンチスクワット問題が顕在化。"
+      ]
+    },
+    "CREMONA": {
+      "JA52": [
+        "[2026-03-13] TEST4: chattering_brake・no_turn_in・push_rear_exit。Offset 26/-0.5を標準採用。"
+      ],
+      "DA77": [
+        "[2026-03-13] TEST4: chattering_brake・line_loss_exit。"
+      ]
+    }
+  },
+  "global_insights": [
+    "[2026-04-19] レース直前の雨対応：FサスPreload・RサスPreload各-2mmが両ライダーに有効 → 標準対応として記録（信頼度:高）",
+    "[2026-04-19] エンジンブレーキ不良時にFサスが固くなる現象 → chattering_brake慢性問題との関連（要検証）",
+    "[2026-04-19] DA77のSCX効果はSC0と大差なし → ライディングスタイルとの相性要因の可能性（信頼度:中）",
+    "[2026-04-19] DA77のPH4-5問題の根本はバンク角不足の可能性（Fへの荷重過多がバンク倒し込みを妨げる）（信頼度:中）",
+    "[全シーズン] chattering_brakeが最多問題タグ（11件）。両ライダー共通、F側が主因。",
+    "[全シーズン] line_loss_exit（8件）、nervousness（7件）、push_rear_exit（7件）、no_turn_in（6件）が主要慢性問題。"
+  ],
+  "setup_learnings": [
+    {
+      "date": "2026-04-19",
+      "circuit": "ASSEN",
+      "rider": "JA52",
+      "run_no": null,
+      "insight": "Race2 P8達成。スイングアーム567→568mmで最終調整。SCXタイヤが全フェーズでSC0より優位。次戦FサスCOMP 16clickからスタート推奨。",
+      "source": "race_result"
+    },
+    {
+      "date": "2026-04-19",
+      "circuit": "ASSEN",
+      "rider": "DA77",
+      "run_no": null,
+      "insight": "WUP2でF-2mm/R-1mmダウン変更が有効。Rサス伸び側ダンパーを次戦で柔らかくするアクションが未試行。",
+      "source": "race_result"
+    },
+    {
+      "date": "2026-04-29",
+      "circuit": "ALL",
+      "rider": "ALL",
+      "run_no": null,
+      "insight": "dashboard.py フローティングチャット(🤖FABボタン)修正: ts24Toggle/ts24Sendをwindow.parentに定義。anthropic-dangerous-allow-any-cors-originヘッダー追加。",
+      "source": "claude_code_maintenance"
+    }
+  ],
+  "conversation_summaries": [
+    {
+      "date": "2026-04-29",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code作業: (1) dashboard.py フローティングチャット🤖ボタンの致命的バグ修正 — ts24Toggle/ts24Sendをiframeのwindowではなくwindow.parentに定義することでonclick属性から正しく呼び出せるよう修正。CORSヘッダー(anthropic-dangerous-allow-any-cors-origin)も追加。(2) race_memory.json初期ファイルを作成 — ROUND3 ASSEN完結時点までの全知見・セットアップ学習を記録。(3) GitHubへpush済み。"
+    },
+    {
+      "date": "2026-04-29",
+      "page": "Lap Analysis / Suspension Dynamics / Lap Sus Stats / 2D Lap Data",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Cowork Claude作業をClaude Codeがコミット: (1) 最新イベントをデフォルト表示 — Suspension Dynamics(最新日付のサーキット)・Lap Sus Stats(最新Circuit+Round)・2D Lap Data(最新ラウンド、アルファベット順バグをClaude Codeが日付ベースに修正)。(2) ラップタイム表示をmm:ss.00に統一 — fmt_laptime/fmt_lapを小数2桁に変更。(3) Best Lap EvolutionチャートのY軸をmm:ss.00形式tick(0.5s刻み)に変更・ホバーにmm:ss.00とP1 Gap表示を追加。commit: f9afae0"
+    }
+  ]
+}

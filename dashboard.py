@@ -955,8 +955,8 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
   var history = [];
   var open    = false;
 
-  /* ── Toggle ── */
-  window.ts24Toggle = function() {{
+  /* ── Toggle — defined on parent window so onclick attrs in parent DOM can find it ── */
+  window.parent.ts24Toggle = function() {{
     open = !open;
     doc.getElementById('ts24-panel').classList.toggle('open', open);
     doc.getElementById('ts24-fab').textContent = open ? '✕' : '🤖';
@@ -981,8 +981,8 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
     return d;
   }}
 
-  /* ── Send ── */
-  window.ts24Send = async function() {{
+  /* ── Send — defined on parent window so onclick attrs in parent DOM can find it ── */
+  window.parent.ts24Send = async function() {{
     var meta   = doc.getElementById('ts24-chat-meta');
     var apiKey = meta ? meta.dataset.key : '';
     var sys    = meta ? meta.dataset.sys : '';
@@ -1004,6 +1004,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
         headers:{{
           'x-api-key': apiKey,
           'anthropic-version':'2023-06-01',
+          'anthropic-dangerous-allow-any-cors-origin': 'true',
           'content-type':'application/json'
         }},
         body: JSON.stringify({{
@@ -1029,7 +1030,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
 
   /* ── Enter key (Shift+Enter = newline) ── */
   doc.getElementById('ts24-input').addEventListener('keydown', function(e) {{
-    if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); ts24Send(); }}
+    if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); window.parent.ts24Send(); }}
   }});
 
 }})();
@@ -2062,12 +2063,12 @@ with _content_col:
     elif _NAV == "⏱  Race Pace":
 
         def fmt_laptime(sec):
-            """97.901 → '1:37.901'"""
+            """97.901 → '1:37.90'"""
             if sec is None or pd.isna(sec):
                 return "—"
             m = int(sec // 60)
             s = sec - m * 60
-            return f"{m}:{s:06.3f}"
+            return f"{m}:{s:05.2f}"
 
         if laps.empty:
             st.info("No lap time data. Run lap_sync.py first.")
@@ -2428,7 +2429,7 @@ with _content_col:
                     if s is None or (isinstance(s, float) and pd.isna(s)):
                         return "—"
                     m = int(s) // 60
-                    return f"{m}:{s % 60:06.3f}"
+                    return f"{m}:{s % 60:05.2f}"
 
                 rows = []
                 for ses in sessions_avail:
@@ -2532,6 +2533,8 @@ with _content_col:
                             line=dict(color="#2ECC71", width=2, dash="dot"),
                             mode="lines+markers",
                             marker=dict(size=7, symbol="diamond"),
+                            customdata=[fmt_lap(v) for v in p1_ref.values()],
+                            hovertemplate="%{x}  <b>%{customdata}</b><extra>P1 Rider Avg</extra>",
                         ))
 
                     for rider in riders_to_show:
@@ -2546,15 +2549,43 @@ with _content_col:
                             marker=dict(size=9),
                             text=[f"P1+{g:.3f}s" for g in rd["P1 Gap (s)"]],
                             textposition="top center",
+                            customdata=list(zip(
+                                [fmt_lap(v) for v in rd["Best (s)"]],
+                                [f"+{g:.3f}s" for g in rd["P1 Gap (s)"]],
+                            )),
+                            hovertemplate="%{x}  <b>%{customdata[0]}</b>  (%{customdata[1]})<extra>" + rider + "</extra>",
                         ))
+
+                    # Y-axis tick range in mm:ss.00
+                    _evo_y_all = list(p1_ref.values()) + [
+                        float(v) for r in riders_to_show
+                        for v in df_m[df_m["Rider"] == r]["Best (s)"].dropna()
+                    ]
+                    if _evo_y_all:
+                        import numpy as _np
+                        _evo_lo = min(_evo_y_all) - 0.4
+                        _evo_hi = max(_evo_y_all) + 0.4
+                        _step = 0.5
+                        _evo_ticks = list(_np.arange(
+                            _np.floor(_evo_lo / _step) * _step,
+                            _np.ceil(_evo_hi / _step) * _step + _step,
+                            _step,
+                        ))
+                        _evo_yaxis = dict(
+                            tickvals=_evo_ticks,
+                            ticktext=[fmt_lap(v) for v in _evo_ticks],
+                            range=[_evo_hi, _evo_lo],   # reversed: faster = top
+                        )
+                    else:
+                        _evo_yaxis = dict(autorange="reversed")
 
                     fig_evo.update_layout(
                         xaxis_title="Session",
-                        yaxis_title="Lap Time (s)",
-                        yaxis_autorange="reversed",   # lower = faster = top
+                        yaxis_title="Lap Time",
+                        yaxis=_evo_yaxis,
                         legend=dict(orientation="h", y=1.12),
                         height=420,
-                        margin=dict(l=50, r=20, t=40, b=40),
+                        margin=dict(l=60, r=20, t=40, b=40),
                         plot_bgcolor="#FAFAFA",
                         paper_bgcolor="white",
                     )
@@ -2782,8 +2813,16 @@ with _content_col:
                 _riders_2d  = sorted(df_2ds["rider"].dropna().unique())
                 _stypes_2d  = sorted(df_2ds["session_type"].dropna().unique())
 
+                # 最新ラウンドをデフォルトに（日付ベースで判定）
+                try:
+                    _2d_latest_date = df_2ds["date"].dropna().max()
+                    _2d_latest_rnd  = df_2ds.loc[df_2ds["date"] == _2d_latest_date, "round"].iloc[0]
+                    _2d_default_rnd = [_2d_latest_rnd] if _2d_latest_rnd in _rounds_2d else _rounds_2d
+                except Exception:
+                    _2d_default_rnd = _rounds_2d
+
                 with col_f1:
-                    _sel_round = st.multiselect("Round",   _rounds_2d, default=_rounds_2d, key="2d_round")
+                    _sel_round = st.multiselect("Round",   _rounds_2d, default=_2d_default_rnd, key="2d_round")
                 with col_f2:
                     _sel_rider = st.multiselect("Rider",   _riders_2d, default=_riders_2d, key="2d_rider")
                 with col_f3:
@@ -3041,10 +3080,20 @@ with _content_col:
             _dyn_circuits = sorted(df_dyn["Circuit"].apply(_dyn_norm_circuit).dropna().unique())
             _dyn_sessions = sorted(df_dyn["Session"].apply(_dyn_norm_session).dropna().unique())
 
+            # 最新イベントのサーキットをデフォルトに
+            try:
+                _dyn_latest_date = df_dyn["Date"].dropna().max()
+                _dyn_latest_circ = _dyn_norm_circuit(
+                    df_dyn.loc[df_dyn["Date"] == _dyn_latest_date, "Circuit"].iloc[0]
+                )
+                _dyn_default_circ = [_dyn_latest_circ] if _dyn_latest_circ in _dyn_circuits else _dyn_circuits
+            except Exception:
+                _dyn_default_circ = _dyn_circuits
+
             with fc1:
                 _f_rider = st.multiselect("Rider", _dyn_riders, default=_dyn_riders, key="dyn_rider")
             with fc2:
-                _f_circuit = st.multiselect("Circuit", _dyn_circuits, default=_dyn_circuits, key="dyn_circ")
+                _f_circuit = st.multiselect("Circuit", _dyn_circuits, default=_dyn_default_circ, key="dyn_circ")
             with fc3:
                 _f_session = st.multiselect("Session", _dyn_sessions, default=_dyn_sessions, key="dyn_sess")
 
@@ -3185,15 +3234,27 @@ with _content_col:
             _ls_riders   = sorted(df_ls["RIDER"].dropna().unique())   if "RIDER"   in df_ls.columns else []
             _ls_circuits = sorted(df_ls["CIRCUIT"].dropna().unique()) if "CIRCUIT" in df_ls.columns else []
             _ls_sessions = sorted(df_ls["SESSION"].dropna().unique()) if "SESSION" in df_ls.columns else []
+            _ls_rounds   = sorted(df_ls["ROUND"].dropna().unique())   if "ROUND"   in df_ls.columns else []
+
+            # 最新イベントをデフォルトに
+            try:
+                _ls_latest_date = df_ls["DATE"].dropna().max() if "DATE" in df_ls.columns else None
+                _ls_latest_circ = df_ls.loc[df_ls["DATE"] == _ls_latest_date, "CIRCUIT"].iloc[0] if _ls_latest_date else None
+                _ls_latest_rnd  = df_ls.loc[df_ls["DATE"] == _ls_latest_date, "ROUND"].iloc[0]  if _ls_latest_date else None
+                _ls_default_circ = [_ls_latest_circ] if _ls_latest_circ in _ls_circuits else _ls_circuits
+                _ls_default_rnd  = [_ls_latest_rnd]  if _ls_latest_rnd  in _ls_rounds  else _ls_rounds
+            except Exception:
+                _ls_default_circ = _ls_circuits
+                _ls_default_rnd  = _ls_rounds
+
             with fc1:
                 _f_ls_rider = st.multiselect("Rider", _ls_riders, default=_ls_riders, key="ls_rider")
             with fc2:
-                _f_ls_circ  = st.multiselect("Circuit", _ls_circuits, default=_ls_circuits, key="ls_circ")
+                _f_ls_circ  = st.multiselect("Circuit", _ls_circuits, default=_ls_default_circ, key="ls_circ")
             with fc3:
                 _f_ls_sess  = st.multiselect("Session", _ls_sessions, default=_ls_sessions, key="ls_sess")
             with fc4:
-                _ls_rounds = sorted(df_ls["ROUND"].dropna().unique()) if "ROUND" in df_ls.columns else []
-                _f_ls_rnd  = st.multiselect("Round", _ls_rounds, default=_ls_rounds, key="ls_rnd")
+                _f_ls_rnd  = st.multiselect("Round", _ls_rounds, default=_ls_default_rnd, key="ls_rnd")
 
             dfW = df_ls.copy()
             if _f_ls_rider   and "RIDER"   in dfW.columns: dfW = dfW[dfW["RIDER"].isin(_f_ls_rider)]
