@@ -81,6 +81,13 @@
   ],
   "conversation_summaries": [
     {
+      "date": "2026-04-30",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code作業: (1) numpy import抜け修正(NameError on Race Pace) — import numpy as np追加、commit 68094f9。(2) Corner Phase Analysis実装 — corner_phase_analysis.py新規作成(PH1-2/PH3/PH4-5検出、4815コーナーエントリ生成)。dashboard.pyに🔄 Corner Phaseページ追加(Section A: FAST vs SLOW Δtime積み上げ横棒、Section B: APEX速度ヒートマップ)。CLAUDE.md更新。corner_phase_data.json生成済み。"
+    },
+    {
       "date": "2026-04-29",
       "page": "system",
       "rider": "ALL",

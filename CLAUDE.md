@@ -82,6 +82,7 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 | ファイル | レコード数 | 主要列 | 更新タイミング |
 |---------|-----------|--------|---------------|
 | `lap_suspension_data.json` | 844行・26列 | APEX_CNT, APEX_SPD_AVG, APEX_SUSF_AVG, APEX_SUSR_AVG, BRK_CNT, BRK_SUSF_AVG, BRK_SUSR_AVG, FULLBRK_CNT, FULLBRK_SUSF, FULLBRK_SUSR, LAP_SUSF_MEAN, LAP_SUSF_MIN, LAP_SUSF_MAX, LAP_SUSR_MEAN | MES再処理時 |
+| `corner_phase_data.json` | 4815行 | round, circuit, date, session_type, rider, run_no, lap_no, lap_time_s, corner_no, ph12_duration_ms, ph12_brake_peak_bar, ph12_susf_avg, ph3_duration_ms, ph3_speed_min, ph3_susf_avg, ph3_susr_avg, ph45_duration_ms, ph45_gas_avg, ph45_susf_avg, total_corner_ms | corner_phase_analysis.py 実行時 |
 | `dynamics_data.json` | ラップ単位 | ACC_Y_PEAK, BOFF_SUSF, THRON_SUSF | MES再処理時 |
 | `lap_times_data.json` | セッション単位 | best_lap, rider, circuit, date, run_no | セッション登録時 |
 
@@ -148,6 +149,7 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A 5~50 ∩ SUSP_F 20~1
 | Suspension Dynamics | APEX/Braking/PitLimiter可視化 | dynamics_data.json |
 | Lap Sus Stats | ラップ統計・APEX比較 | lap_suspension_data.json |
 | **Setup Target** | FAST/SLOW比較・Δ分析 | lap_suspension_data.json + lap_times_data.json |
+| **Corner Phase** | PH1-2/PH3/PH4-5タイミング比較・APEX速度ヒートマップ | corner_phase_data.json |
 | Session Detail | セッション詳細 | SQLite |
 | Trend Analysis | シーズントレンド | SQLite |
 | Problem→Solution | 問題→解決策DB | SQLite |
