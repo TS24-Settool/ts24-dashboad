@@ -81,7 +81,7 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 
 | ファイル | レコード数 | 主要列 | 更新タイミング |
 |---------|-----------|--------|---------------|
-| `lap_suspension_data.json` | 615行・34列 | THRON_SUSF_AVG, BRK_SUSF_AVG, APEX_SPD_AVG | MES再処理時 |
+| `lap_suspension_data.json` | 844行・26列 | APEX_CNT, APEX_SPD_AVG, APEX_SUSF_AVG, APEX_SUSR_AVG, BRK_CNT, BRK_SUSF_AVG, BRK_SUSR_AVG, FULLBRK_CNT, FULLBRK_SUSF, FULLBRK_SUSR, LAP_SUSF_MEAN, LAP_SUSF_MIN, LAP_SUSF_MAX, LAP_SUSR_MEAN | MES再処理時 |
 | `dynamics_data.json` | ラップ単位 | ACC_Y_PEAK, BOFF_SUSF, THRON_SUSF | MES再処理時 |
 | `lap_times_data.json` | セッション単位 | best_lap, rider, circuit, date, run_no | セッション登録時 |
 

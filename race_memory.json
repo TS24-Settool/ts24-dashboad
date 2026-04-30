@@ -100,6 +100,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "APEX定義変更: 旧3定義(ACC_Y/BOFF/THRON)→新多条件定義(BRAKE_FRONT -0.6~0.3Bar + GAS 0~6% + dTPS_A 5~50 + SUSP_F 20~140mm + SUSP_R 5~50mm)に統一。parse_2d_channels.pyにdetect_apex_area()追加・lap_suspension_stats.pyを新APEX定義で再実装(dTPS_A未搭載ファイルはTHR_ONフォールバック)・CLAUDE.md更新・全227MESフォルダ再処理(844ラップ・APEX検出4815件/705ラップ)・lap_suspension_data.json再生成・push完了"
+    },
+    {
+      "date": "2026-04-30",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "旧APEX列(BOFF_*/THRON_*)を完全削除。Excel/JSON/SQLite/dashboardをAPEX_*単一定義に統一。列数34→26に整理。lap_suspension_stats.py・dashboard.py・CLAUDE.md更新・全844ラップ再処理・lap_suspension_data.json再生成・push完了"
     }
   ]
 }

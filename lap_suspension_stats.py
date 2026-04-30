@@ -448,9 +448,6 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
                 if ev["susF_mm"] is not None: fb_susF.append(ev["susF_mm"])
                 if ev["susR_mm"] is not None: fb_susR.append(ev["susR_mm"])
 
-        # 旧BOFF/THRON列はNone（廃止）— 後方互換のためキーは保持
-        boff_susF, boff_susR, boff_spds = [], [], []
-        thron_susF, thron_susR, thron_spds = apex_susF, apex_susR, apex_spds  # 同値
 
         # ── ラップ全体 SusF / SusR 統計 ──────────────────────────────────
         si_start = lap_start * susp_ratio
@@ -478,21 +475,11 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
             "date":          date_fmt,
             "lap_time_s":    round(lap_t_s, 3),
             "lap_time_fmt":  sec_to_laptime(lap_t_s),
-            # ① APEX — ACC_Y Peak (幾何学的Apex / 純旋回荷重)
+            # APEX (新定義 2026-04-30)
             "apex_count":    len(apex_spds),
             "apex_spd_avg":  _mean(apex_spds),
             "apex_susF_avg": _mean(apex_susF),
             "apex_susR_avg": _mean(apex_susR),
-            # ② BRAKE_OFF — ブレーキ解放点 (縦+横の複合荷重ピーク)
-            "boff_count":    len(boff_spds),
-            "boff_spd_avg":  _mean(boff_spds),
-            "boff_susF_avg": _mean(boff_susF),
-            "boff_susR_avg": _mean(boff_susR),
-            # ③ THR_ON — アクセルON点 (ライダー体感Apex)
-            "thron_count":   len(thron_spds),
-            "thron_spd_avg": _mean(thron_spds),
-            "thron_susF_avg":_mean(thron_susF),
-            "thron_susR_avg":_mean(thron_susR),
             # BRAKE ENTRY
             "brk_count":     len(brk_spds),
             "brk_spd_avg":   _mean(brk_spds),
@@ -519,14 +506,10 @@ HEADERS = [
     "RUN_ID", "LAP_ID", "ROUND", "CIRCUIT", "SESSION", "RIDER",
     "RUN_NO", "LAP_NO", "DATE", "LAP_TIME", "LAP_TIME_S",
     # APEX (新定義 2026-04-30: BRAKE_FRONT+GAS+dTPS_A+SUSP_F+SUSP_R 5条件同時成立)
-    "APEX_CNT",   "APEX_SPD_AVG",   "APEX_SUSF_AVG",   "APEX_SUSR_AVG",
-    # BOFF (廃止 — 後方互換のため列保持、値はNone)
-    "BOFF_CNT",   "BOFF_SPD_AVG",   "BOFF_SUSF_AVG",   "BOFF_SUSR_AVG",
-    # THRON (新APEX定義と同値 — dashboard後方互換のため保持)
-    "THRON_CNT",  "THRON_SPD_AVG",  "THRON_SUSF_AVG",  "THRON_SUSR_AVG",
+    "APEX_CNT",    "APEX_SPD_AVG",    "APEX_SUSF_AVG",    "APEX_SUSR_AVG",
     # BRAKE ENTRY / FULL BRK
-    "BRK_CNT",    "BRK_SPD_AVG",    "BRK_SUSF_AVG",    "BRK_SUSR_AVG",
-    "FULLBRK_CNT", "FULLBRK_SUSF", "FULLBRK_SUSR",
+    "BRK_CNT",     "BRK_SPD_AVG",     "BRK_SUSF_AVG",     "BRK_SUSR_AVG",
+    "FULLBRK_CNT", "FULLBRK_SUSF",    "FULLBRK_SUSR",
     # LAP OVERALL
     "LAP_SUSF_MEAN", "LAP_SUSF_MIN", "LAP_SUSF_MAX", "LAP_SUSR_MEAN",
 ]
@@ -534,15 +517,11 @@ HEADERS = [
 FIELDS = [
     "run_id", "lap_id", "round", "circuit", "session", "rider",
     "run_no", "lap_no", "date", "lap_time_fmt", "lap_time_s",
-    # ①
-    "apex_count",  "apex_spd_avg",  "apex_susF_avg",  "apex_susR_avg",
-    # ②
-    "boff_count",  "boff_spd_avg",  "boff_susF_avg",  "boff_susR_avg",
-    # ③
-    "thron_count", "thron_spd_avg", "thron_susF_avg", "thron_susR_avg",
+    # APEX
+    "apex_count",    "apex_spd_avg",    "apex_susF_avg",    "apex_susR_avg",
     # BRAKE
-    "brk_count",   "brk_spd_avg",   "brk_susF_avg",   "brk_susR_avg",
-    "fullbrk_count", "fullbrk_susF", "fullbrk_susR",
+    "brk_count",     "brk_spd_avg",     "brk_susF_avg",     "brk_susR_avg",
+    "fullbrk_count", "fullbrk_susF",    "fullbrk_susR",
     # LAP
     "lap_susF_mean", "lap_susF_min", "lap_susF_max", "lap_susR_mean",
 ]
@@ -644,21 +623,11 @@ CREATE TABLE lap_suspension (
     date             TEXT,
     lap_time_s       REAL,
     lap_time_fmt     TEXT,
-    -- ① ACC_Y Peak : 幾何学的Apex (純旋回荷重)
+    -- APEX (新定義 2026-04-30)
     apex_count       INTEGER,
     apex_spd_avg     REAL,
     apex_susF_avg    REAL,
     apex_susR_avg    REAL,
-    -- ② BRAKE_OFF : ブレーキ解放点 (縦+横の複合荷重ピーク)
-    boff_count       INTEGER,
-    boff_spd_avg     REAL,
-    boff_susF_avg    REAL,
-    boff_susR_avg    REAL,
-    -- ③ THR_ON : アクセルON点 (ライダー体感Apex)
-    thron_count      INTEGER,
-    thron_spd_avg    REAL,
-    thron_susF_avg   REAL,
-    thron_susR_avg   REAL,
     -- ブレーキ進入 / フルブレーキング
     brk_count        INTEGER,
     brk_spd_avg      REAL,
@@ -684,8 +653,6 @@ INSERT OR REPLACE INTO lap_suspension (
     lap_id, run_id, round, circuit, session, rider, run_no, lap_no, date,
     lap_time_s, lap_time_fmt,
     apex_count,  apex_spd_avg,  apex_susF_avg,  apex_susR_avg,
-    boff_count,  boff_spd_avg,  boff_susF_avg,  boff_susR_avg,
-    thron_count, thron_spd_avg, thron_susF_avg, thron_susR_avg,
     brk_count,   brk_spd_avg,   brk_susF_avg,   brk_susR_avg,
     fullbrk_count, fullbrk_susF, fullbrk_susR,
     lap_susF_mean, lap_susF_min, lap_susF_max, lap_susR_mean,
@@ -694,8 +661,6 @@ INSERT OR REPLACE INTO lap_suspension (
     :lap_id, :run_id, :round, :circuit, :session, :rider, :run_no, :lap_no, :date,
     :lap_time_s, :lap_time_fmt,
     :apex_count,  :apex_spd_avg,  :apex_susF_avg,  :apex_susR_avg,
-    :boff_count,  :boff_spd_avg,  :boff_susF_avg,  :boff_susR_avg,
-    :thron_count, :thron_spd_avg, :thron_susF_avg, :thron_susR_avg,
     :brk_count,   :brk_spd_avg,   :brk_susF_avg,   :brk_susR_avg,
     :fullbrk_count, :fullbrk_susF, :fullbrk_susR,
     :lap_susF_mean, :lap_susF_min, :lap_susF_max, :lap_susR_mean,

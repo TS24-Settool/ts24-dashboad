@@ -789,7 +789,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
         "あなたはWorldSSPモーターサイクルレーシングチームのシニアエンジニアです。"
         f"現在のダッシュボード: ページ={page}, サーキット={circ}, ライダー={rider}。"
         "ライダーはDA77とJA52の2名。"
-        "サスペンションデータはTHR_ON / BRAKE_OFF / ACC_Y Peakの3定義を使用。"
+        "サスペンションデータはAPEX定義(BRAKE_FRONT+GAS+dTPS_A+SUSP_F+SUSP_R 5条件同時成立区間)を使用。"
         "具体的な数値と範囲を示して答えてください。日本語で回答してください。"
         + (f"\n\n[現在の表示データ]\n{snap}" if snap else "")
         + memory_ctx
@@ -3260,17 +3260,14 @@ with _content_col:
                 # ── APEX タブ ───────────────────────────────
                 with tab_apex:
                     st.caption(
-                        "**3定義によるAPEX比較** — "
-                        "①ACC_Y Peak: 幾何学的Apex (純旋回荷重) / "
-                        "②Brake Off: ブレーキ解放点 (縦+横の複合荷重ピーク) / "
-                        "③Thr On: アクセルON点 (ライダー体感Apex)"
+                        "**APEX SusF** — "
+                        "新定義 (2026-04-30): BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% / "
+                        "dTPS_A 5~50 / SUSP_F 20~140mm / SUSP_R 5~50mm の5条件同時成立区間"
                     )
 
-                    # ── 3定義 SusF ラップ別比較 ─────────────────
+                    # ── APEX SusF ラップ別 ────────────────────────
                     apex_cols = [
-                        ("APEX_SUSF_AVG",  "① AccY Peak (SusF)"),
-                        ("BOFF_SUSF_AVG",  "② Brake Off (SusF)"),
-                        ("THRON_SUSF_AVG", "③ Thr On   (SusF)"),
+                        ("APEX_SUSF_AVG", "APEX SusF (mm)"),
                     ]
                     rows_3 = []
                     for _, r in dfW.iterrows():
@@ -3286,9 +3283,7 @@ with _content_col:
 
                         # ── Power BI スタイル: 定義別カラー ─────────
                         DEF_COLORS = {
-                            "① AccY Peak (SusF)": "#0078D4",   # Power BI blue
-                            "② Brake Off (SusF)": "#107C10",   # green
-                            "③ Thr On   (SusF)": "#C43E1C",   # orange-red
+                            "APEX SusF (mm)": "#0078D4",   # Power BI blue
                         }
                         # ライダー別シンボル
                         riders_u = sorted(df3["Rider"].unique())
@@ -3351,7 +3346,7 @@ with _content_col:
 
                     # ── ラン別平均 棒グラフ（Power BI スタイル）──────
                     st.divider()
-                    st.markdown("**ラン別 APEX SusF 平均 (3定義)**")
+                    st.markdown("**ラン別 APEX SusF 平均**")
                     rows_bar = []
                     for col, label in apex_cols:
                         if col in dfW.columns:
@@ -3515,10 +3510,8 @@ with _content_col:
                 with tab_table:
                     disp_cols_ls = ["RUN_ID","LAP_ID","ROUND","CIRCUIT","SESSION","RIDER",
                                     "RUN_NO","LAP_NO","LAP_TIME","LAP_TIME_S",
-                                    # 3定義
+                                    # APEX
                                     "APEX_CNT","APEX_SUSF_AVG","APEX_SUSR_AVG","APEX_SPD_AVG",
-                                    "BOFF_CNT","BOFF_SUSF_AVG","BOFF_SUSR_AVG","BOFF_SPD_AVG",
-                                    "THRON_CNT","THRON_SUSF_AVG","THRON_SUSR_AVG","THRON_SPD_AVG",
                                     # ブレーキ / ラップ全体
                                     "BRK_CNT","BRK_SUSF_AVG","BRK_SUSR_AVG",
                                     "FULLBRK_SUSF","FULLBRK_SUSR",
@@ -3549,15 +3542,15 @@ with _content_col:
                        "Mac で run_full_analysis.command を実行後、git push してください。")
             st.caption(f"DYN JSON exists: {_JSON_DYN.exists()} | LT JSON exists: {_JSON_LT.exists()} | Excel exists: {_DYNAMICS_EXCEL.exists()}")
         else:
-            # ── Apex定義: THR_ON (③アクセルON点) を使用 ──────────
+            # ── Apex定義: 新APEX定義 (2026-04-30) を使用 ─────────
             MIN_LAP_S_CORR = 80.0
 
-            # ── LAP_SUSPENSION から THR_ON / BRK をラン別集計 ────
+            # ── LAP_SUSPENSION から APEX / BRK をラン別集計 ──────
             df_ls = _load_lap_suspension()
             ls_map = {}
             if not df_ls.empty:
-                for nc in ["THRON_SUSF_AVG","THRON_SUSR_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
-                           "THRON_CNT","BRK_CNT","APEX_SPD_AVG","APEX_CNT"]:
+                for nc in ["APEX_SUSF_AVG","APEX_SUSR_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
+                           "APEX_CNT","BRK_CNT","APEX_SPD_AVG"]:
                     if nc in df_ls.columns:
                         df_ls[nc] = pd.to_numeric(df_ls[nc], errors="coerce")
                 _grp_cols = [c for c in ["RIDER","CIRCUIT","DATE","RUN_NO"] if c in df_ls.columns]
@@ -3571,14 +3564,14 @@ with _content_col:
                         date_s = str(date_g or "")
                         try: run_i = int(run_g or 0)
                         except: run_i = 0
-                        g_thron = _gdf[_gdf["THRON_CNT"] > 0] if "THRON_CNT" in _gdf.columns else _gdf
-                        g_brk   = _gdf[_gdf["BRK_CNT"] > 0]   if "BRK_CNT"   in _gdf.columns else _gdf
+                        g_apex = _gdf[_gdf["APEX_CNT"] > 0] if "APEX_CNT" in _gdf.columns else _gdf
+                        g_brk  = _gdf[_gdf["BRK_CNT"] > 0]  if "BRK_CNT"  in _gdf.columns else _gdf
                         ls_map[(rider_g, circ_n, date_s, run_i)] = {
-                            "thron_susF": g_thron["THRON_SUSF_AVG"].dropna().mean() if not g_thron.empty else None,
-                            "thron_susR": g_thron["THRON_SUSR_AVG"].dropna().mean() if not g_thron.empty else None,
-                            "brk_susF":   g_brk["BRK_SUSF_AVG"].dropna().mean()    if not g_brk.empty   else None,
-                            "brk_susR":   g_brk["BRK_SUSR_AVG"].dropna().mean()    if not g_brk.empty   else None,
-                            "apex_spd":   _gdf["APEX_SPD_AVG"].dropna().mean()      if "APEX_SPD_AVG" in _gdf.columns else None,
+                            "thron_susF": g_apex["APEX_SUSF_AVG"].dropna().mean() if not g_apex.empty else None,
+                            "thron_susR": g_apex["APEX_SUSR_AVG"].dropna().mean() if not g_apex.empty else None,
+                            "brk_susF":   g_brk["BRK_SUSF_AVG"].dropna().mean()  if not g_brk.empty  else None,
+                            "brk_susR":   g_brk["BRK_SUSR_AVG"].dropna().mean()  if not g_brk.empty  else None,
+                            "apex_spd":   _gdf["APEX_SPD_AVG"].dropna().mean()    if "APEX_SPD_AVG" in _gdf.columns else None,
                         }
 
             # ── LAP_TIMES からラン最良タイム ────────────────────
@@ -3615,8 +3608,8 @@ with _content_col:
                 matched_rows.append({
                     "rider": rider, "circuit": circ, "date": date, "run": run,
                     "best_s": best_s,
-                    "apex_susF": ld.get("thron_susF"),  # ③ THR_ON SusF
-                    "apex_susR": ld.get("thron_susR"),  # ③ THR_ON SusR
+                    "apex_susF": ld.get("thron_susF"),  # APEX SusF
+                    "apex_susR": ld.get("thron_susR"),  # APEX SusR
                     "apex_whlF": None,
                     "apex_whlR": None,
                     "apex_spd":  ld.get("apex_spd"),
@@ -3629,7 +3622,7 @@ with _content_col:
                 st.info(f"マッチするセッションが見つかりません（LAP_SUS={len(ls_map)}件 / LT={len(lt_best)}件）。\n\n"
                         "lap_suspension_data.json が最新か確認してください。")
             else:
-                st.caption(f"✅ THR_ON Apex / {len(matched_rows)} セッションマッチ")
+                st.caption(f"✅ APEX / {len(matched_rows)} セッションマッチ")
                 df_m = pd.DataFrame(matched_rows)
 
                 # Tier classification per rider×circuit（groupby.apply を避けて手動ループ）
@@ -3651,11 +3644,10 @@ with _content_col:
                             t = "MED"
                         df_m.at[orig_idx, "tier"] = t
 
-                # apex_whlF/R は THR_ON ソースにないので除外
                 METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_spd"]
                 METRIC_LABELS = {
-                    "apex_susF": "THR_ON SusF (mm)", "apex_susR": "THR_ON SusR (mm)",
-                    "brk_susF":  "Brk SusF (mm)",    "brk_susR":  "Brk SusR (mm)",
+                    "apex_susF": "APEX SusF (mm)", "apex_susR": "APEX SusR (mm)",
+                    "brk_susF":  "Brk SusF (mm)",  "brk_susR":  "Brk SusR (mm)",
                     "apex_spd":  "APEX Spd (km/h)",
                 }
 
@@ -3711,8 +3703,8 @@ with _content_col:
                     st.divider()
                     st.markdown('<p class="section-title">Δ (FAST − SLOW) — Suspension Direction per Circuit</p>',
                                 unsafe_allow_html=True)
-                    bar_metrics = [("Δ THR_ON SusF (mm)", "THR_ON SusF"), ("Δ THR_ON SusR (mm)", "THR_ON SusR"),
-                                   ("Δ Brk SusF (mm)",    "Brk SusF"),   ("Δ Brk SusR (mm)",    "Brk SusR")]
+                    bar_metrics = [("Δ APEX SusF (mm)", "APEX SusF"), ("Δ APEX SusR (mm)", "APEX SusR"),
+                                   ("Δ Brk SusF (mm)",  "Brk SusF"),  ("Δ Brk SusR (mm)",  "Brk SusR")]
                     bar_rows = []
                     for _, sr in df_sum.iterrows():
                         for col, short in bar_metrics:
@@ -3725,10 +3717,10 @@ with _content_col:
                     if bar_rows:
                         df_bar = pd.DataFrame(bar_rows)
                         _metric_colors = {
-                            "THR_ON SusF": "#0078D4",
-                            "THR_ON SusR": "#50B0F0",
-                            "Brk SusF":    "#E8543A",
-                            "Brk SusR":    "#F4A28C",
+                            "APEX SusF": "#0078D4",
+                            "APEX SusR": "#50B0F0",
+                            "Brk SusF":  "#E8543A",
+                            "Brk SusR":  "#F4A28C",
                         }
                         _riders_sorted = sorted(df_bar["Rider"].unique())
                         _n_riders = len(_riders_sorted)
@@ -3825,7 +3817,7 @@ with _content_col:
                     lambda s: f"{int(s)//60}:{s%60:06.3f}" if pd.notna(s) else "—")
                 disp_m = disp_m.drop(columns=["best_s"])
                 disp_m.columns = ["Rider","Circuit","Date","Run","Tier",
-                                   "THR_ON SusF","THR_ON SusR","Brk SusF","Brk SusR",
+                                   "APEX SusF","APEX SusR","Brk SusF","Brk SusR",
                                    "APEX Spd","Best Lap"]
 
                 def _tier_color(v):
