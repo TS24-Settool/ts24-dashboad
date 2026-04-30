@@ -207,6 +207,11 @@ def detect_corners_brake_based(
 
         susF_avg = float(np.mean(susF_seg)) if len(susF_seg) > 0 else float("nan")
         susR_avg = float(np.mean(susR_seg)) if len(susR_seg) > 0 else float("nan")
+        # 物理的にあり得ない値をフィルタ (0〜200mm が正常範囲)
+        if not (0.0 <= susF_avg <= 200.0):
+            susF_avg = float("nan")
+        if not (0.0 <= susR_avg <= 200.0):
+            susR_avg = float("nan")
 
         corners.append({
             "start":    ph3_s,
@@ -258,8 +263,12 @@ def analyze_corner_phases(
     ph3_duration_ms = round(ph3_samples * dt_brake * 1000, 1)
 
     # PH3 suspension (直接 detect_apex_area の集計値を使用)
-    ph3_susf_avg = round(apex["susF_avg"], 2) if not math.isnan(apex["susF_avg"]) else None
-    ph3_susr_avg = round(apex["susR_avg"], 2) if not math.isnan(apex["susR_avg"]) else None
+    _susf_raw = apex["susF_avg"]
+    _susr_raw = apex["susR_avg"]
+    ph3_susf_avg = (round(_susf_raw, 2)
+                   if not math.isnan(_susf_raw) and 0.0 <= _susf_raw <= 200.0 else None)
+    ph3_susr_avg = (round(_susr_raw, 2)
+                   if not math.isnan(_susr_raw) and 0.0 <= _susr_raw <= 200.0 else None)
 
     # PH3 speed min (brake_f → speed 変換)
     # global speed index: int((b_lap_global + i) / brake_scale)

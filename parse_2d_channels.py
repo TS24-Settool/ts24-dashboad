@@ -459,8 +459,8 @@ def detect_apexes_accy(accy_raw: np.ndarray,
     return speed_apexes if speed_apexes else fallback
 
 
-# ── APEX Area 検出 (新定義 2026-04-30) ───────────────────────────────
-# BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% / dTPS_A 5~50 / SUSP_F 20~140mm / SUSP_R 5~50mm
+# ── APEX Area 検出 (新定義 2026-04-30, dTPS_A緩和 2026-04-30チーム承認) ──────────
+# BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% / dTPS_A -10~100 / SUSP_F 20~140mm / SUSP_R 5~50mm
 def detect_apex_area(brake_f, gas, dtps_a, sus_f, sus_r,
                      gas_ratio=2, sus_ratio=4,
                      min_samples=3, merge_gap_samples=20):
@@ -498,11 +498,11 @@ def detect_apex_area(brake_f, gas, dtps_a, sus_f, sus_r,
         sf = float(np.mean(sus_f[si_start:si_end])) if si_end > si_start else np.nan
         sr = float(np.mean(sus_r[si_start:si_end])) if si_end > si_start and len(sus_r) > 0 else np.nan
 
-        if (np.isfinite(bf) and -0.6 <= bf <= 0.3 and
-            np.isfinite(g)  and  0.0 <= g  <= 6.0  and
-            np.isfinite(dg) and  5.0 <= dg <= 50.0 and
-            np.isfinite(sf) and 20.0 <= sf <= 140.0 and
-            np.isfinite(sr) and  5.0 <= sr <= 50.0):
+        if (np.isfinite(bf) and  -0.6 <= bf <= 0.3   and
+            np.isfinite(g)  and   0.0 <= g  <= 6.0   and
+            np.isfinite(dg) and -10.0 <= dg <= 100.0  and
+            np.isfinite(sf) and  20.0 <= sf <= 140.0  and
+            np.isfinite(sr) and   5.0 <= sr <= 50.0):
             mask[i] = True
 
     # 連続区間を抽出

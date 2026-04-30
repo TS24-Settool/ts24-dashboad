@@ -105,15 +105,15 @@ race_results  -- 公式レース結果
 
 ## 5. APEX定義システム（最重要）
 
-**現在の方針 (2026-04-30 チーム確定):**
-APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A 5~50 ∩ SUSP_F 20~140mm ∩ SUSP_R 5~50mm
+**現在の方針 (2026-04-30 チーム確定、dTPS_A緩和 2026-04-30 チーム承認):**
+APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 20~140mm ∩ SUSP_R 5~50mm
 5条件が同時成立する区間の平均をAPEX値とする。旧ACC_Y/BRAKE_OFF/THR_ON定義は廃止。
 
 | チャンネル | 条件 | サンプルレート比 |
 |-----------|------|----------------|
 | BRAKE_FRONT | -0.6 〜 0.3 Bar | 1x（基準） |
 | GAS | 0.0 〜 6.0 % | 2x |
-| dTPS_A | 5.0 〜 50.0 | 2x |
+| dTPS_A | -10.0 〜 100.0 （実質非制約） | 2x |
 | SUSP_FRONT | 20.0 〜 140.0 mm | 4x |
 | SUSP_REAR | 5.0 〜 50.0 mm | 4x |
 

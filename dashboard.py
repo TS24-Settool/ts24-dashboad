@@ -4152,24 +4152,38 @@ with _content_col:
 
                     st.divider()
 
-                    # ── SECTION C: Phase timing detail table ─────────
-                    st.markdown('<p class="section-title">Phase Timing Detail — per Lap</p>',
+                    # ── SECTION C: Phase timing — 1ラップ=1行集計テーブル ──
+                    st.markdown('<p class="section-title">Phase Timing Summary — 1 row per Lap</p>',
                                 unsafe_allow_html=True)
-                    disp_cols = ["lap_no","corner_no","lap_time_s",
-                                 "ph12_duration_ms","ph12_brake_peak_bar",
-                                 "ph3_duration_ms","ph3_speed_min","ph3_susf_avg",
-                                 "ph45_duration_ms","ph45_gas_avg","total_corner_ms"]
-                    disp_cp = df_c[[c for c in disp_cols if c in df_c.columns]].copy()
-                    # ラップタイムを mm:ss.00 形式に変換
-                    if "lap_time_s" in disp_cp.columns:
-                        def _fmt_lt(sec):
-                            if sec is None or (isinstance(sec, float) and pd.isna(sec)):
-                                return "—"
-                            m = int(sec // 60); s = sec - m * 60
-                            return f"{m}:{s:05.2f}"
-                        disp_cp["lap_time_s"] = disp_cp["lap_time_s"].apply(_fmt_lt)
-                    disp_cp.columns = [c.replace("_", " ").upper() for c in disp_cp.columns]
-                    st.dataframe(disp_cp, use_container_width=True, height=340)
+
+                    def _fmt_lt(sec):
+                        if sec is None or (isinstance(sec, float) and pd.isna(sec)):
+                            return "—"
+                        m = int(sec // 60); s = sec - m * 60
+                        return f"{m}:{s:05.2f}"
+
+                    lap_summary_rows = []
+                    for ln in sorted(df_c["lap_no"].dropna().unique()):
+                        df_ln = df_c[df_c["lap_no"] == ln]
+                        lt_s  = df_ln["lap_time_s"].iloc[0] if len(df_ln) > 0 else None
+                        lap_summary_rows.append({
+                            "LAP NO":        int(ln),
+                            "LAP TIME":      _fmt_lt(lt_s),
+                            "CORNERS":       len(df_ln),
+                            "PH12 AVG (ms)": round(df_ln["ph12_duration_ms"].mean(), 0)
+                                             if "ph12_duration_ms" in df_ln else None,
+                            "PH3 AVG (ms)":  round(df_ln["ph3_duration_ms"].mean(), 0)
+                                             if "ph3_duration_ms" in df_ln else None,
+                            "PH45 AVG (ms)": round(df_ln["ph45_duration_ms"].mean(), 0)
+                                             if "ph45_duration_ms" in df_ln else None,
+                            "PH3 SPD MIN":   round(df_ln["ph3_speed_min"].min(), 1)
+                                             if "ph3_speed_min" in df_ln and df_ln["ph3_speed_min"].notna().any() else None,
+                            "PH3 SUSF AVG":  round(df_ln["ph3_susf_avg"].mean(), 1)
+                                             if "ph3_susf_avg" in df_ln and df_ln["ph3_susf_avg"].notna().any() else None,
+                        })
+                    if lap_summary_rows:
+                        df_lap_sum = pd.DataFrame(lap_summary_rows)
+                        st.dataframe(df_lap_sum, use_container_width=True, height=380)
 
         render_float_chat_component(
             st.session_state.get("claude_api_key", ""),
