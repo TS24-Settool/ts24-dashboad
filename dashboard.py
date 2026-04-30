@@ -2252,12 +2252,19 @@ with _content_col:
             st.plotly_chart(fig_pace, use_container_width=True, config={"displayModeBar": False})
 
             # ── CHART 2: Sector Time Comparison ──────────────────────
-            if has_da77 or has_ja52:
-                st.markdown('<p class="section-title">Sector Time Evolution</p>', unsafe_allow_html=True)
-                sc1, sc2 = st.columns(2, gap="medium")
+            _sector_targets = []
+            if has_da77: _sector_targets.append((77, "DA77", DA77_COLOR))
+            if has_ja52: _sector_targets.append((52, "JA52", JA52_COLOR))
+            for rnum in compare_nums[:2]:
+                _sector_targets.append((rnum, rider_labels.get(rnum, f"#{rnum}"), compare_colors[rnum]))
 
-                for col_idx, (rnum, rname, color) in enumerate([(77, "DA77", DA77_COLOR), (52, "JA52", JA52_COLOR)]):
-                    col = sc1 if col_idx == 0 else sc2
+            if _sector_targets:
+                st.markdown('<p class="section-title">Sector Time Evolution</p>', unsafe_allow_html=True)
+                _n_sec_cols = min(len(_sector_targets), 2)
+                _sec_cols = st.columns(_n_sec_cols, gap="medium")
+
+                for col_idx, (rnum, rname, color) in enumerate(_sector_targets):
+                    col = _sec_cols[col_idx % _n_sec_cols]
                     df_r = df_lp[(df_lp["rider_num"] == rnum) & (df_lp["is_valid"] == 1)].sort_values("lap_no")
                     if df_r.empty:
                         col.info(f"{rname}: no data")
@@ -2296,7 +2303,10 @@ with _content_col:
             st.markdown('<p class="section-title">Gap to Session Best Lap (per lap)</p>', unsafe_allow_html=True)
 
             gap_traces = []
-            for rnum, rname, color in [(77, "DA77", DA77_COLOR), (52, "JA52", JA52_COLOR)]:
+            _gap_targets = [(77, "DA77", DA77_COLOR), (52, "JA52", JA52_COLOR)]
+            for rnum in compare_nums:
+                _gap_targets.append((rnum, rider_labels.get(rnum, f"#{rnum}"), compare_colors[rnum]))
+            for rnum, rname, color in _gap_targets:
                 df_r = df_lp[(df_lp["rider_num"] == rnum) & (df_lp["is_valid"] == 1)].sort_values("lap_no")
                 if df_r.empty:
                     continue
@@ -2324,6 +2334,111 @@ with _content_col:
                 st.plotly_chart(fig_gap, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("No gap data for DA77/JA52 — field data only session.")
+
+            # ── CHART: Pace Comparison (Avg & Best) ──────────────────
+            if compare_nums:
+                st.markdown('<p class="section-title">Pace Comparison — vs Selected Competitors</p>',
+                            unsafe_allow_html=True)
+
+                pace_rows = []
+                _pace_targets = []
+                if has_da77: _pace_targets.append((77, "DA77", DA77_COLOR))
+                if has_ja52: _pace_targets.append((52, "JA52", JA52_COLOR))
+                for rnum in compare_nums:
+                    _pace_targets.append((rnum, rider_labels.get(rnum, f"#{rnum}"), compare_colors[rnum]))
+
+                for rnum, rname, color in _pace_targets:
+                    df_r = df_lp[(df_lp["rider_num"] == rnum) & (df_lp["is_valid"] == 1)]
+                    if df_r.empty:
+                        continue
+                    times = df_r["lap_time"].dropna().values
+                    if len(times) == 0:
+                        continue
+                    top_n = max(1, len(times) // 3)
+                    race_pace = float(np.sort(times)[:top_n].mean())
+                    pace_rows.append({
+                        "Rider":    rname,
+                        "color":    color,
+                        "Best":     float(df_r["lap_time"].min()),
+                        "RacePace": race_pace,
+                        "Avg":      float(df_r["lap_time"].mean()),
+                        "Laps":     len(times),
+                    })
+
+                if pace_rows:
+                    df_pace = pd.DataFrame(pace_rows)
+                    pc1, pc2 = st.columns(2, gap="medium")
+
+                    with pc1:
+                        fig_rp = go.Figure()
+                        for _, row in df_pace.iterrows():
+                            fig_rp.add_trace(go.Bar(
+                                x=[row["Rider"]], y=[row["RacePace"]],
+                                name=row["Rider"],
+                                marker_color=row["color"],
+                                text=[fmt_laptime(row["RacePace"])],
+                                textposition="outside",
+                                textfont=dict(size=11),
+                                showlegend=False,
+                            ))
+                        _rp_vals = df_pace["RacePace"].values
+                        _rp_lo = float(np.min(_rp_vals)) - 0.5
+                        _rp_hi = float(np.max(_rp_vals)) + 0.5
+                        _rp_step = 0.5
+                        _rp_ticks = list(np.arange(
+                            np.floor(_rp_lo / _rp_step) * _rp_step,
+                            np.ceil(_rp_hi / _rp_step) * _rp_step + _rp_step,
+                            _rp_step,
+                        ))
+                        fig_rp.update_layout(
+                            yaxis=dict(
+                                tickvals=_rp_ticks,
+                                ticktext=[fmt_laptime(v) for v in _rp_ticks],
+                                range=[_rp_hi + 0.3, _rp_lo - 0.3],
+                                title="Race Pace (Top 1/3 avg)",
+                            ),
+                            height=300,
+                            margin=dict(l=60, r=20, t=30, b=40),
+                            plot_bgcolor="#FAFAFA",
+                            paper_bgcolor="white",
+                            title_text="Race Pace (Top 1/3 Laps Avg)",
+                        )
+                        pc1.plotly_chart(fig_rp, use_container_width=True,
+                                         config={"displayModeBar": False})
+
+                    with pc2:
+                        _da77_best = df_pace[df_pace["Rider"] == "DA77"]["Best"].values
+                        ref_best = float(_da77_best[0]) if len(_da77_best) > 0 else float(df_pace["Best"].min())
+                        fig_gap2 = go.Figure()
+                        for _, row in df_pace.iterrows():
+                            delta = row["RacePace"] - ref_best
+                            fig_gap2.add_trace(go.Bar(
+                                x=[row["Rider"]], y=[delta],
+                                name=row["Rider"],
+                                marker_color=row["color"],
+                                text=[f"+{delta:.3f}s" if delta >= 0 else f"{delta:.3f}s"],
+                                textposition="outside",
+                                textfont=dict(size=11),
+                                showlegend=False,
+                            ))
+                        fig_gap2.add_hline(y=0, line_color="#27AE60", line_width=1.5)
+                        fig_gap2.update_layout(
+                            yaxis_title="Race Pace Δ vs DA77 Best (s)",
+                            height=300,
+                            margin=dict(l=50, r=20, t=30, b=40),
+                            plot_bgcolor="#FAFAFA",
+                            paper_bgcolor="white",
+                            title_text="Race Pace Gap vs DA77",
+                        )
+                        pc2.plotly_chart(fig_gap2, use_container_width=True,
+                                         config={"displayModeBar": False})
+
+                    df_pace_disp = df_pace[["Rider","Best","RacePace","Avg","Laps"]].copy()
+                    df_pace_disp["Best"]     = df_pace_disp["Best"].apply(fmt_laptime)
+                    df_pace_disp["RacePace"] = df_pace_disp["RacePace"].apply(fmt_laptime)
+                    df_pace_disp["Avg"]      = df_pace_disp["Avg"].apply(fmt_laptime)
+                    df_pace_disp.columns     = ["Rider","Best Lap","Race Pace (top 1/3)","Avg Lap","Laps"]
+                    st.dataframe(df_pace_disp, use_container_width=True, hide_index=True)
 
             # ── Statistics Summary ───────────────────────────────────
             st.markdown('<p class="section-title">Lap Time Statistics</p>', unsafe_allow_html=True)
