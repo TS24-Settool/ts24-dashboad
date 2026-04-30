@@ -405,10 +405,9 @@ def load_data():
             tags     = _supa_to_df("session_tags",   svc_key, supa_url)
             results  = _supa_to_df("race_results",   svc_key, supa_url, order="round_no,session_type,rider_id")
             sectors  = _supa_to_df("sector_results", svc_key, supa_url)
-            # lap_times: DA77(77) + JA52(52) のみ取得 — 全体9,931行→約530行に絞り込み
+            # lap_times: 全ライダー取得（Race Paceページのコンペティター比較に必要）
             laps     = _supa_to_df("lap_times", svc_key, supa_url,
-                                   order="round_id,session_type,rider_num,lap_no",
-                                   where="rider_num=in.(52,77)")
+                                   order="round_id,session_type,rider_num,lap_no")
             return sessions, tags, results, sectors, laps
         except Exception:
             pass  # Fallback to SQLite
