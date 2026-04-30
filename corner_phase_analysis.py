@@ -98,10 +98,20 @@ _DEFAULT_DATE    = "16/02/2026"
 
 # ── フェーズ検出パラメータ ────────────────────────────────────────────
 PH12_BRAKE_THRESHOLD  = 0.3    # Bar — ブレーキ開始判定閾値
-PH12_MAX_LOOKBACK_S   = 3.0    # 秒 — 最大遡り時間
+PH12_MAX_LOOKBACK_S   = 5.0    # 秒 — 最大遡り時間 (3→5s に拡大)
 PH45_GAS_THRESHOLD    = 6.0    # % — アクセルON判定閾値
 PH45_CONSEC_SAMPLES   = 5      # 連続サンプル数（GAS条件）
 PH45_MAX_LOOKAHEAD_S  = 4.0    # 秒 — 最大先読み時間
+
+# フォールバックコーナー検出パラメータ
+FB_BRAKE_THRESHOLD    = 0.5    # Bar — フォールバック用ブレーキ閾値
+FB_MIN_BRAKE_DUR_S    = 0.1    # 秒 — 最小ブレーキ持続時間
+FB_SPEED_SEARCH_S     = 4.0    # 秒 — ブレーキ後の速度最小点探索範囲
+FB_APEX_HALF_S        = 0.2    # 秒 — 速度最小点前後の PH3 ウィンドウ
+FB_MIN_GAP_S          = 1.5    # 秒 — 隣接コーナーの最小間隔
+# 5条件APEXが不十分と判断する閾値（フォールバック適用条件）
+FB_FALLBACK_RATIO     = 0.5    # 5条件数 < ブレーキ検出数 * この割合 でフォールバック
+FB_FALLBACK_MIN       = 5      # 長いラップ(>80s)でこの数以下ならフォールバック
 
 
 def _safe_mean(arr: np.ndarray) -> float | None:
@@ -123,6 +133,91 @@ def _safe_max(arr: np.ndarray) -> float | None:
         return None
     v = arr[~np.isnan(arr)]
     return round(float(np.max(v)), 2) if len(v) > 0 else None
+
+
+# ── ブレーキベースのフォールバックコーナー検出 ─────────────────────────
+def detect_corners_brake_based(
+    brake_lap: np.ndarray,   # ラップスライス済み BRAKE_FRONT (brake_f rate)
+    sf_lap: np.ndarray,      # ラップスライス済み SPEED_FRONT (speed rate)
+    sus_f_lap: np.ndarray,   # ラップスライス済み SUSP_FRONT (sus_ratio * speed rate)
+    sus_r_lap: np.ndarray,   # ラップスライス済み SUSP_REAR
+    sr: float,               # speed サンプルレート [Hz]
+    brake_scale: float,      # len(brake_f_raw) / len(sf_raw)
+    sus_ratio: int,          # susp/speed サンプル比
+) -> list[dict]:
+    """
+    BRAKE_FRONT > 0.5 bar イベント後の速度最小点を各コーナーAPEXとし、
+    ±0.2 秒を PH3 ウィンドウとして返す。
+
+    5条件同時成立APEX検出のフォールバック。
+    戻り値フォーマットは detect_apex_area() と同一。
+    """
+    n_brake = len(brake_lap)
+    n_sf    = len(sf_lap)
+    n_sus_f = len(sus_f_lap)
+    n_sus_r = len(sus_r_lap)
+
+    if n_brake == 0 or n_sf == 0:
+        return []
+
+    min_brake_samples = max(3, int(FB_MIN_BRAKE_DUR_S * sr * brake_scale))
+    min_gap_brake     = max(5, int(FB_MIN_GAP_S * sr * brake_scale))
+    half_apex_brake   = max(1, int(FB_APEX_HALF_S * sr * brake_scale))
+    spd_search_spls   = max(10, int(FB_SPEED_SEARCH_S * sr))  # speed 空間
+
+    # ブレーキイベント検出
+    in_brake = (brake_lap > FB_BRAKE_THRESHOLD).astype(np.int8)
+    changes  = np.diff(in_brake, prepend=0, append=0)
+    starts   = np.where(changes == 1)[0]
+    ends     = np.where(changes == -1)[0]
+
+    corners   = []
+    last_apex = -min_gap_brake
+
+    for b_s, b_e in zip(starts, ends):
+        if (b_e - b_s) < min_brake_samples:
+            continue
+
+        # ブレーキピーク → speed 空間に変換
+        b_peak = int(np.argmax(brake_lap[b_s:b_e])) + b_s
+        spd_peak = max(0, min(n_sf - 1, int(b_peak / brake_scale)))
+
+        # ブレーキピーク後の速度最小点を探す
+        spd_end = min(n_sf, spd_peak + spd_search_spls)
+        if spd_end <= spd_peak:
+            continue
+        spd_min_local = int(np.argmin(sf_lap[spd_peak:spd_end])) + spd_peak
+
+        # speed → brake_f 空間に戻す
+        apex_bf = max(0, min(n_brake - 1, int(spd_min_local * brake_scale)))
+
+        # 最小間隔チェック
+        if apex_bf - last_apex < min_gap_brake:
+            continue
+
+        # PH3 ウィンドウ (速度最小点 ± 0.2秒)
+        ph3_s = max(0, apex_bf - half_apex_brake)
+        ph3_e = min(n_brake - 1, apex_bf + half_apex_brake)
+
+        # SusF/SusR 平均
+        sus_i0 = ph3_s * sus_ratio
+        sus_i1 = (ph3_e + 1) * sus_ratio
+        susF_seg = sus_f_lap[sus_i0:min(sus_i1, n_sus_f)]
+        susR_seg = sus_r_lap[sus_i0:min(sus_i1, n_sus_r)] if n_sus_r > 0 else np.array([])
+
+        susF_avg = float(np.mean(susF_seg)) if len(susF_seg) > 0 else float("nan")
+        susR_avg = float(np.mean(susR_seg)) if len(susR_seg) > 0 else float("nan")
+
+        corners.append({
+            "start":    ph3_s,
+            "end":      ph3_e,
+            "mid":      apex_bf,
+            "susF_avg": susF_avg,
+            "susR_avg": susR_avg,
+        })
+        last_apex = apex_bf
+
+    return corners
 
 
 # ── コーナーフェーズ検出 ─────────────────────────────────────────────
@@ -173,7 +268,8 @@ def analyze_corner_phases(
     b_global_ph3_end   = int(ph3_end   / brake_scale) + lap_start + 1
     b_global_ph3_start = max(lap_start, min(b_global_ph3_start, lap_end - 1))
     b_global_ph3_end   = max(b_global_ph3_start + 1, min(b_global_ph3_end, lap_end))
-    ph3_speed_min = _safe_min(sf_raw[b_global_ph3_start:b_global_ph3_end])
+    _spd_min_raw = _safe_min(sf_raw[b_global_ph3_start:b_global_ph3_end])
+    ph3_speed_min = max(0.0, _spd_min_raw) if _spd_min_raw is not None else None
 
     # ── PH1-2 (apex.start の手前: ブレーキ開始 → APEX start) ─────────
     max_back = max(1, int(PH12_MAX_LOOKBACK_S * sr * brake_scale))
@@ -452,11 +548,30 @@ def analyze_mes_corner_phases(
         sus_f_lap = sus_f_raw[s_start:s_end]
         sus_r_lap = sus_r_raw[s_start:s_end] if len(sus_r_raw) > 0 else np.array([], dtype=np.float32)
 
-        # APEX area 検出
-        apex_areas = detect_apex_area(
+        # ── APEX area 検出 (5条件同時成立) ─────────────────────────────
+        apex_areas_5cond = detect_apex_area(
             brake_lap, gas_lap, dtps_lap, sus_f_lap, sus_r_lap,
             gas_ratio=gas_ratio, sus_ratio=susp_ratio,
         )
+
+        # ── フォールバック: ブレーキベースコーナー検出 ──────────────────
+        sf_lap_local = sf_raw[lap_start:lap_end]
+        apex_areas_fb = detect_corners_brake_based(
+            brake_lap, sf_lap_local, sus_f_lap, sus_r_lap,
+            sr, brake_scale, susp_ratio,
+        )
+
+        # 5条件APEXが少なすぎる場合はフォールバックを使用
+        n_5cond = len(apex_areas_5cond)
+        n_fb    = len(apex_areas_fb)
+        use_fallback = (
+            n_fb > 0 and (
+                n_5cond == 0 or
+                (lap_t_s > 80.0 and n_5cond < FB_FALLBACK_MIN) or
+                n_5cond < n_fb * FB_FALLBACK_RATIO
+            )
+        )
+        apex_areas = apex_areas_fb if use_fallback else apex_areas_5cond
 
         if not apex_areas:
             continue

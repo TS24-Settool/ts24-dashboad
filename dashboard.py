@@ -4160,6 +4160,14 @@ with _content_col:
                                  "ph3_duration_ms","ph3_speed_min","ph3_susf_avg",
                                  "ph45_duration_ms","ph45_gas_avg","total_corner_ms"]
                     disp_cp = df_c[[c for c in disp_cols if c in df_c.columns]].copy()
+                    # ラップタイムを mm:ss.00 形式に変換
+                    if "lap_time_s" in disp_cp.columns:
+                        def _fmt_lt(sec):
+                            if sec is None or (isinstance(sec, float) and pd.isna(sec)):
+                                return "—"
+                            m = int(sec // 60); s = sec - m * 60
+                            return f"{m}:{s:05.2f}"
+                        disp_cp["lap_time_s"] = disp_cp["lap_time_s"].apply(_fmt_lt)
                     disp_cp.columns = [c.replace("_", " ").upper() for c in disp_cp.columns]
                     st.dataframe(disp_cp, use_container_width=True, height=340)
 
