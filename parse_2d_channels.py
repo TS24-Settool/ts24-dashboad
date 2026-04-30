@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations  # Python 3.9 で dict|None / list[X] 型ヒントを有効化
 """
 parse_2d_channels.py — 2D Logger Channel Dynamics Analysis
 ===========================================================
@@ -456,6 +457,94 @@ def detect_apexes_accy(accy_raw: np.ndarray,
             return fallback
 
     return speed_apexes if speed_apexes else fallback
+
+
+# ── APEX Area 検出 (新定義 2026-04-30) ───────────────────────────────
+# BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% / dTPS_A 5~50 / SUSP_F 20~140mm / SUSP_R 5~50mm
+def detect_apex_area(brake_f, gas, dtps_a, sus_f, sus_r,
+                     gas_ratio=2, sus_ratio=4,
+                     min_samples=3, merge_gap_samples=20):
+    """
+    新チームAPEX定義 (2026-04-30):
+    5条件が同時成立する連続区間を検出し、各区間の
+    SUSP_FRONT/SUSP_REAR の平均値を返す。
+
+    Args:
+        brake_f   : BRAKE_FRONT array (1x rate)
+        gas       : GAS array (gas_ratio x rate)
+        dtps_a    : dTPS_A array (gas_ratio x rate)
+        sus_f     : SUSP_FRONT array (sus_ratio x rate)
+        sus_r     : SUSP_REAR array (sus_ratio x rate)
+        gas_ratio : GAS/dTPS_A vs brake_f のレート比 (default=2)
+        sus_ratio : SUSP vs brake_f のレート比 (default=4)
+        min_samples    : 有効APEX最小サンプル数(brake_fレート, default=3)
+        merge_gap_samples : この間隔以内の区間は同一APEXとしてマージ
+
+    Returns:
+        list of dict: [{start, end, mid, susF_avg, susR_avg}, ...]
+        すべてbrake_fのインデックス空間
+    """
+    n = len(brake_f)
+    mask = np.zeros(n, dtype=bool)
+
+    for i in range(n):
+        gi = min(i * gas_ratio, len(gas) - 1)
+        bf = brake_f[i]
+        g  = gas[gi]  if len(gas)   > 0 else np.nan
+        dg = dtps_a[gi] if len(dtps_a) > 0 else np.nan
+        # SUSP: brake_fインデックス→SUSP中央値（4サンプル平均）
+        si_start = i * sus_ratio
+        si_end   = min(si_start + sus_ratio, len(sus_f))
+        sf = float(np.mean(sus_f[si_start:si_end])) if si_end > si_start else np.nan
+        sr = float(np.mean(sus_r[si_start:si_end])) if si_end > si_start and len(sus_r) > 0 else np.nan
+
+        if (np.isfinite(bf) and -0.6 <= bf <= 0.3 and
+            np.isfinite(g)  and  0.0 <= g  <= 6.0  and
+            np.isfinite(dg) and  5.0 <= dg <= 50.0 and
+            np.isfinite(sf) and 20.0 <= sf <= 140.0 and
+            np.isfinite(sr) and  5.0 <= sr <= 50.0):
+            mask[i] = True
+
+    # 連続区間を抽出
+    segments = []
+    in_seg = False
+    for i in range(n):
+        if mask[i] and not in_seg:
+            seg_start = i
+            in_seg = True
+        elif not mask[i] and in_seg:
+            segments.append((seg_start, i - 1))
+            in_seg = False
+    if in_seg:
+        segments.append((seg_start, n - 1))
+
+    # 近傍区間をマージ
+    if segments:
+        merged = [list(segments[0])]
+        for s, e in segments[1:]:
+            if s - merged[-1][1] <= merge_gap_samples:
+                merged[-1][1] = e
+            else:
+                merged.append([s, e])
+        segments = [tuple(m) for m in merged]
+
+    # min_samples フィルタ + 代表値計算
+    result = []
+    for s, e in segments:
+        if (e - s + 1) < min_samples:
+            continue
+        si_s = s * sus_ratio
+        si_e = min((e + 1) * sus_ratio, len(sus_f))
+        susF_vals = sus_f[si_s:si_e]
+        susR_vals = sus_r[si_s:si_e] if len(sus_r) > 0 else np.array([])
+        result.append({
+            "start":    s,
+            "end":      e,
+            "mid":      (s + e) // 2,
+            "susF_avg": float(np.mean(susF_vals)) if len(susF_vals) > 0 else float("nan"),
+            "susR_avg": float(np.mean(susR_vals)) if len(susR_vals) > 0 else float("nan"),
+        })
+    return result
 
 
 # ── ピットレーンリミッター区間検出 ───────────────────────────────────

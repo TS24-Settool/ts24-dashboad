@@ -104,23 +104,31 @@ race_results  -- 公式レース結果
 
 ## 5. APEX定義システム（最重要）
 
-サスペンション解析の核心。3つの定義を使い分ける。
+**現在の方針 (2026-04-30 チーム確定):**
+APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A 5~50 ∩ SUSP_F 20~140mm ∩ SUSP_R 5~50mm
+5条件が同時成立する区間の平均をAPEX値とする。旧ACC_Y/BRAKE_OFF/THR_ON定義は廃止。
 
-| 定義 | 検出条件 | 物理的意味 | 列名 |
-|------|---------|-----------|------|
-| **① ACC_Y Peak** | 横G最大点（38-48mm SusF範囲） | 最大旋回荷重点 | `ACCY_SUSF_AVG` |
-| **② BRAKE_OFF** | ブレーキリリース点（+40mm変化） | ライン確定点 | `BOFF_SUSF_AVG` |
-| **③ THR_ON** | スロットル開け始め（+25mm変化） | ライダーが感じるAPEX | `THRON_SUSF_AVG` |
+| チャンネル | 条件 | サンプルレート比 |
+|-----------|------|----------------|
+| BRAKE_FRONT | -0.6 〜 0.3 Bar | 1x（基準） |
+| GAS | 0.0 〜 6.0 % | 2x |
+| dTPS_A | 5.0 〜 50.0 | 2x |
+| SUSP_FRONT | 20.0 〜 140.0 mm | 4x |
+| SUSP_REAR | 5.0 〜 50.0 mm | 4x |
 
-**現在の方針:** Setup Target ページは **③ THR_ON** を基準APEXとして使用。
+**フォールバック:** dTPS_Aチャンネルが存在しない古いMESファイルは旧THR_ON定義で検出。
 
 ### APEX検出アルゴリズム（parse_2d_channels.py）
 
 ```python
-# THR_ON検出: スロットル信号が閾値を超えた最初の点
-# BRAKE_OFF検出: ブレーキ圧が閾値を下回った最初の点
-# ACC_Y Peak: 横G絶対値が最大となる点（コーナー中盤）
+# detect_apex_area(): 5条件マスクを生成 → 連続区間を抽出 → マージ → 代表値計算
+# ラップ区間をbrake_fレートでスライス → GAS/dTPS_Aは2x → SUSP_F/Rは4xにマップ
+# dTPS_A未搭載ファイル: has_dtps=False → 旧THR_ON方式にフォールバック
 ```
+
+### 出力列（後方互換）
+- `APEX_SUSF_AVG` / `THRON_SUSF_AVG` → 新APEX定義の値（同値）
+- `BOFF_SUSF_AVG` → None（廃止、列のみ保持）
 
 ---
 

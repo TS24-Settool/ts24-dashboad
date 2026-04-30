@@ -46,17 +46,17 @@ BACKUP_PATH   = DB_DIR / "TS24 DB Master Back UP.xlsx"
 OUTPUT_SHEET  = "LAP_SUSPENSION"
 
 # ─────────────────────────────────────────────────────────
-#  APEX 3定義の検出パラメータ
+#  APEX 定義パラメータ (2026-04-30 チーム確定)
 # ─────────────────────────────────────────────────────────
-# ① ACC_Y Peak (幾何学的Apex) — detect_apexes_accy() が担当
-# ② BRAKE_OFF  : ブレーキ解放点 (縦+横の複合荷重ピーク)
-BRAKE_OFF_THRESHOLD      = 0.5    # BRAKE_FRONT がこれ以下に下がった点 [bar or unit]
-BRAKE_OFF_WIN_BEFORE_S   = 1.5    # Apex前何秒まで探すか
-BRAKE_OFF_WIN_AFTER_S    = 0.3    # Apex後何秒まで探すか (トレールブレーキが遅い場合)
-# ③ THR_ON     : アクセルON開始点 (ライダーが体感する瞬間)
+# APEX (新定義 2026-04-30): BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% /
+#   dTPS_A 5~50 / SUSP_F 20~140mm / SUSP_R 5~50mm
+# 旧3定義(ACC_Y Peak / BRAKE_OFF / THR_ON)は廃止
+# dTPS_Aチャンネルが存在しないファイルは旧THR_ON定義にフォールバック
+
+# THR_ON フォールバック用パラメータ (dTPS_A未搭載ファイル向け)
 THR_ON_MIN_PCT           = 5.0    # この値以下を「アクセル全閉」とみなす [%]
 THR_ON_TARGET_PCT        = 10.0   # この値を超えたらアクセルON確定 [%]
-THR_ON_WIN_BEFORE_S      = 0.3    # Apex前から探し始める (早開けライダー対応)
+THR_ON_WIN_BEFORE_S      = 0.3    # Apex前から探し始める
 THR_ON_WIN_AFTER_S       = 2.0    # Apex後何秒まで探すか
 
 # ─────────────────────────────────────────────────────────
@@ -83,6 +83,7 @@ susp_mean_in_range  = p2d.susp_mean_in_range
 safe_mean           = p2d.safe_mean
 detect_apexes       = p2d.detect_apexes
 detect_apexes_accy  = p2d.detect_apexes_accy
+detect_apex_area    = p2d.detect_apex_area
 detect_brake_entries        = p2d.detect_brake_entries
 detect_full_braking_sus     = p2d.detect_full_braking_sus
 find_tyre_channel           = p2d.find_tyre_channel
@@ -296,7 +297,7 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
         acc_y_raw = read_channel(mes_path, base, chs[acc_y_ch_key])
     accy_ratio = max(1, round(len(acc_y_raw) / len(sf_raw))) if len(acc_y_raw) > 0 else 1
 
-    # GAS / GAS_SMOOTH (アクセルON点検出 — THR_ON method)
+    # GAS / GAS_SMOOTH (新APEX定義 + THR_ONフォールバック用)
     gas_raw = np.array([], dtype=np.float32)
     gas_ch_key = next(
         (k for k in ("GAS_SMOOTH", "GAS", "TPS", "TPS_A", "SEN_TPSA1")
@@ -306,6 +307,17 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
     if gas_ch_key:
         gas_raw = read_channel(mes_path, base, chs[gas_ch_key])
     gas_ratio = max(1, round(len(gas_raw) / len(sf_raw))) if len(gas_raw) > 0 else 1
+
+    # dTPS_A (デルタスロットル — 新APEX定義の5条件のひとつ)
+    dtps_raw = np.array([], dtype=np.float32)
+    dtps_ch_key = next(
+        (k for k in chs if k.upper() in ("DTPS_A", "DTPS", "TPS_DELTA", "DELTA_TPS")
+         and chs[k].get("ext")),
+        None
+    )
+    if dtps_ch_key:
+        dtps_raw = read_channel(mes_path, base, chs[dtps_ch_key])
+    has_dtps = len(dtps_raw) > 0
 
     # ── ラップ境界 ────────────────────────────────────────
     n_laps, lap_times_ms = parse_lap(mes_path, base)
@@ -346,22 +358,75 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
 
         lap_id = make_lap_id(run_id, lap_no)
 
-        # APEX 検出 (横G最大点 Primary / 速度最小点 Fallback)
-        apexes = detect_apexes_accy(acc_y_raw, sf_raw, lap_start, lap_end, sr, accy_ratio)
+        # ── APEX検出 (新定義 2026-04-30) ─────────────────────────────────
+        # BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% / dTPS_A 5~50 /
+        # SUSP_F 20~140mm / SUSP_R 5~50mm の5条件同時成立区間
         apex_spds, apex_susF, apex_susR = [], [], []
-        for ai in apexes:
-            v = float(sf_raw[ai])
-            if v < 0:
-                continue
-            sF = susp_at_speed_index(sus_f_raw, ai, susp_ratio)
-            sR = susp_at_speed_index(sus_r_raw, ai, susp_ratio) if len(sus_r_raw) > 0 else float("nan")
-            apex_spds.append(v)
-            if not math.isnan(sF):
-                apex_susF.append(sF)
-            if not math.isnan(sR):
-                apex_susR.append(sR)
 
-        # ブレーキ直前
+        if len(brake_f_raw) > 0 and len(gas_raw) > 0 and has_dtps:
+            # ── 新APEX定義: detect_apex_area() ──
+            # brake_fレート基準のラップスライス
+            b_start = int(lap_start * brake_scale)
+            b_end   = int(min(lap_end * brake_scale, len(brake_f_raw)))
+            g_start = lap_start * gas_ratio
+            g_end   = min(lap_end * gas_ratio, len(gas_raw))
+            d_start = lap_start * gas_ratio
+            d_end   = min(lap_end * gas_ratio, len(dtps_raw))
+            s_start = lap_start * susp_ratio
+            s_end   = min(lap_end * susp_ratio, len(sus_f_raw))
+
+            brake_lap = brake_f_raw[b_start:b_end]
+            gas_lap   = gas_raw[g_start:g_end]
+            dtps_lap  = dtps_raw[d_start:d_end]
+            sus_f_lap = sus_f_raw[s_start:s_end]
+            sus_r_lap = sus_r_raw[s_start:s_end] if len(sus_r_raw) > 0 else np.array([], dtype=np.float32)
+
+            apex_areas = detect_apex_area(brake_lap, gas_lap, dtps_lap,
+                                          sus_f_lap, sus_r_lap,
+                                          gas_ratio=gas_ratio, sus_ratio=susp_ratio)
+
+            for a in apex_areas:
+                # midインデックスはbrake_fスペース → speed_rawスペースに戻す
+                spd_idx = max(lap_start, min(lap_end - 1,
+                              b_start + int(a["mid"] / brake_scale)))
+                v = float(sf_raw[spd_idx])
+                apex_spds.append(v)
+                if not math.isnan(a["susF_avg"]):
+                    apex_susF.append(a["susF_avg"])
+                if not math.isnan(a["susR_avg"]):
+                    apex_susR.append(a["susR_avg"])
+
+        elif len(gas_raw) > 0:
+            # ── フォールバック: dTPS_A未搭載ファイル → 旧THR_ON定義 ──
+            fallback_apexes = detect_apexes_accy(acc_y_raw, sf_raw,
+                                                  lap_start, lap_end, sr, accy_ratio)
+            win_gb = int(THR_ON_WIN_BEFORE_S * sr * gas_ratio)
+            win_ga = int(THR_ON_WIN_AFTER_S  * sr * gas_ratio)
+            for ai in fallback_apexes:
+                g0 = int(max(lap_start * gas_ratio, ai * gas_ratio - win_gb))
+                g1 = int(min(lap_end   * gas_ratio, ai * gas_ratio + win_ga))
+                g1 = min(g1, len(gas_raw))
+                if g1 <= g0:
+                    continue
+                gas_win = gas_raw[g0:g1].astype(np.float64)
+                min_idx = int(np.argmin(gas_win))
+                if float(gas_win[min_idx]) > THR_ON_TARGET_PCT:
+                    continue
+                after_min = gas_win[min_idx:]
+                crosses = np.where(after_min > THR_ON_TARGET_PCT)[0]
+                if len(crosses) == 0:
+                    continue
+                cross_local = min_idx + int(crosses[0])
+                gi_global   = int((g0 + cross_local) / gas_ratio)
+                gi_global   = max(lap_start, min(lap_end - 1, gi_global))
+                v  = float(sf_raw[gi_global])
+                sF = susp_at_speed_index(sus_f_raw, gi_global, susp_ratio)
+                sR = susp_at_speed_index(sus_r_raw, gi_global, susp_ratio) if len(sus_r_raw) > 0 else float("nan")
+                apex_spds.append(v)
+                if not math.isnan(sF): apex_susF.append(sF)
+                if not math.isnan(sR): apex_susR.append(sR)
+
+        # ── ブレーキ直前 ────────────────────────────────────────────────
         entries = detect_brake_entries(sf_raw, sf_ms, lap_start, lap_end, dt)
         brk_spds, brk_susF, brk_susR = [], [], []
         for bi in entries:
@@ -383,65 +448,9 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
                 if ev["susF_mm"] is not None: fb_susF.append(ev["susF_mm"])
                 if ev["susR_mm"] is not None: fb_susR.append(ev["susR_mm"])
 
-        # ── ② BRAKE_OFF 検出: Apex前後でブレーキが解放される点 ──────────
-        # 縦荷重(ブレーキ)+横荷重(旋回)の複合ピーク = トレールブレーキ終了点
-        boff_spds, boff_susF, boff_susR = [], [], []
-        if len(brake_f_raw) > 0:
-            win_b = int(BRAKE_OFF_WIN_BEFORE_S * sr)
-            win_a = int(BRAKE_OFF_WIN_AFTER_S  * sr)
-            for ai in apexes:
-                ws = max(lap_start, ai - win_b)
-                we = min(lap_end,   ai + win_a)
-                b0 = int(ws * brake_scale)
-                b1 = int(min(we * brake_scale, len(brake_f_raw)))
-                if b1 <= b0:
-                    continue
-                brk_win = brake_f_raw[b0:b1].astype(np.float64)
-                # 閾値以上(ブレーキON)の最後のサンプル → ブレーキ解放点
-                above = np.where(brk_win > BRAKE_OFF_THRESHOLD)[0]
-                if len(above) == 0:
-                    continue   # このコーナーはブレーキ未使用
-                last_above = int(above[-1])
-                bi_global  = int((b0 + last_above) / brake_scale)
-                bi_global  = max(lap_start, min(lap_end - 1, bi_global))
-                v  = float(sf_raw[bi_global])
-                sF = susp_at_speed_index(sus_f_raw, bi_global, susp_ratio)
-                sR = susp_at_speed_index(sus_r_raw, bi_global, susp_ratio) if len(sus_r_raw) > 0 else float("nan")
-                boff_spds.append(v)
-                if not math.isnan(sF): boff_susF.append(sF)
-                if not math.isnan(sR): boff_susR.append(sR)
-
-        # ── ③ THR_ON 検出: アクセルON開始点 (ライダーが体感する瞬間) ────
-        # GASが全閉(< THR_ON_MIN_PCT)から THR_ON_TARGET_PCT を超える最初の点
-        thron_spds, thron_susF, thron_susR = [], [], []
-        if len(gas_raw) > 0:
-            win_gb = int(THR_ON_WIN_BEFORE_S * sr * gas_ratio)
-            win_ga = int(THR_ON_WIN_AFTER_S  * sr * gas_ratio)
-            for ai in apexes:
-                g0 = int(max(lap_start * gas_ratio, ai * gas_ratio - win_gb))
-                g1 = int(min(lap_end   * gas_ratio, ai * gas_ratio + win_ga))
-                g1 = min(g1, len(gas_raw))
-                if g1 <= g0:
-                    continue
-                gas_win = gas_raw[g0:g1].astype(np.float64)
-                # ウィンドウ内のGAS最小点を探す
-                min_idx = int(np.argmin(gas_win))
-                if float(gas_win[min_idx]) > THR_ON_TARGET_PCT:
-                    continue   # 最小でも10%超 → 高速コーナーで常時開 → skip
-                # 最小点以降で TARGET_PCT を初めて超える点
-                after_min = gas_win[min_idx:]
-                crosses = np.where(after_min > THR_ON_TARGET_PCT)[0]
-                if len(crosses) == 0:
-                    continue
-                cross_local = min_idx + int(crosses[0])
-                gi_global   = int((g0 + cross_local) / gas_ratio)
-                gi_global   = max(lap_start, min(lap_end - 1, gi_global))
-                v  = float(sf_raw[gi_global])
-                sF = susp_at_speed_index(sus_f_raw, gi_global, susp_ratio)
-                sR = susp_at_speed_index(sus_r_raw, gi_global, susp_ratio) if len(sus_r_raw) > 0 else float("nan")
-                thron_spds.append(v)
-                if not math.isnan(sF): thron_susF.append(sF)
-                if not math.isnan(sR): thron_susR.append(sR)
+        # 旧BOFF/THRON列はNone（廃止）— 後方互換のためキーは保持
+        boff_susF, boff_susR, boff_spds = [], [], []
+        thron_susF, thron_susR, thron_spds = apex_susF, apex_susR, apex_spds  # 同値
 
         # ── ラップ全体 SusF / SusR 統計 ──────────────────────────────────
         si_start = lap_start * susp_ratio
@@ -509,11 +518,11 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
 HEADERS = [
     "RUN_ID", "LAP_ID", "ROUND", "CIRCUIT", "SESSION", "RIDER",
     "RUN_NO", "LAP_NO", "DATE", "LAP_TIME", "LAP_TIME_S",
-    # ① ACC_Y Peak (幾何学的Apex)
+    # APEX (新定義 2026-04-30: BRAKE_FRONT+GAS+dTPS_A+SUSP_F+SUSP_R 5条件同時成立)
     "APEX_CNT",   "APEX_SPD_AVG",   "APEX_SUSF_AVG",   "APEX_SUSR_AVG",
-    # ② BRAKE_OFF (ブレーキ解放点 = 縦+横の複合荷重ピーク)
+    # BOFF (廃止 — 後方互換のため列保持、値はNone)
     "BOFF_CNT",   "BOFF_SPD_AVG",   "BOFF_SUSF_AVG",   "BOFF_SUSR_AVG",
-    # ③ THR_ON (アクセルON点 = ライダー体感Apex)
+    # THRON (新APEX定義と同値 — dashboard後方互換のため保持)
     "THRON_CNT",  "THRON_SPD_AVG",  "THRON_SUSF_AVG",  "THRON_SUSR_AVG",
     # BRAKE ENTRY / FULL BRK
     "BRK_CNT",    "BRK_SPD_AVG",    "BRK_SUSF_AVG",    "BRK_SUSR_AVG",
@@ -808,6 +817,25 @@ def main():
         write_to_sqlite(all_rows, UNIFIED_DB, dry_run)
     else:
         print(f"  [WARN] SQLite DB が見つかりません: {UNIFIED_DB}")
+
+    # ── JSON エクスポート (Streamlit Cloud用) ────────────────────────
+    import json as _json
+    JSON_OUT = SCRIPT_DIR / "lap_suspension_data.json"
+    if not dry_run:
+        # FIELDS → HEADERS のマッピングでキーを大文字化
+        field_to_header = dict(zip(FIELDS, HEADERS))
+        json_rows = [
+            {field_to_header.get(k, k.upper()): v for k, v in row.items()
+             if k in field_to_header}
+            for row in all_rows
+        ]
+        JSON_OUT.write_text(
+            _json.dumps(json_rows, ensure_ascii=False, indent=None),
+            encoding="utf-8"
+        )
+        print(f"  [JSON] lap_suspension_data.json に {len(json_rows)} 行書き込み完了")
+    else:
+        print(f"  [DRY-RUN] JSON 書き込みをスキップ ({len(all_rows)} 行)")
 
     print(f"\n完了 {'(DRY-RUN)' if dry_run else ''}")
     print("=" * 60)
