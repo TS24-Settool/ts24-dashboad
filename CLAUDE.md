@@ -103,7 +103,8 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 | ファイル | レコード数 | 主要列 | 更新タイミング |
 |---------|-----------|--------|---------------|
 | `lap_suspension_data.json` | 844行・26列 | APEX_CNT, APEX_SPD_AVG, APEX_SUSF_AVG, APEX_SUSR_AVG, BRK_CNT, BRK_SUSF_AVG, BRK_SUSR_AVG, FULLBRK_CNT, FULLBRK_SUSF, FULLBRK_SUSR, LAP_SUSF_MEAN, LAP_SUSF_MIN, LAP_SUSF_MAX, LAP_SUSR_MEAN | MES再処理時 |
-| `corner_phase_data.json` | 4815行 | round, circuit, date, session_type, rider, run_no, lap_no, lap_time_s, corner_no, ph12_duration_ms, ph12_brake_peak_bar, ph12_susf_avg, ph3_duration_ms, ph3_speed_min, ph3_susf_avg, ph3_susr_avg, ph45_duration_ms, ph45_gas_avg, ph45_susf_avg, total_corner_ms | corner_phase_analysis.py 実行時 |
+| `corner_phase_data.json` | 17387行 | round, circuit, date, session_type, rider, run_no, lap_no, lap_time_s, corner_no, ph12_duration_ms, ph12_brake_peak_bar, ph12_susf_avg, ph3_duration_ms, ph3_speed_min, ph3_susf_avg, ph3_susr_avg, ph45_duration_ms, ph45_gas_avg, ph45_susf_avg, total_corner_ms | corner_phase_analysis.py 実行時 |
+| `lap_overlay_data.json` | 844ラップ | circuit, round, date, rider, session_type, run_no, lap_no, lap_time_s, n_points(200), channels{lap_progress, speed, brake, gas, sus_f, sus_r} | lap_overlay_extractor.py 実行時 |
 | `dynamics_data.json` | ラップ単位 | ACC_Y_PEAK, BOFF_SUSF, THRON_SUSF | MES再処理時 |
 | `lap_times_data.json` | セッション単位 | best_lap, rider, circuit, date, run_no | セッション登録時 |
 
@@ -171,6 +172,7 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 | Lap Sus Stats | ラップ統計・APEX比較 | lap_suspension_data.json |
 | **Setup Target** | FAST/SLOW比較・Δ分析 | lap_suspension_data.json + lap_times_data.json |
 | **Corner Phase** | PH1-2/PH3/PH4-5タイミング比較・APEX速度ヒートマップ | corner_phase_data.json |
+| **Lap Overlay** | ラップ間マルチチャンネル重ね合わせ・ΔTimeトレース | lap_overlay_data.json |
 | Session Detail | セッション詳細 | SQLite |
 | Trend Analysis | シーズントレンド | SQLite |
 | Problem→Solution | 問題→解決策DB | SQLite |
@@ -364,6 +366,22 @@ python lap_suspension_stats.py
 2. **race_memory.jsonの過去知見を確認** → 同じサーキットの過去の発見を踏まえて回答
 3. **具体的な数値で提案する** → 「フロントを硬くする」ではなく「THR_ON SusF の目標値を38→42mmに調整」
 4. **Claude Codeへの作業依頼はTatsukiを通じて伝える** → 「次にClaude Codeを使うとき、dashboard.pyの〇〇を更新してもらってください」
+
+### ChatGPT監査に対応するための必須ルール（2026-05-01 確定）
+
+**全ての分析・提案において以下を必ず守ること：**
+
+1. **根拠データを明示する** — 「ASSENのFAST上位1/3ラップ平均でAPEX_SUSF_AVG=42.1mm」のように数値ソースを示す
+2. **信頼度（Confidence）を付与する** — 高/中/低 または (信頼度:高) の形式で末尾に付ける
+3. **使用したAPEX定義を明示する** — 現在は「APEX定義: BRAKE_FRONT -0.6~0.3 ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 20~140 ∩ SUSP_R 5~50 (2026-04-30確定版)」
+4. **一時的な結果を一般化しない** — 1セッションの結果を「常に〜」と表現しない
+5. **race_memory.jsonへの保存は構造化された形式で** — 曖昧な自然文ではなく、数値・条件・信頼度を含める
+
+**禁止事項:**
+- 根拠のないセットアップ提案
+- APEX定義の混在使用（どの定義か明示なしに使用）
+- race_memory.json への曖昧な知見保存
+- 1件のデータから全体を推論すること
 
 ---
 

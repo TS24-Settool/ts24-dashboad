@@ -81,6 +81,13 @@
   ],
   "conversation_summaries": [
     {
+      "date": "2026-05-01",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code作業(ChatGPT監査対応): (1) lap_overlay_extractor.py新規作成 — MES全ラップを200点リサンプル→lap_overlay_data.json(844ラップ×6ch, 5.3MB)。(2) dashboard.pyに📈 Lap Overlayページ追加 — 4段サブプロット(Speed/Brake+Gas/SusF/ΔTime)、ズームスライダー、コーナーマーカー表示。(3) test_gps_decode.py新規作成 — GPS調査: 経度(4.76°E検出, ASSEN 5.96°E付近)は部分成功、緯度floatデコード未達。V_GPS+Course dead-reckoning は実装可能と確認。(4) CLAUDE.md更新(ファイルリスト・ページ一覧)。信頼度: Lap Overlay=高 / GPS decode=調査中"
+    },
+    {
       "date": "2026-04-30",
       "page": "system",
       "rider": "ALL",

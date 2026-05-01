@@ -586,6 +586,19 @@ def _load_corner_phase() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+_JSON_LAP_OVERLAY = SCRIPT_DIR / "lap_overlay_data.json"
+
+@st.cache_data(ttl=120)
+def _load_lap_overlay() -> list[dict]:
+    """lap_overlay_data.json を読み込んでリストを返す。"""
+    try:
+        if _JSON_LAP_OVERLAY.exists():
+            return json.loads(_JSON_LAP_OVERLAY.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return []
+
+
 def _dyn_norm_circuit(c):
     c = str(c or "").upper().strip()
     if c in ("PHILLIPISLAND","PHILLIP ISLAND","PHI","AUSTRALIA","WORKSHOP","PHILLIP_ISLAND"):
@@ -1505,6 +1518,7 @@ with _nav_col:
         "📊  Lap Sus Stats",
         "🎯  Setup Target",
         "🔄  Corner Phase",
+        "📈  Lap Overlay",
         "📋  Session Detail",
         "📉  Trend Analysis",
         "🔍  Problem→Solution",
@@ -3043,6 +3057,250 @@ with _content_col:
                               if c in df_2ds_f.columns]
                     st.dataframe(df_2ds_f[_setup].sort_values(["date","round","rider","run_no"]),
                                  use_container_width=True, hide_index=True)
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Lap Overlay
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "📈  Lap Overlay":
+        import plotly.subplots as sp
+
+        st.markdown('<p class="section-title">📈 Lap Overlay — Multi-Channel Lap Comparison + ΔTime</p>',
+                    unsafe_allow_html=True)
+
+        LAP_A_COLOR    = "#0078D4"  # 青 (Ref Lap)
+        LAP_B_COLOR    = "#D83B01"  # 橙 (Compare Lap)
+        LAP_A_COLOR_L  = "#70B8FF"  # 薄青
+        LAP_B_COLOR_L  = "#F4A28C"  # 薄橙
+
+        overlay_data = _load_lap_overlay()
+
+        if not overlay_data:
+            st.warning("lap_overlay_data.json が見つかりません。"
+                       "`python lap_overlay_extractor.py` を実行してください。")
+        else:
+            # ── フィルター ─────────────────────────────────────────────
+            ov_circuits = sorted(set(d["circuit"] for d in overlay_data if d.get("circuit")))
+            # デフォルト: 最新日付サーキット
+            _latest_circ_ov = max(
+                overlay_data,
+                key=lambda d: (d.get("date",""), d.get("circuit",""))
+            ).get("circuit", ov_circuits[-1] if ov_circuits else "")
+
+            ff1, ff2, ff3 = st.columns(3)
+            with ff1:
+                ov_circuit = st.selectbox("Circuit", ov_circuits,
+                                          index=ov_circuits.index(_latest_circ_ov)
+                                          if _latest_circ_ov in ov_circuits else 0,
+                                          key="ov_circuit")
+            ov_filtered = [d for d in overlay_data if d.get("circuit") == ov_circuit]
+
+            with ff2:
+                ov_riders = sorted(set(d["rider"] for d in ov_filtered))
+                ov_rider  = st.selectbox("Rider", ["Both"] + ov_riders, key="ov_rider")
+            if ov_rider != "Both":
+                ov_filtered = [d for d in ov_filtered if d["rider"] == ov_rider]
+
+            with ff3:
+                ov_sessions = sorted(set(d["session_type"] for d in ov_filtered))
+                ov_session  = st.selectbox("Session", ov_sessions, key="ov_session")
+            ov_filtered = [d for d in ov_filtered if d["session_type"] == ov_session]
+
+            if not ov_filtered:
+                st.info("このフィルター条件に一致するラップがありません。")
+            else:
+                def _fmt_lap_label(d: dict) -> str:
+                    lt = d.get("lap_time_s", 0)
+                    m  = int(lt // 60); s = lt - m * 60
+                    return (f"Lap {d['lap_no']} ({d['rider']}) — "
+                            f"{m}:{s:05.2f}  Run{d['run_no']}")
+
+                lap_labels = [_fmt_lap_label(d) for d in ov_filtered]
+
+                lc1, lc2 = st.columns(2)
+                with lc1:
+                    st.markdown("**🔵 Reference Lap (A)**")
+                    ref_idx = st.selectbox("Lap A", range(len(lap_labels)),
+                                           format_func=lambda i: lap_labels[i],
+                                           key="ov_lap_a")
+                with lc2:
+                    st.markdown("**🟠 Compare Lap (B)**")
+                    cmp_default = min(1, len(ov_filtered) - 1)
+                    cmp_idx = st.selectbox("Lap B", range(len(lap_labels)),
+                                           index=cmp_default,
+                                           format_func=lambda i: lap_labels[i],
+                                           key="ov_lap_b")
+
+                lap_a = ov_filtered[ref_idx]
+                lap_b = ov_filtered[cmp_idx]
+
+                ch_a = lap_a["channels"]
+                ch_b = lap_b["channels"]
+                x_a  = ch_a["lap_progress"]
+                x_b  = ch_b["lap_progress"]
+
+                # ── ズームスライダー ─────────────────────────────────
+                zoom = st.slider("ズーム範囲 (lap_progress)",
+                                 0.0, 1.0, (0.0, 1.0), step=0.01,
+                                 key="ov_zoom")
+                x_range = list(zoom)
+
+                # ── KPI ──────────────────────────────────────────────
+                kk1, kk2, kk3, kk4 = st.columns(4)
+                lt_a = lap_a.get("lap_time_s", 0)
+                lt_b = lap_b.get("lap_time_s", 0)
+                def _ltfmt(s):
+                    m = int(s//60); sec = s - m*60
+                    return f"{m}:{sec:05.2f}"
+                kk1.metric("Lap A", _ltfmt(lt_a))
+                kk2.metric("Lap B", _ltfmt(lt_b))
+                delta_s = lt_a - lt_b
+                kk3.metric("ΔTime (A−B)", f"{delta_s:+.3f}s",
+                            delta_color="inverse")
+                kk4.metric("Circuit", ov_circuit)
+
+                # ── Subplots ─────────────────────────────────────────
+                fig = sp.make_subplots(
+                    rows=4, cols=1,
+                    shared_xaxes=True,
+                    row_heights=[3, 2, 2, 2],
+                    vertical_spacing=0.04,
+                    subplot_titles=("Speed (km/h)",
+                                    "Brake (bar) + Gas (%)",
+                                    "Suspension Front (mm)",
+                                    "ΔTime A−B (ms)"),
+                )
+
+                # Row1: Speed
+                fig.add_trace(go.Scatter(x=x_a, y=ch_a["speed"],
+                    name="Speed A", line=dict(color=LAP_A_COLOR, width=1.8)),
+                    row=1, col=1)
+                fig.add_trace(go.Scatter(x=x_b, y=ch_b["speed"],
+                    name="Speed B", line=dict(color=LAP_B_COLOR, width=1.8,
+                                              dash="dot")),
+                    row=1, col=1)
+
+                # Row2: Brake (left Y) + Gas (right Y)
+                fig.add_trace(go.Scatter(x=x_a, y=ch_a["brake"],
+                    name="Brake A", line=dict(color=LAP_A_COLOR, width=1.5),
+                    yaxis="y3"),
+                    row=2, col=1)
+                fig.add_trace(go.Scatter(x=x_b, y=ch_b["brake"],
+                    name="Brake B", line=dict(color=LAP_B_COLOR, width=1.5,
+                                              dash="dot"),
+                    yaxis="y3"),
+                    row=2, col=1)
+                fig.add_trace(go.Scatter(x=x_a, y=ch_a["gas"],
+                    name="Gas A", line=dict(color=LAP_A_COLOR_L, width=1.3),
+                    yaxis="y4"),
+                    row=2, col=1)
+                fig.add_trace(go.Scatter(x=x_b, y=ch_b["gas"],
+                    name="Gas B", line=dict(color=LAP_B_COLOR_L, width=1.3,
+                                            dash="dot"),
+                    yaxis="y4"),
+                    row=2, col=1)
+
+                # Row3: SusF
+                fig.add_trace(go.Scatter(x=x_a, y=ch_a["sus_f"],
+                    name="SusF A", line=dict(color=LAP_A_COLOR, width=1.5)),
+                    row=3, col=1)
+                fig.add_trace(go.Scatter(x=x_b, y=ch_b["sus_f"],
+                    name="SusF B", line=dict(color=LAP_B_COLOR, width=1.5,
+                                             dash="dot")),
+                    row=3, col=1)
+
+                # Row4: ΔTime (A−B)
+                # 累積時間差 = LapA_time × progress − LapB_time × progress
+                delta_ms = [(lt_a * pa - lt_b * pb) * 1000
+                            for pa, pb in zip(x_a, x_b)]
+                delta_colors = [LAP_B_COLOR if d > 0 else LAP_A_COLOR
+                                for d in delta_ms]
+                fig.add_trace(go.Bar(
+                    x=x_a, y=delta_ms,
+                    name="ΔTime (A−B)",
+                    marker_color=delta_colors,
+                    opacity=0.7,
+                ), row=4, col=1)
+                fig.add_hline(y=0, line_color="#333", line_width=1.2,
+                              line_dash="dot", row=4, col=1)
+
+                # レイアウト調整
+                total_h = 900
+                fig.update_layout(
+                    height=total_h,
+                    paper_bgcolor="#FFFFFF",
+                    plot_bgcolor="#F8F9FA",
+                    font=CHART_FONT,
+                    margin=dict(l=10, r=60, t=30, b=10),
+                    legend=dict(orientation="h", y=1.02, x=1,
+                                xanchor="right", yanchor="bottom",
+                                font=dict(size=10)),
+                    xaxis4_title="Lap Progress (0 = start, 1 = finish)",
+                )
+                # X軸 zoom 適用
+                for xaxis_key in ["xaxis", "xaxis2", "xaxis3", "xaxis4"]:
+                    fig.update_layout(**{xaxis_key: dict(range=x_range)})
+                # Y軸スタイル
+                for ax in ["yaxis","yaxis2","yaxis3","yaxis5","yaxis6"]:
+                    fig.update_layout(**{ax: dict(
+                        gridcolor="#E5E5E5", linecolor="#CCCCCC",
+                        tickfont=dict(color="#333", size=10),
+                    )})
+                # 右Y軸 (Gas %) — Row2の2軸
+                fig.update_layout(
+                    yaxis4=dict(
+                        title="Gas (%)", overlaying="y3",
+                        side="right", showgrid=False,
+                        tickfont=dict(color="#888", size=10),
+                        range=[0, 110],
+                    )
+                )
+                # サブプロットタイトルスタイル
+                for ann in fig.layout.annotations:
+                    ann.font.size = 11
+                    ann.font.color = "#444"
+
+                st.plotly_chart(fig, use_container_width=True,
+                                config={"displayModeBar": False})
+
+                # ── コーナーマーカー（Corner Phase データから） ───────
+                cp_data = _load_corner_phase()
+                if not cp_data.empty:
+                    cp_lap_a = cp_data[
+                        (cp_data["circuit"] == ov_circuit) &
+                        (cp_data["rider"]   == lap_a["rider"]) &
+                        (cp_data["session_type"] == lap_a["session_type"]) &
+                        (cp_data["run_no"]  == lap_a["run_no"]) &
+                        (cp_data["lap_no"]  == lap_a["lap_no"])
+                    ]
+                    if not cp_lap_a.empty and "ph12_duration_ms" in cp_lap_a.columns:
+                        n_pts  = lap_a["n_points"]
+                        lt_sec = lap_a["lap_time_s"]
+                        total_corner_ms_cumsum = 0.0
+                        corner_marks = []
+                        for _, cr in cp_lap_a.sort_values("corner_no").iterrows():
+                            progress = min(1.0, total_corner_ms_cumsum / (lt_sec * 1000))
+                            corner_marks.append((progress, int(cr["corner_no"])))
+                            total_corner_ms_cumsum += (
+                                cr.get("total_corner_ms", 0) or 0
+                            )
+                        if corner_marks:
+                            st.markdown(
+                                '<p class="section-title" style="margin-top:8px">'
+                                'Corner Markers (Lap A)</p>',
+                                unsafe_allow_html=True
+                            )
+                            marks_html = " ".join(
+                                f'<span class="badge" style="background:#555">'
+                                f'C{cno} @{prog:.2f}</span>'
+                                for prog, cno in corner_marks[:18]
+                            )
+                            st.markdown(marks_html, unsafe_allow_html=True)
+
+        render_float_chat_component(
+            st.session_state.get("claude_api_key", ""),
+            st.session_state.get("race_memory", {}),
+            {"page": "Lap Overlay", "circuit": sel_circuit, "rider": sel_rider},
+        )
 
     # ═══════════════════════════════════════════════════
     elif _NAV == "📋  Session Detail":
