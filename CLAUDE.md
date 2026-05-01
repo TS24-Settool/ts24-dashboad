@@ -104,11 +104,28 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 |---------|-----------|--------|---------------|
 | `lap_suspension_data.json` | 844行・26列 | APEX_CNT, APEX_SPD_AVG, APEX_SUSF_AVG, APEX_SUSR_AVG, BRK_CNT, BRK_SUSF_AVG, BRK_SUSR_AVG, FULLBRK_CNT, FULLBRK_SUSF, FULLBRK_SUSR, LAP_SUSF_MEAN, LAP_SUSF_MIN, LAP_SUSF_MAX, LAP_SUSR_MEAN | MES再処理時 |
 | `corner_phase_data.json` | 17387行 | round, circuit, date, session_type, rider, run_no, lap_no, lap_time_s, corner_no, ph12_duration_ms, ph12_brake_peak_bar, ph12_susf_avg, ph3_duration_ms, ph3_speed_min, ph3_susf_avg, ph3_susr_avg, ph45_duration_ms, ph45_gas_avg, ph45_susf_avg, total_corner_ms | corner_phase_analysis.py 実行時 |
-| `lap_overlay_data.json` | 844ラップ | circuit, round, date, rider, session_type, run_no, lap_no, lap_time_s, n_points(200), channels{lap_progress, speed, brake, gas, sus_f, sus_r} | lap_overlay_extractor.py 実行時 |
+| `lap_overlay_data.json` | 844ラップ | circuit, rider, session_type, run_no, lap_no, lap_time_s, n_points(200), **lap_distance_m(null/将来GPS)**, **distance_progress(null/将来GPS)**, channels{lap_progress, speed, brake, gas, sus_f, sus_r} | lap_overlay_extractor.py 実行時 |
 | `dynamics_data.json` | ラップ単位 | ACC_Y_PEAK, BOFF_SUSF, THRON_SUSF | MES再処理時 |
 | `lap_times_data.json` | セッション単位 | best_lap, rider, circuit, date, run_no | セッション登録時 |
 
-### 4.3 データベース（SQLite）
+### 4.3 lap_overlay_data.json スキーマ（Future GPSフック含む）
+
+```json
+{
+  "circuit": "ASSEN", "rider": "DA77", "session_type": "RACE1",
+  "run_no": 1, "lap_no": 5, "lap_time_s": 97.901, "n_points": 200,
+  "lap_distance_m": null,      // GPS実装後に有効化
+  "distance_progress": null,   // GPS実装後に有効化
+  "channels": {
+    "lap_progress": [0.0, ..., 1.0],  // 200点 時間正規化（現在のみ）
+    "speed": [...], "brake": [...], "gas": [...], "sus_f": [...], "sus_r": [...]
+  }
+}
+```
+
+`lap_comparison_latest.json` は Streamlitが書き込む一時ファイル（.gitignore済み）。
+
+### 4.4 データベース（SQLite）
 
 ```sql
 -- 主要テーブル
@@ -282,10 +299,9 @@ THRON_CNT        ← THR_ON検出カウント（0の場合はデータなし）
 ### Step 2: データ処理（Claude Code）
 ```bash
 # MES再処理
-python lap_suspension_stats.py
-
-# JSONエクスポート（Streamlit Cloud用）
-# → lap_suspension_data.json を更新
+python lap_suspension_stats.py       # → lap_suspension_data.json 更新
+python corner_phase_analysis.py      # → corner_phase_data.json 更新
+python lap_overlay_extractor.py      # → lap_overlay_data.json 更新（844ラップ×200点）
 
 # Git push
 ./git_push_fix.command
@@ -382,6 +398,18 @@ python lap_suspension_stats.py
 - APEX定義の混在使用（どの定義か明示なしに使用）
 - race_memory.json への曖昧な知見保存
 - 1件のデータから全体を推論すること
+
+### [Lap Overlayを使った分析をするとき]
+
+**必ず以下3点を答えること:**
+1. **どのコーナー・どのフェーズで最大の時間差が出ているか** — コーナー番号とフェーズ（PH1-2/PH3/PH4-5）を明示し、差を ms単位で提示する
+2. **その差の原因** — ブレーキ操作（ph12_duration/ph12_brake_peak）・ガス操作（ph45_duration）・サスペンション挙動（ph3_susf_avg）から推察し、根拠データを示す
+3. **複数ラップで再現性があるか** — 1ラップの比較結果を「常に〜」と一般化しない。可能なら複数ラップで確認を促す
+
+**禁止:**
+- `"全体的にAが速い"` のような定性的結論のみで終わること
+- `"Estimated Linear ΔTime"` の値を「実際のΔTime」として断言すること（時間軸正規化のため実際の距離位置と異なる場合がある）
+- コーナー番号の裏付けなしにフェーズ差を述べること
 
 ---
 

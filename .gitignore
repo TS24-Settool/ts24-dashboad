@@ -64,3 +64,6 @@ logs/
 
 # ── Claude Code system files ─────────────────────────────────
 *.skill
+
+# ── 一時比較ファイル（Streamlitが書き込む、commitしない）────────
+lap_comparison_latest.json

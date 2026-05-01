@@ -307,15 +307,17 @@ def analyze_mes_overlay(
         sus_r_resampled  = np.clip(sus_r_resampled, 0.0, 200.0)
 
         results.append({
-            "circuit":      circuit,
-            "round":        event,
-            "date":         date_fmt,
-            "rider":        rider_tag,
-            "session_type": session_type,
-            "run_no":       run_no,
-            "lap_no":       lap_no,
-            "lap_time_s":   round(lap_t_s, 3),
-            "n_points":     n_points,
+            "circuit":           circuit,
+            "round":             event,
+            "date":              date_fmt,
+            "rider":             rider_tag,
+            "session_type":      session_type,
+            "run_no":            run_no,
+            "lap_no":            lap_no,
+            "lap_time_s":        round(lap_t_s, 3),
+            "n_points":          n_points,
+            "lap_distance_m":    None,   # GPS実装後に有効化
+            "distance_progress": None,   # GPS実装後に有効化
             "channels": {
                 "lap_progress": _round2(lap_progress),
                 "speed":        _round2(speed_resampled),

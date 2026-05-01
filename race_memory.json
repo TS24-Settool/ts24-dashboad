@@ -85,6 +85,13 @@
       "page": "system",
       "rider": "ALL",
       "circuit": "ALL",
+      "summary": "Claude Code作業(Lap Overlay v2 + GPS調査): (1) dashboard.py Lap Overlayページを根本再設計 — バグ修正(import _sp/sp二重定義)、fill='tozeroy'デュアルカラーΔTime、コーナー別フェーズΔTimeテーブル(A−B ms、赤緑色分け)、サマリーカード3枚、lap_comparison_latest.json書き出し(gitignore済み)、2ラップ必須チェック、免責テキスト追加。(2) lap_overlay_extractor.py更新 — lap_distance_m/distance_progress=nullフィールド追加(GPS将来フック)。(3) GPS decode v2: Lon/1e4=6.09°E(15060ヒット)✅、int32/1e7でLat=52.28-53.68°N・Lon=5.71°E検出✅ → 正解候補=2×uint16→int32LE/1e7。(4) CLAUDE.md更新(スキーマ・Section9・Section12 Lap Overlay分析ルール追加)。信頼度: Lap Overlay=高 / GPS int32/1e7=中(要追試)"
+    },
+    {
+      "date": "2026-05-01",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
       "summary": "Claude Code作業(ChatGPT監査対応): (1) lap_overlay_extractor.py新規作成 — MES全ラップを200点リサンプル→lap_overlay_data.json(844ラップ×6ch, 5.3MB)。(2) dashboard.pyに📈 Lap Overlayページ追加 — 4段サブプロット(Speed/Brake+Gas/SusF/ΔTime)、ズームスライダー、コーナーマーカー表示。(3) test_gps_decode.py新規作成 — GPS調査: 経度(4.76°E検出, ASSEN 5.96°E付近)は部分成功、緯度floatデコード未達。V_GPS+Course dead-reckoning は実装可能と確認。(4) CLAUDE.md更新(ファイルリスト・ページ一覧)。信頼度: Lap Overlay=高 / GPS decode=調査中"
     },
     {

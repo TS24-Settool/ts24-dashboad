@@ -3062,15 +3062,24 @@ with _content_col:
     # PAGE — Lap Overlay
     # ═══════════════════════════════════════════════════
     elif _NAV == "📈  Lap Overlay":
-        import plotly.subplots as sp
+        from plotly.subplots import make_subplots as _make_subplots
 
-        st.markdown('<p class="section-title">📈 Lap Overlay — Multi-Channel Lap Comparison + ΔTime</p>',
-                    unsafe_allow_html=True)
+        # ── 色定数 ───────────────────────────────────────────────────
+        _OV_A     = "#0078D4"   # 青 (Reference Lap A)
+        _OV_B     = "#D83B01"   # 橙 (Compare Lap B)
+        _OV_A_L   = "#70B8FF"   # 薄青 (Gas A)
+        _OV_B_L   = "#F4A28C"   # 薄橙 (Gas B)
+        _OV_POS   = "rgba(216,59,1,0.25)"    # A遅い (赤塗り)
+        _OV_NEG   = "rgba(16,124,16,0.25)"   # A速い (緑塗り)
 
-        LAP_A_COLOR    = "#0078D4"  # 青 (Ref Lap)
-        LAP_B_COLOR    = "#D83B01"  # 橙 (Compare Lap)
-        LAP_A_COLOR_L  = "#70B8FF"  # 薄青
-        LAP_B_COLOR_L  = "#F4A28C"  # 薄橙
+        st.markdown(
+            '<p class="section-title">📈 Lap Overlay  |  '
+            'Comparison Tool — not single lap analysis</p>',
+            unsafe_allow_html=True,
+        )
+        st.caption("目的: どのコーナー・どのフェーズで何ms差が出たかを定量的に答えるツール")
+        st.info("⚠️ Time-normalized Overlay — distance synchronization not yet applied. "
+                "ΔTime values are Estimated Linear Interpolation only.")
 
         overlay_data = _load_lap_overlay()
 
@@ -3079,19 +3088,20 @@ with _content_col:
                        "`python lap_overlay_extractor.py` を実行してください。")
         else:
             # ── フィルター ─────────────────────────────────────────────
-            ov_circuits = sorted(set(d["circuit"] for d in overlay_data if d.get("circuit")))
-            # デフォルト: 最新日付サーキット
+            ov_circuits = sorted(set(d["circuit"] for d in overlay_data
+                                     if d.get("circuit")))
             _latest_circ_ov = max(
                 overlay_data,
-                key=lambda d: (d.get("date",""), d.get("circuit",""))
+                key=lambda d: (d.get("date", ""), d.get("circuit", "")),
             ).get("circuit", ov_circuits[-1] if ov_circuits else "")
 
-            ff1, ff2, ff3 = st.columns(3)
+            ff1, ff2, ff3, ff4 = st.columns(4)
             with ff1:
-                ov_circuit = st.selectbox("Circuit", ov_circuits,
-                                          index=ov_circuits.index(_latest_circ_ov)
-                                          if _latest_circ_ov in ov_circuits else 0,
-                                          key="ov_circuit")
+                ov_circuit = st.selectbox(
+                    "Circuit", ov_circuits,
+                    index=ov_circuits.index(_latest_circ_ov)
+                          if _latest_circ_ov in ov_circuits else 0,
+                    key="ov_circuit")
             ov_filtered = [d for d in overlay_data if d.get("circuit") == ov_circuit]
 
             with ff2:
@@ -3105,196 +3115,383 @@ with _content_col:
                 ov_session  = st.selectbox("Session", ov_sessions, key="ov_session")
             ov_filtered = [d for d in ov_filtered if d["session_type"] == ov_session]
 
-            if not ov_filtered:
-                st.info("このフィルター条件に一致するラップがありません。")
+            with ff4:
+                ov_runs = sorted(set(d["run_no"] for d in ov_filtered))
+                ov_run  = st.selectbox("Run No", ["All"] + [str(r) for r in ov_runs],
+                                       key="ov_run")
+            if ov_run != "All":
+                ov_filtered = [d for d in ov_filtered if str(d["run_no"]) == ov_run]
+
+            # ── 2ラップ選択（必須）────────────────────────────────────
+            if len(ov_filtered) < 2:
+                st.error("比較には最低2ラップ必要です。フィルターを変更してください。")
             else:
-                def _fmt_lap_label(d: dict) -> str:
+                def _ov_label(d: dict) -> str:
                     lt = d.get("lap_time_s", 0)
                     m  = int(lt // 60); s = lt - m * 60
-                    return (f"Lap {d['lap_no']} ({d['rider']}) — "
-                            f"{m}:{s:05.2f}  Run{d['run_no']}")
+                    return f"Lap {d['lap_no']} ({d['rider']}) — {m}:{s:05.2f}  Run{d['run_no']}"
 
-                lap_labels = [_fmt_lap_label(d) for d in ov_filtered]
+                ov_labels = [_ov_label(d) for d in ov_filtered]
 
                 lc1, lc2 = st.columns(2)
                 with lc1:
                     st.markdown("**🔵 Reference Lap (A)**")
-                    ref_idx = st.selectbox("Lap A", range(len(lap_labels)),
-                                           format_func=lambda i: lap_labels[i],
-                                           key="ov_lap_a")
+                    ref_idx = st.selectbox(
+                        "Lap A", range(len(ov_labels)),
+                        format_func=lambda i: ov_labels[i], key="ov_lap_a")
                 with lc2:
                     st.markdown("**🟠 Compare Lap (B)**")
-                    cmp_default = min(1, len(ov_filtered) - 1)
-                    cmp_idx = st.selectbox("Lap B", range(len(lap_labels)),
-                                           index=cmp_default,
-                                           format_func=lambda i: lap_labels[i],
-                                           key="ov_lap_b")
+                    cmp_idx = st.selectbox(
+                        "Lap B", range(len(ov_labels)),
+                        index=min(1, len(ov_filtered) - 1),
+                        format_func=lambda i: ov_labels[i], key="ov_lap_b")
 
-                lap_a = ov_filtered[ref_idx]
-                lap_b = ov_filtered[cmp_idx]
+                if ref_idx == cmp_idx:
+                    st.warning("同じラップを選択しています — 比較には2つの異なるラップを選んでください。")
+                else:
+                    lap_a = ov_filtered[ref_idx]
+                    lap_b = ov_filtered[cmp_idx]
+                    ch_a  = lap_a["channels"]
+                    ch_b  = lap_b["channels"]
+                    x_a   = ch_a["lap_progress"]    # 200点 0→1
+                    x_b   = ch_b["lap_progress"]
+                    lt_a  = lap_a.get("lap_time_s", 0.0)
+                    lt_b  = lap_b.get("lap_time_s", 0.0)
+                    delta_total_s = lt_a - lt_b
 
-                ch_a = lap_a["channels"]
-                ch_b = lap_b["channels"]
-                x_a  = ch_a["lap_progress"]
-                x_b  = ch_b["lap_progress"]
+                    def _ltfmt(sec: float) -> str:
+                        m = int(sec // 60); s = sec - m * 60
+                        return f"{m}:{s:05.2f}"
 
-                # ── ズームスライダー ─────────────────────────────────
-                zoom = st.slider("ズーム範囲 (lap_progress)",
-                                 0.0, 1.0, (0.0, 1.0), step=0.01,
-                                 key="ov_zoom")
-                x_range = list(zoom)
+                    # ── サマリーカード ────────────────────────────────
+                    st.divider()
+                    sc1, sc2, sc3, sc4 = st.columns(4)
+                    sc1.metric("🔵 Lap A", _ltfmt(lt_a),
+                               f"{lap_a['rider']}  Lap{lap_a['lap_no']}")
+                    sc2.metric("🟠 Lap B", _ltfmt(lt_b),
+                               f"{lap_b['rider']}  Lap{lap_b['lap_no']}")
+                    sc3.metric("Estimated Linear ΔTime (A−B)",
+                               f"{delta_total_s:+.3f}s",
+                               "A faster" if delta_total_s < 0 else "A slower",
+                               delta_color="inverse")
+                    sc4.metric("Circuit", ov_circuit)
 
-                # ── KPI ──────────────────────────────────────────────
-                kk1, kk2, kk3, kk4 = st.columns(4)
-                lt_a = lap_a.get("lap_time_s", 0)
-                lt_b = lap_b.get("lap_time_s", 0)
-                def _ltfmt(s):
-                    m = int(s//60); sec = s - m*60
-                    return f"{m}:{sec:05.2f}"
-                kk1.metric("Lap A", _ltfmt(lt_a))
-                kk2.metric("Lap B", _ltfmt(lt_b))
-                delta_s = lt_a - lt_b
-                kk3.metric("ΔTime (A−B)", f"{delta_s:+.3f}s",
-                            delta_color="inverse")
-                kk4.metric("Circuit", ov_circuit)
+                    # ── ΔTime trace 計算 ──────────────────────────────
+                    # 線形補間: 各進捗点での累積時間差
+                    delta_sec = [lt_a * pa - lt_b * pb
+                                 for pa, pb in zip(x_a, x_b)]
+                    # 正(A遅い)/ 負(A速い) を分離して fill='tozeroy'
+                    pos_y = [max(0.0, d) for d in delta_sec]
+                    neg_y = [min(0.0, d) for d in delta_sec]
 
-                # ── Subplots ─────────────────────────────────────────
-                fig = sp.make_subplots(
-                    rows=4, cols=1,
-                    shared_xaxes=True,
-                    row_heights=[3, 2, 2, 2],
-                    vertical_spacing=0.04,
-                    subplot_titles=("Speed (km/h)",
-                                    "Brake (bar) + Gas (%)",
-                                    "Suspension Front (mm)",
-                                    "ΔTime A−B (ms)"),
-                )
+                    # ── コーナーフェーズデータ取得 ─────────────────────
+                    cp_df = _load_corner_phase()
+                    def _get_cp_lap(rider, session_type, run_no, lap_no):
+                        if cp_df.empty:
+                            return pd.DataFrame()
+                        return cp_df[
+                            (cp_df["circuit"]      == ov_circuit) &
+                            (cp_df["rider"]        == rider) &
+                            (cp_df["session_type"] == session_type) &
+                            (cp_df["run_no"]       == run_no) &
+                            (cp_df["lap_no"]       == lap_no)
+                        ].sort_values("corner_no").copy()
 
-                # Row1: Speed
-                fig.add_trace(go.Scatter(x=x_a, y=ch_a["speed"],
-                    name="Speed A", line=dict(color=LAP_A_COLOR, width=1.8)),
-                    row=1, col=1)
-                fig.add_trace(go.Scatter(x=x_b, y=ch_b["speed"],
-                    name="Speed B", line=dict(color=LAP_B_COLOR, width=1.8,
-                                              dash="dot")),
-                    row=1, col=1)
+                    cp_a = _get_cp_lap(lap_a["rider"], lap_a["session_type"],
+                                       lap_a["run_no"], lap_a["lap_no"])
+                    cp_b = _get_cp_lap(lap_b["rider"], lap_b["session_type"],
+                                       lap_b["run_no"], lap_b["lap_no"])
 
-                # Row2: Brake (left Y) + Gas (right Y)
-                fig.add_trace(go.Scatter(x=x_a, y=ch_a["brake"],
-                    name="Brake A", line=dict(color=LAP_A_COLOR, width=1.5),
-                    yaxis="y3"),
-                    row=2, col=1)
-                fig.add_trace(go.Scatter(x=x_b, y=ch_b["brake"],
-                    name="Brake B", line=dict(color=LAP_B_COLOR, width=1.5,
-                                              dash="dot"),
-                    yaxis="y3"),
-                    row=2, col=1)
-                fig.add_trace(go.Scatter(x=x_a, y=ch_a["gas"],
-                    name="Gas A", line=dict(color=LAP_A_COLOR_L, width=1.3),
-                    yaxis="y4"),
-                    row=2, col=1)
-                fig.add_trace(go.Scatter(x=x_b, y=ch_b["gas"],
-                    name="Gas B", line=dict(color=LAP_B_COLOR_L, width=1.3,
-                                            dash="dot"),
-                    yaxis="y4"),
-                    row=2, col=1)
+                    # コーナーマーカー位置（累積時間 → lap_progress）
+                    def _corner_progresses(cp_lap: pd.DataFrame,
+                                           lap_time_s: float) -> list[tuple[float, int]]:
+                        marks = []
+                        cum_ms = 0.0
+                        for _, row in cp_lap.iterrows():
+                            # PH3 startまでの累積時間 = cum_ms + ph12
+                            brake_peak_prog = min(
+                                1.0,
+                                (cum_ms + (row.get("ph12_duration_ms") or 0))
+                                / (lap_time_s * 1000)
+                            )
+                            marks.append((brake_peak_prog, int(row["corner_no"])))
+                            cum_ms += (row.get("total_corner_ms") or 0)
+                        return marks
 
-                # Row3: SusF
-                fig.add_trace(go.Scatter(x=x_a, y=ch_a["sus_f"],
-                    name="SusF A", line=dict(color=LAP_A_COLOR, width=1.5)),
-                    row=3, col=1)
-                fig.add_trace(go.Scatter(x=x_b, y=ch_b["sus_f"],
-                    name="SusF B", line=dict(color=LAP_B_COLOR, width=1.5,
-                                             dash="dot")),
-                    row=3, col=1)
+                    corner_marks_a = _corner_progresses(cp_a, lt_a) if not cp_a.empty else []
 
-                # Row4: ΔTime (A−B)
-                # 累積時間差 = LapA_time × progress − LapB_time × progress
-                delta_ms = [(lt_a * pa - lt_b * pb) * 1000
-                            for pa, pb in zip(x_a, x_b)]
-                delta_colors = [LAP_B_COLOR if d > 0 else LAP_A_COLOR
-                                for d in delta_ms]
-                fig.add_trace(go.Bar(
-                    x=x_a, y=delta_ms,
-                    name="ΔTime (A−B)",
-                    marker_color=delta_colors,
-                    opacity=0.7,
-                ), row=4, col=1)
-                fig.add_hline(y=0, line_color="#333", line_width=1.2,
-                              line_dash="dot", row=4, col=1)
+                    # ── ズームスライダー（center + window）───────────
+                    st.divider()
+                    zc1, zc2 = st.columns(2)
+                    with zc1:
+                        zoom_center = st.slider("Corner Zoom Center",
+                                                0.0, 1.0, 0.5, 0.01,
+                                                key="ov_zoom_center")
+                    with zc2:
+                        zoom_window = st.slider("Window Width",
+                                                0.05, 1.0, 1.0, 0.01,
+                                                key="ov_zoom_window")
+                    x_lo = max(0.0, zoom_center - zoom_window / 2)
+                    x_hi = min(1.0, zoom_center + zoom_window / 2)
 
-                # レイアウト調整
-                total_h = 900
-                fig.update_layout(
-                    height=total_h,
-                    paper_bgcolor="#FFFFFF",
-                    plot_bgcolor="#F8F9FA",
-                    font=CHART_FONT,
-                    margin=dict(l=10, r=60, t=30, b=10),
-                    legend=dict(orientation="h", y=1.02, x=1,
-                                xanchor="right", yanchor="bottom",
-                                font=dict(size=10)),
-                    xaxis4_title="Lap Progress (0 = start, 1 = finish)",
-                )
-                # X軸 zoom 適用
-                for xaxis_key in ["xaxis", "xaxis2", "xaxis3", "xaxis4"]:
-                    fig.update_layout(**{xaxis_key: dict(range=x_range)})
-                # Y軸スタイル
-                for ax in ["yaxis","yaxis2","yaxis3","yaxis5","yaxis6"]:
-                    fig.update_layout(**{ax: dict(
-                        gridcolor="#E5E5E5", linecolor="#CCCCCC",
-                        tickfont=dict(color="#333", size=10),
-                    )})
-                # 右Y軸 (Gas %) — Row2の2軸
-                fig.update_layout(
-                    yaxis4=dict(
-                        title="Gas (%)", overlaying="y3",
-                        side="right", showgrid=False,
-                        tickfont=dict(color="#888", size=10),
-                        range=[0, 110],
+                    # ── Plotly 4行サブプロット ────────────────────────
+                    fig_ov = _make_subplots(
+                        rows=4, cols=1,
+                        shared_xaxes=True,
+                        row_heights=[3, 2, 2, 3],
+                        vertical_spacing=0.04,
+                        subplot_titles=(
+                            "Speed (km/h)",
+                            "Brake (bar) + Gas (%)",
+                            "Suspension Front (mm)",
+                            "Estimated Linear ΔTime (sec) (A - B)",
+                        ),
                     )
-                )
-                # サブプロットタイトルスタイル
-                for ann in fig.layout.annotations:
-                    ann.font.size = 11
-                    ann.font.color = "#444"
 
-                st.plotly_chart(fig, use_container_width=True,
-                                config={"displayModeBar": False})
+                    # Row 1: Speed
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=ch_a["speed"], name="Speed A",
+                        line=dict(color=_OV_A, width=1.8)), row=1, col=1)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_b, y=ch_b["speed"], name="Speed B",
+                        line=dict(color=_OV_B, width=1.8, dash="dot")), row=1, col=1)
 
-                # ── コーナーマーカー（Corner Phase データから） ───────
-                cp_data = _load_corner_phase()
-                if not cp_data.empty:
-                    cp_lap_a = cp_data[
-                        (cp_data["circuit"] == ov_circuit) &
-                        (cp_data["rider"]   == lap_a["rider"]) &
-                        (cp_data["session_type"] == lap_a["session_type"]) &
-                        (cp_data["run_no"]  == lap_a["run_no"]) &
-                        (cp_data["lap_no"]  == lap_a["lap_no"])
-                    ]
-                    if not cp_lap_a.empty and "ph12_duration_ms" in cp_lap_a.columns:
-                        n_pts  = lap_a["n_points"]
-                        lt_sec = lap_a["lap_time_s"]
-                        total_corner_ms_cumsum = 0.0
-                        corner_marks = []
-                        for _, cr in cp_lap_a.sort_values("corner_no").iterrows():
-                            progress = min(1.0, total_corner_ms_cumsum / (lt_sec * 1000))
-                            corner_marks.append((progress, int(cr["corner_no"])))
-                            total_corner_ms_cumsum += (
-                                cr.get("total_corner_ms", 0) or 0
+                    # Row 2: Brake (left) + Gas (right)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=ch_a["brake"], name="Brake A",
+                        line=dict(color=_OV_A, width=1.5)), row=2, col=1)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_b, y=ch_b["brake"], name="Brake B",
+                        line=dict(color=_OV_B, width=1.5, dash="dot")), row=2, col=1)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=ch_a["gas"], name="Gas A",
+                        line=dict(color=_OV_A_L, width=1.2),
+                        yaxis="y4"), row=2, col=1)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_b, y=ch_b["gas"], name="Gas B",
+                        line=dict(color=_OV_B_L, width=1.2, dash="dot"),
+                        yaxis="y4"), row=2, col=1)
+
+                    # Row 3: SusF
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=ch_a["sus_f"], name="SusF A",
+                        line=dict(color=_OV_A, width=1.5)), row=3, col=1)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_b, y=ch_b["sus_f"], name="SusF B",
+                        line=dict(color=_OV_B, width=1.5, dash="dot")), row=3, col=1)
+
+                    # Row 4: Estimated Linear ΔTime — dual-color fill
+                    # 正領域 (A遅い → 赤)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=pos_y, name="A slower (positive)",
+                        fill="tozeroy", fillcolor=_OV_POS,
+                        line=dict(color="rgba(0,0,0,0)", width=0),
+                        showlegend=True), row=4, col=1)
+                    # 負領域 (A速い → 緑)
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=neg_y, name="A faster (negative)",
+                        fill="tozeroy", fillcolor=_OV_NEG,
+                        line=dict(color="rgba(0,0,0,0)", width=0),
+                        showlegend=True), row=4, col=1)
+                    # ΔTime ライン本体
+                    fig_ov.add_trace(go.Scatter(
+                        x=x_a, y=delta_sec, name="Est. Linear ΔTime (A−B)",
+                        line=dict(color="#333", width=1.5),
+                        showlegend=True), row=4, col=1)
+
+                    # コーナーマーカー（全行に縦線、Row1のみラベル）
+                    for prog, cno in corner_marks_a:
+                        for row_i in [1, 2, 3, 4]:
+                            fig_ov.add_vline(
+                                x=prog, row=row_i, col=1,
+                                line_dash="dot", line_color="gray",
+                                opacity=0.45, line_width=1,
                             )
-                        if corner_marks:
-                            st.markdown(
-                                '<p class="section-title" style="margin-top:8px">'
-                                'Corner Markers (Lap A)</p>',
-                                unsafe_allow_html=True
+                        fig_ov.add_annotation(
+                            x=prog, y=1.0, xref="x", yref="y domain",
+                            text=f"C{cno:02d}", showarrow=False,
+                            font=dict(size=8, color="gray"),
+                            row=1, col=1,
+                        )
+
+                    # ゼロライン (Row 4)
+                    fig_ov.add_hline(y=0, row=4, col=1,
+                                     line_color="#888", line_width=1.0,
+                                     line_dash="dot")
+
+                    # レイアウト
+                    fig_ov.update_layout(
+                        height=1000,
+                        paper_bgcolor="#FFFFFF",
+                        plot_bgcolor="#F8F9FA",
+                        font=CHART_FONT,
+                        margin=dict(l=10, r=70, t=40, b=10),
+                        legend=dict(orientation="h", y=1.03, x=1,
+                                    xanchor="right", yanchor="bottom",
+                                    font=dict(size=10)),
+                        xaxis4=dict(title="Lap Progress  (0 = start, 1 = finish)"),
+                        yaxis4=dict(
+                            title="Gas (%)", overlaying="y3",
+                            side="right", showgrid=False,
+                            tickfont=dict(color="#888", size=10),
+                            range=[0, 110],
+                        ),
+                    )
+                    # X軸 zoom 適用（4軸すべて）
+                    for _xk in ["xaxis", "xaxis2", "xaxis3", "xaxis4"]:
+                        fig_ov.update_layout(**{_xk: dict(range=[x_lo, x_hi])})
+                    # Y軸グリッドスタイル
+                    for _yk in ["yaxis", "yaxis2", "yaxis3", "yaxis5", "yaxis6", "yaxis7"]:
+                        fig_ov.update_layout(**{_yk: dict(
+                            gridcolor="#E5E5E5", linecolor="#CCCCCC",
+                            tickfont=dict(color="#333", size=10),
+                        )})
+                    # サブプロットタイトルスタイル
+                    for _ann in fig_ov.layout.annotations:
+                        if _ann.text and "C0" not in _ann.text:
+                            _ann.font.size  = 11
+                            _ann.font.color = "#444"
+
+                    st.plotly_chart(fig_ov, use_container_width=True,
+                                    config={"displayModeBar": False})
+
+                    # ── コーナー別フェーズΔTimeテーブル ──────────────────
+                    st.divider()
+                    st.markdown(
+                        '<p class="section-title">'
+                        'Per-Corner Phase ΔTime: Lap A vs Lap B (A − B, ms)</p>',
+                        unsafe_allow_html=True,
+                    )
+                    if cp_a.empty or cp_b.empty:
+                        st.caption(
+                            "Corner phase data not available for selected session "
+                            "— run `corner_phase_analysis.py` first"
+                        )
+                    else:
+                        # 共通コーナー番号でマージ
+                        _cp_tbl_rows = []
+                        _shared_corners = sorted(
+                            set(cp_a["corner_no"].tolist()) &
+                            set(cp_b["corner_no"].tolist())
+                        )
+                        for cno in _shared_corners:
+                            ra = cp_a[cp_a["corner_no"] == cno].iloc[0]
+                            rb = cp_b[cp_b["corner_no"] == cno].iloc[0]
+                            ph12_a = ra.get("ph12_duration_ms") or 0
+                            ph12_b = rb.get("ph12_duration_ms") or 0
+                            ph3_a  = ra.get("ph3_duration_ms")  or 0
+                            ph3_b  = rb.get("ph3_duration_ms")  or 0
+                            ph45_a = ra.get("ph45_duration_ms") or 0
+                            ph45_b = rb.get("ph45_duration_ms") or 0
+                            d12  = round(ph12_a - ph12_b, 0)
+                            d3   = round(ph3_a  - ph3_b,  0)
+                            d45  = round(ph45_a - ph45_b, 0)
+                            dtot = round(d12 + d3 + d45, 0)
+                            _cp_tbl_rows.append({
+                                "Corner":     f"C{int(cno):02d}",
+                                "PH1-2 A":   int(ph12_a),
+                                "PH1-2 B":   int(ph12_b),
+                                "Δ PH1-2":   int(d12),
+                                "PH3 A":     int(ph3_a),
+                                "PH3 B":     int(ph3_b),
+                                "Δ PH3":     int(d3),
+                                "PH4-5 A":   int(ph45_a),
+                                "PH4-5 B":   int(ph45_b),
+                                "Δ PH4-5":   int(d45),
+                                "Total Δ":   int(dtot),
+                            })
+
+                        if _cp_tbl_rows:
+                            df_tbl = pd.DataFrame(_cp_tbl_rows)
+                            # 最大|Total Δ|コーナーを太字
+                            _max_corner = df_tbl.loc[
+                                df_tbl["Total Δ"].abs().idxmax(), "Corner"
+                            ]
+
+                            def _delta_color(val):
+                                try:
+                                    v = float(val)
+                                except Exception:
+                                    return ""
+                                if v > 20:
+                                    return "background-color:#FFC7CE;color:#9C0006"
+                                elif v < -20:
+                                    return "background-color:#C6EFCE;color:#276221"
+                                return ""
+
+                            _delta_cols = ["Δ PH1-2", "Δ PH3", "Δ PH4-5", "Total Δ"]
+                            _styler = (
+                                getattr(df_tbl.style, "map", None)
+                                or getattr(df_tbl.style, "applymap")
                             )
-                            marks_html = " ".join(
-                                f'<span class="badge" style="background:#555">'
-                                f'C{cno} @{prog:.2f}</span>'
-                                for prog, cno in corner_marks[:18]
+                            st.dataframe(
+                                _styler(_delta_color, subset=_delta_cols),
+                                use_container_width=True,
+                                height=min(600, 38 + 35 * len(df_tbl)),
                             )
-                            st.markdown(marks_html, unsafe_allow_html=True)
+                            st.caption(
+                                f"🔴 赤=A遅い(正)  🟢 緑=A速い(負)  "
+                                f"最大差コーナー: **{_max_corner}** "
+                                f"Total Δ={int(df_tbl.loc[df_tbl['Corner']==_max_corner,'Total Δ'].iloc[0])} ms  "
+                                f"(共通コーナー数: {len(_shared_corners)})"
+                            )
+
+                            # ── サマリーカード（テーブル下）──────────
+                            st.divider()
+                            _max_row = df_tbl.loc[df_tbl["Total Δ"].abs().idxmax()]
+                            _best_ph = min(
+                                [("PH1-2", df_tbl["Δ PH1-2"].mean()),
+                                 ("PH3",   df_tbl["Δ PH3"].mean()),
+                                 ("PH4-5", df_tbl["Δ PH4-5"].mean())],
+                                key=lambda x: x[1],
+                            )
+                            sm1, sm2, sm3 = st.columns(3)
+                            sm1.metric(
+                                "🏁 Total Lap Time Δ (A−B)",
+                                f"{delta_total_s:+.3f}s",
+                                "A faster" if delta_total_s < 0 else "A slower",
+                                delta_color="inverse",
+                            )
+                            sm2.metric(
+                                f"🔥 最大Δコーナー",
+                                f"{_max_row['Corner']} — {int(_max_row['Total Δ'])} ms",
+                                "A slower" if _max_row["Total Δ"] > 0 else "A faster",
+                                delta_color="inverse",
+                            )
+                            sm3.metric(
+                                "📊 A優位フェーズ (avg Δ最小)",
+                                f"{_best_ph[0]} — avg {_best_ph[1]:+.0f} ms",
+                            )
+
+                    # ── lap_comparison_latest.json 保存 ───────────────
+                    try:
+                        _cmp_out = SCRIPT_DIR / "lap_comparison_latest.json"
+                        _cmp_payload = {
+                            "generated_at": pd.Timestamp.now().isoformat(),
+                            "circuit": ov_circuit,
+                            "lap_a": {
+                                "rider": lap_a["rider"],
+                                "session_type": lap_a["session_type"],
+                                "run_no": lap_a["run_no"],
+                                "lap_no": lap_a["lap_no"],
+                                "lap_time_s": lt_a,
+                            },
+                            "lap_b": {
+                                "rider": lap_b["rider"],
+                                "session_type": lap_b["session_type"],
+                                "run_no": lap_b["run_no"],
+                                "lap_no": lap_b["lap_no"],
+                                "lap_time_s": lt_b,
+                            },
+                            "delta_total_s": round(delta_total_s, 3),
+                            "corner_deltas": _cp_tbl_rows if not cp_a.empty and not cp_b.empty else [],
+                        }
+                        _cmp_out.write_text(
+                            json.dumps(_cmp_payload, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                    except Exception:
+                        pass
 
         render_float_chat_component(
             st.session_state.get("claude_api_key", ""),
