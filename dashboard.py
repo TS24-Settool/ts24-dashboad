@@ -3097,6 +3097,37 @@ with _content_col:
         # 有意差しきい値
         _SIGNIFICANT_THRESHOLD = 0.01  # 秒
 
+        # Task1: Loss Score（相対スコア）──────────────────────────────
+        def _loss_score(val: float, max_abs: float) -> str:
+            """Loss/Gain値を現在ペア内の相対スコアに変換（絶対値は実タイムロスでない）"""
+            if max_abs < 0.001:
+                return "⬜ Neutral"
+            ratio = abs(val) / max_abs
+            if val > 0:      # Loss: AがBより遅い区間
+                if ratio >= 0.6:   return "🔴 High"
+                elif ratio >= 0.3: return "🟡 Medium"
+                else:              return "🟢 Low"
+            elif val < 0:    # Gain: AがBより速い区間
+                if ratio >= 0.6:   return "✅ Strong"
+                elif ratio >= 0.3: return "✅ Moderate"
+                else:              return "✅ Minor"
+            return "⬜ Neutral"
+
+        # Task3: Loss Zone グループ化 ────────────────────────────────
+        def _find_loss_zones(rows: list, threshold: float = 0.01) -> list[str]:
+            """2Turn以上連続するLoss区間をグループ化して返す"""
+            zones, current = [], []
+            for r in rows:
+                if r["Loss/Gain (est.)"] > threshold:
+                    current.append(r["Turn"])
+                else:
+                    if len(current) >= 2:
+                        zones.append(f"{current[0]}–{current[-1]}")
+                    current = []
+            if len(current) >= 2:
+                zones.append(f"{current[0]}–{current[-1]}")
+            return zones
+
         # ── 色定数 ───────────────────────────────────────────────────
         _OV_A     = "#0078D4"                    # 青 (Reference Lap A)
         _OV_B     = "#D83B01"                    # 橙 (Compare Lap B)
@@ -3335,6 +3366,68 @@ with _content_col:
                     x_lo = max(0.0, zoom_center - zoom_window / 2)
                     x_hi = min(1.0, zoom_center + zoom_window / 2)
 
+                    # ── Task2: Focus Turn チャンネル詳細パネル ───────────
+                    _N_pts = len(x_a)
+                    if _focus_turn != "（全体表示）" and _focus_prog is not None:
+                        # Focus Turn の entry progress を取得
+                        _ft_entry_prog = 0.0
+                        for _j, (_mp, _mt, _mc) in enumerate(corner_marks_a):
+                            if _cid_to_turn(_mt) == _focus_turn and _j > 0:
+                                _ft_entry_prog = corner_marks_a[_j - 1][0]
+                                break
+                        _ft_ei = int(np.clip(_ft_entry_prog * (_N_pts - 1), 0, _N_pts - 1))
+                        _ft_xi = int(np.clip(_focus_prog   * (_N_pts - 1), 0, _N_pts - 1))
+                        _ft_sl = slice(min(_ft_ei, _ft_xi), max(_ft_ei, _ft_xi) + 1)
+
+                        _v_a_z  = np.array(ch_a["speed"][_ft_sl])
+                        _v_b_z  = np.array(ch_b["speed"][_ft_sl])
+                        _br_a_z = np.array(ch_a["brake"][_ft_sl])
+                        _br_b_z = np.array(ch_b["brake"][_ft_sl])
+                        _ga_a_z = np.array(ch_a["gas"][_ft_sl])
+                        _ga_b_z = np.array(ch_b["gas"][_ft_sl])
+                        _sf_a_z = np.array(ch_a["sus_f"][_ft_sl])
+                        _sf_b_z = np.array(ch_b["sus_f"][_ft_sl])
+
+                        if len(_v_a_z) > 0 and len(_v_b_z) > 0:
+                            st.markdown(
+                                f"#### 🔬 {_focus_turn} — Channel Detail (A vs B)"
+                            )
+                            st.caption(
+                                "この区間内の平均値・最大値比較。"
+                                "Speed-weighted Estimated ΔTimeの参考情報。"
+                            )
+                            cd1, cd2, cd3, cd4, cd5 = st.columns(5)
+                            cd1.metric(
+                                "Speed avg",
+                                f"A:{np.mean(_v_a_z):.1f} / B:{np.mean(_v_b_z):.1f}",
+                                f"{np.mean(_v_a_z) - np.mean(_v_b_z):+.1f} km/h",
+                                delta_color="normal",
+                            )
+                            cd2.metric(
+                                "Brake max",
+                                f"A:{np.max(_br_a_z):.2f} / B:{np.max(_br_b_z):.2f}",
+                                f"{np.max(_br_a_z) - np.max(_br_b_z):+.2f} bar",
+                                delta_color="off",
+                            )
+                            cd3.metric(
+                                "Gas avg",
+                                f"A:{np.mean(_ga_a_z):.1f} / B:{np.mean(_ga_b_z):.1f}",
+                                f"{np.mean(_ga_a_z) - np.mean(_ga_b_z):+.1f} %",
+                                delta_color="normal",
+                            )
+                            cd4.metric(
+                                "SusF avg",
+                                f"A:{np.mean(_sf_a_z):.1f} / B:{np.mean(_sf_b_z):.1f}",
+                                f"{np.mean(_sf_a_z) - np.mean(_sf_b_z):+.1f} mm",
+                                delta_color="off",
+                            )
+                            cd5.metric(
+                                "Speed peak",
+                                f"A:{np.max(_v_a_z):.1f} / B:{np.max(_v_b_z):.1f}",
+                                f"{np.max(_v_a_z) - np.max(_v_b_z):+.1f} km/h",
+                                delta_color="normal",
+                            )
+
                     # ── Plotly 4行サブプロット（バグ2修正: specs でRow2をdual-Y）──
                     fig_ov = _make_subplots(
                         rows=4, cols=1,
@@ -3546,10 +3639,9 @@ with _content_col:
                                 "Confidence":         conf,
                                 "ΔTime Entry (s)":    dt_entry,
                                 "ΔTime Exit (s)":     dt_exit,
-                                "Loss/Gain (s)":      loss_gain,
+                                "Loss/Gain (est.)":   loss_gain,   # Task1: 列名を(est.)に
                                 "Main Diff":          main_diff,
                             })
-                            # lap_comparison_latest 用 (後方互換で cid も保持)
                             _cp_tbl_rows.append({
                                 "turn": _cid_to_turn(cid),
                                 "loss_gain_s": round(loss_gain, 4),
@@ -3559,24 +3651,46 @@ with _content_col:
                             })
 
                         if _turn_rows:
+                            # ── Task1: Score付与（最大絶対値に対する相対スコア）──
+                            _max_abs_loss = max(
+                                (abs(r["Loss/Gain (est.)"]) for r in _turn_rows),
+                                default=0.001,
+                            )
+                            for _r in _turn_rows:
+                                _r["Score"] = _loss_score(
+                                    _r["Loss/Gain (est.)"], _max_abs_loss
+                                )
+
                             # ── 有意な差のある Turn を抽出 ─────────────────
                             _sig_rows  = [r for r in _turn_rows
-                                          if abs(r["Loss/Gain (s)"]) >= _SIGNIFICANT_THRESHOLD]
+                                          if abs(r["Loss/Gain (est.)"]) >= _SIGNIFICANT_THRESHOLD]
                             _loss_turns = sorted(
-                                [r for r in _sig_rows if r["Loss/Gain (s)"] > 0],
-                                key=lambda x: x["Loss/Gain (s)"], reverse=True,
+                                [r for r in _sig_rows if r["Loss/Gain (est.)"] > 0],
+                                key=lambda x: x["Loss/Gain (est.)"], reverse=True,
                             )[:3]
                             _gain_turns = sorted(
-                                [r for r in _sig_rows if r["Loss/Gain (s)"] < 0],
-                                key=lambda x: x["Loss/Gain (s)"],
+                                [r for r in _sig_rows if r["Loss/Gain (est.)"] < 0],
+                                key=lambda x: x["Loss/Gain (est.)"],
                             )[:1]
 
-                            # ── Task2: Problem Summary（テーブルの上）────────
+                            # ── Task3: Loss Zone + Problem Summary ───────
                             st.markdown("### 🔍 Problem Summary")
                             st.caption(
                                 "Speed-weighted Estimated ΔTime に基づく推定。"
-                                "絶対値ではなく相対的な参考情報として使用すること。"
+                                "絶対値は実タイムロスではありません。Scoreは現在の比較ペア内の相対的な大きさです。"
                             )
+
+                            # Loss Zone（2Turn以上連続）
+                            _loss_zones = _find_loss_zones(_turn_rows)
+                            if _loss_zones:
+                                st.markdown(
+                                    "**📍 Loss Zone（連続ロスターン）:**  "
+                                    + " / ".join([f"`{z}`" for z in _loss_zones])
+                                )
+                                st.caption(
+                                    "2Turn以上連続してA<Bとなっている区間。"
+                                    "セクション単位でのアプローチに課題がある可能性を示す参考情報。"
+                                )
 
                             if not _loss_turns and not _gain_turns:
                                 st.info(
@@ -3587,17 +3701,23 @@ with _content_col:
                                 if _loss_turns:
                                     st.markdown("**⚠️ Loss Turns（AがBより遅い区間）**")
                                     for _i, _r in enumerate(_loss_turns, 1):
-                                        _tr = _translate_diff(_r["Main Diff"])
+                                        _tr  = _translate_diff(_r["Main Diff"])
+                                        _sc  = _r.get("Score", "")
                                         st.markdown(
-                                            f"`{_i}. {_r['Turn']}:  {_r['Loss/Gain (s)']:+.3f}s loss`"
+                                            f"`{_i}. {_r['Turn']}`  "
+                                            f"{_sc}  "
+                                            f"({_r['Loss/Gain (est.)']:+.3f}s est.)"
                                             f"  → **{_tr}**"
                                         )
                                 if _gain_turns:
                                     st.markdown("**✅ Best Gain Turn（AがBより速い区間）**")
                                     _gr = _gain_turns[0]
                                     _tr = _translate_diff(_gr["Main Diff"])
+                                    _sc = _gr.get("Score", "")
                                     st.markdown(
-                                        f"`{_gr['Turn']}:  {_gr['Loss/Gain (s)']:+.3f}s gain`"
+                                        f"`{_gr['Turn']}`  "
+                                        f"{_sc}  "
+                                        f"({_gr['Loss/Gain (est.)']:+.3f}s est.)"
                                         f"  → **{_tr}**"
                                     )
                                 st.caption(
@@ -3608,7 +3728,13 @@ with _content_col:
                             st.divider()
 
                             # ── Turn-by-Turn テーブル ─────────────────────
-                            df_turns = pd.DataFrame(_turn_rows)
+                            # Task1: Score列追加、列順を整理
+                            _tbl_cols = ["Turn", "Confidence", "Score",
+                                         "Loss/Gain (est.)", "ΔTime Entry (s)",
+                                         "ΔTime Exit (s)", "Main Diff"]
+                            df_turns = pd.DataFrame(_turn_rows)[[
+                                c for c in _tbl_cols if c in pd.DataFrame(_turn_rows).columns
+                            ]]
 
                             def _color_lg(val):
                                 try:
@@ -3622,11 +3748,11 @@ with _content_col:
                             _map_fn = getattr(df_turns.style, "map", None) \
                                       or getattr(df_turns.style, "applymap")
                             _styled_turns = (
-                                _map_fn(_color_lg, subset=["Loss/Gain (s)"])
+                                _map_fn(_color_lg, subset=["Loss/Gain (est.)"])
                                 .format({
-                                    "Loss/Gain (s)":   "{:+.3f}",
-                                    "ΔTime Entry (s)": "{:+.3f}",
-                                    "ΔTime Exit (s)":  "{:+.3f}",
+                                    "Loss/Gain (est.)":  "{:+.3f}",
+                                    "ΔTime Entry (s)":   "{:+.3f}",
+                                    "ΔTime Exit (s)":    "{:+.3f}",
                                 })
                             )
 
@@ -3638,17 +3764,17 @@ with _content_col:
                             )
                             st.caption(
                                 "🔴 赤=A遅い(ロス)  🟢 緑=A速い(ゲイン)  "
-                                "Loss/Gain = Speed-weighted Estimated ΔTime at Exit − Entry  "
-                                f"(Turns: {len(_turn_rows)}  /  "
-                                f"有意差あり: {len(_sig_rows)})"
+                                "(est.) = estimated, not actual lap time  "
+                                f"(Turns: {len(_turn_rows)}  /  有意差あり: {len(_sig_rows)})"
                             )
 
-                            # ── Task4: サマリーカード kk5/kk6 — 有意差フィルター ──
+                            # ── サマリーカード kk5/kk6 — Score表示 ──────────
                             if _loss_turns:
                                 _kk5_placeholder.metric(
                                     "📈 Biggest Loss Turn",
                                     f"{_loss_turns[0]['Turn']}  "
-                                    f"{_loss_turns[0]['Loss/Gain (s)']:+.3f}s",
+                                    f"{_loss_turns[0].get('Score','—')}",
+                                    f"({_loss_turns[0]['Loss/Gain (est.)']:+.3f}s est.)",
                                 )
                             else:
                                 _kk5_placeholder.metric(
@@ -3659,7 +3785,8 @@ with _content_col:
                                 _kk6_placeholder.metric(
                                     "📉 Biggest Gain Turn",
                                     f"{_gain_turns[0]['Turn']}  "
-                                    f"{_gain_turns[0]['Loss/Gain (s)']:+.3f}s",
+                                    f"{_gain_turns[0].get('Score','—')}",
+                                    f"({_gain_turns[0]['Loss/Gain (est.)']:+.3f}s est.)",
                                 )
                             else:
                                 _kk6_placeholder.metric(
