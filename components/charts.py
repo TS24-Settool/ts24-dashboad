@@ -4,7 +4,7 @@ components/charts.py — Plotly chart styling helpers and brand constants
 No Streamlit dependency.  Applies a consistent Power BI-inspired visual
 theme to all Plotly figures used across the dashboard.
 
-# PRODUCT-CANDIDATE: This entire module.
+# PRODUCT-CANDIDATE: G_VISUALIZE — This entire module.
 """
 
 import plotly.graph_objects as go
@@ -45,7 +45,7 @@ def apply_chart_layout(fig: go.Figure, height: int = 300, title: str = "") -> go
     Returns:
         The same figure, for chaining.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: G_VISUALIZE
     """
     fig.update_layout(
         height=height,

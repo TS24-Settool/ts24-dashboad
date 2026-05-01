@@ -5,7 +5,7 @@ Pure Python, no Streamlit dependency.
 All functions here are suitable for use in a backend API, CLI tool,
 or commercial product without modification.
 
-# PRODUCT-CANDIDATE: This entire module.
+# PRODUCT-CANDIDATE: A_NORMALIZE | B_APEX | C_SETUP_TARGET — This entire module.
 """
 
 import pandas as pd
@@ -16,7 +16,7 @@ import pandas as pd
 def normalize_circuit(c: str) -> str:
     """Normalize circuit name to a canonical uppercase string.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: A_NORMALIZE
     """
     c = str(c or "").upper().strip()
     if c in ("PHILLIPISLAND", "PHILLIP ISLAND", "PHI", "AUSTRALIA", "WORKSHOP", "PHILLIP_ISLAND"):
@@ -27,7 +27,7 @@ def normalize_circuit(c: str) -> str:
 def normalize_session(s: str) -> str:
     """Map raw session type strings to canonical codes.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: A_NORMALIZE
     """
     s = str(s or "").upper().strip()
     m = {
@@ -61,7 +61,7 @@ def classify_fast_slow_tiers(
     Returns:
         Copy of df with a ``tier`` column added.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: C_SETUP_TARGET
     """
     df = df.copy()
     df["tier"] = "MED"
@@ -98,7 +98,7 @@ def build_lap_sus_map(df_ls: pd.DataFrame, normalize_circuit_fn=None) -> dict:
     Returns:
         dict mapping (rider, circuit, date, run) → suspension stat averages.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: B_APEX
     """
     if normalize_circuit_fn is None:
         normalize_circuit_fn = normalize_circuit
@@ -159,7 +159,7 @@ def build_lap_time_map(
     Returns:
         dict mapping (rider, circuit, date, run) → best lap time (s).
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: B_APEX
     """
     if normalize_circuit_fn is None:
         normalize_circuit_fn = normalize_circuit
@@ -215,7 +215,7 @@ def join_sus_and_laptimes(ls_map: dict, lt_best: dict) -> list:
         Columns: rider, circuit, date, run, best_s,
                  apex_susF, apex_susR, apex_spd, brk_susF, brk_susR.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: B_APEX
     """
     rows = []
     for key, best_s in lt_best.items():

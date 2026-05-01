@@ -3,7 +3,7 @@ services/claude_client.py — Anthropic Claude API wrapper
 =========================================================
 No Streamlit dependency. Can be used from any Python context.
 
-# PRODUCT-CANDIDATE: This entire module.
+# PRODUCT-CANDIDATE: E_AI_CLIENT — This entire module.
 """
 
 import json
@@ -31,7 +31,7 @@ def call_claude(
     Returns:
         Response text, or an error string starting with "API Error" / "Error".
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: E_AI_CLIENT
     """
     payload: dict = {
         "model":      CLAUDE_API_MODEL,

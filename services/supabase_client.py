@@ -4,7 +4,7 @@ services/supabase_client.py — Supabase REST API client
 Thin urllib wrapper around the Supabase PostgREST API.
 No Streamlit dependency.
 
-# PRODUCT-CANDIDATE: This entire module.
+# PRODUCT-CANDIDATE: F_DB_CLIENT — This entire module.
 """
 
 import json
@@ -31,7 +31,7 @@ def supa_request(
     Returns:
         Parsed JSON (list or dict), or [] on any error.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: F_DB_CLIENT
     """
     headers = {
         "apikey":        key,
@@ -68,7 +68,7 @@ def fetch_table_paginated(
     Returns:
         DataFrame of all rows, or empty DataFrame on failure.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: F_DB_CLIENT
     """
     CHUNK = 1000
     all_rows: list = []
@@ -113,7 +113,7 @@ def supa_upsert(
 ) -> bool:
     """Insert or update a single row (merge-duplicates on primary key).
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: F_DB_CLIENT
     """
     url = f"{supa_url}/rest/v1/{table}"
     headers = {
@@ -139,7 +139,7 @@ def supa_delete_row(
 ) -> bool:
     """Delete rows matching a PostgREST filter string (e.g. "username=eq.alice").
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: F_DB_CLIENT
     """
     url = f"{supa_url}/rest/v1/{table}?{filter_str}"
     headers = {

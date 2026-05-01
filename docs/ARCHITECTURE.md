@@ -1,6 +1,6 @@
 # TS24 Dashboard — Architecture Reference
 
-**Last updated:** 2026-05-01  
+**Last updated:** 2026-05-01 (rev 2 — dependency matrix + forbidden examples + PRODUCT-CANDIDATE tags)  
 **Branch:** `claude/ai-capabilities-comparison-ACtNs`
 
 ---
@@ -67,75 +67,85 @@ have been migrated to the new names.**
 ## PRODUCT-CANDIDATE catalogue
 
 29 annotations across 6 files.  
-Organised by functional category for commercial product planning.
+Each annotation in code uses the tag format: `# PRODUCT-CANDIDATE: <TAG>`
 
-### Category A — Data normalisation
+| Tag | Meaning |
+|-----|---------|
+| `A_NORMALIZE` | Data normalisation — low complexity, high reuse |
+| `B_APEX` | APEX / suspension analysis — core racing domain logic |
+| `C_SETUP_TARGET` | Lap comparison / setup target calculation |
+| `D_DATA_LOADER` | Data loading (framework-agnostic) |
+| `E_AI_CLIENT` | AI / external API wrappers |
+| `F_DB_CLIENT` | Supabase / database client |
+| `G_VISUALIZE` | Visualisation helpers |
+
+### A_NORMALIZE — Data normalisation
 *Low complexity, high reuse value. Ship as-is.*
 
-| Function | File | Notes |
-|----------|------|-------|
-| `normalize_circuit(c)` | `domain/lap_analysis.py` | Maps variant spellings → canonical circuit name |
-| `normalize_session(s)` | `domain/lap_analysis.py` | Maps FP1/L1/… → canonical session codes |
+| Function | File | In-code tag |
+|----------|------|-------------|
+| `normalize_circuit(c)` | `domain/lap_analysis.py` | `A_NORMALIZE` |
+| `normalize_session(s)` | `domain/lap_analysis.py` | `A_NORMALIZE` |
 
-### Category B — APEX / suspension analysis
+### B_APEX — APEX / suspension analysis
 *Core racing domain logic. Most differentiating for the product.*
 
-| Function | File | Notes |
-|----------|------|-------|
-| `build_lap_sus_map(df_ls)` | `domain/lap_analysis.py` | (rider, circuit, date, run) → THR_ON/BRK averages |
-| `build_lap_time_map(df_lt)` | `domain/lap_analysis.py` | (rider, circuit, date, run) → best valid lap time |
-| `join_sus_and_laptimes(ls_map, lt_best)` | `domain/lap_analysis.py` | Joins suspension map with lap-time map |
+| Function | File | In-code tag |
+|----------|------|-------------|
+| `build_lap_sus_map(df_ls)` | `domain/lap_analysis.py` | `B_APEX` |
+| `build_lap_time_map(df_lt)` | `domain/lap_analysis.py` | `B_APEX` |
+| `join_sus_and_laptimes(ls_map, lt_best)` | `domain/lap_analysis.py` | `B_APEX` |
 
-### Category C — Lap comparison / setup target calculation
+### C_SETUP_TARGET — Lap comparison / setup target calculation
 *The FAST/SLOW algorithm is the core value-add for commercial users.*
 
-| Function | File | Notes |
-|----------|------|-------|
-| `classify_fast_slow_tiers(df)` | `domain/lap_analysis.py` | FAST/MED/SLOW per rider×circuit, n-independent |
+| Function | File | In-code tag |
+|----------|------|-------------|
+| `classify_fast_slow_tiers(df)` | `domain/lap_analysis.py` | `C_SETUP_TARGET` |
 
-### Category D — Data loading (framework-agnostic)
+### D_DATA_LOADER — Data loading (framework-agnostic)
 *Replace with DB adapter when moving to product backend.*
 
-| Function | File | Notes |
-|----------|------|-------|
-| `sql_to_df(conn, query)` | `services/data_loader.py` | SQLite → DataFrame |
-| `coerce_dynamics_numerics(df)` | `services/data_loader.py` | Type-safe numeric cast for DYNAMICS sheet |
-| `coerce_lap_suspension(df)` | `services/data_loader.py` | Upper-case cols + cast for LAP_SUSPENSION |
-| `load_dynamics_from_excel(path)` | `services/data_loader.py` | Master Excel → (df_dyn, df_lt) |
-| `load_dynamics_from_json(dyn, lt)` | `services/data_loader.py` | JSON fallback → (df_dyn, df_lt) |
-| `load_lap_suspension_from_excel(path)` | `services/data_loader.py` | Excel LAP_SUSPENSION sheet |
-| `load_lap_suspension_from_sqlite(path)` | `services/data_loader.py` | SQLite lap_suspension table |
-| `load_lap_suspension_from_json(path)` | `services/data_loader.py` | JSON fallback |
+| Function | File | In-code tag |
+|----------|------|-------------|
+| `sql_to_df(conn, query)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `coerce_dynamics_numerics(df)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `coerce_lap_suspension(df)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `load_dynamics_from_excel(path)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `load_dynamics_from_json(dyn, lt)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `load_lap_suspension_from_excel(path)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `load_lap_suspension_from_sqlite(path)` | `services/data_loader.py` | `D_DATA_LOADER` |
+| `load_lap_suspension_from_json(path)` | `services/data_loader.py` | `D_DATA_LOADER` |
 
-### Category E — AI / external APIs
+### E_AI_CLIENT — AI / external APIs
 *Replace model / endpoint in `claude_client.py` for product version.*
 
-| Function | File | Notes |
-|----------|------|-------|
-| `call_claude(api_key, user_msg, system_msg, max_tokens)` | `services/claude_client.py` | Anthropic API; change `CLAUDE_API_MODEL` for prod |
-| `load_race_memory(primary, fallback)` | `services/memory_service.py` | JSON-based persistent knowledge store |
-| `save_race_memory(memory, *paths)` | `services/memory_service.py` | Multi-path write with silent failure |
-| `build_memory_context(memory, circuit, rider)` | `services/memory_service.py` | Injects past insights into system prompt |
+| Function | File | In-code tag |
+|----------|------|-------------|
+| `call_claude(api_key, user_msg, system_msg, max_tokens)` | `services/claude_client.py` | `E_AI_CLIENT` |
+| `load_race_memory(primary, fallback)` | `services/memory_service.py` | `E_AI_CLIENT` |
+| `save_race_memory(memory, *paths)` | `services/memory_service.py` | `E_AI_CLIENT` |
+| `build_memory_context(memory, circuit, rider)` | `services/memory_service.py` | `E_AI_CLIENT` |
 
-### Category F — Supabase / database client
+### F_DB_CLIENT — Supabase / database client
 *Swap for direct PostgreSQL or other DB in product version.*
 
-| Function | File | Notes |
-|----------|------|-------|
-| `supa_request(method, url, key, data)` | `services/supabase_client.py` | Low-level REST call |
-| `fetch_table_paginated(table, key, url, order, where)` | `services/supabase_client.py` | Handles >1000-row tables |
-| `supa_upsert(table, data, key, url)` | `services/supabase_client.py` | INSERT OR UPDATE |
-| `supa_delete_row(table, filter, key, url)` | `services/supabase_client.py` | DELETE with filter |
+| Function | File | In-code tag |
+|----------|------|-------------|
+| `supa_request(method, url, key, data)` | `services/supabase_client.py` | `F_DB_CLIENT` |
+| `fetch_table_paginated(table, key, url, order, where)` | `services/supabase_client.py` | `F_DB_CLIENT` |
+| `supa_upsert(table, data, key, url)` | `services/supabase_client.py` | `F_DB_CLIENT` |
+| `supa_delete_row(table, filter, key, url)` | `services/supabase_client.py` | `F_DB_CLIENT` |
 
-### Category G — Visualisation / display
+### G_VISUALIZE — Visualisation / display
 *Plotly helpers are framework-agnostic; embed directly in product.*
 
-| Function / Constant | File | Notes |
-|---------------------|------|-------|
-| `apply_chart_layout(fig, height, title)` | `components/charts.py` | Standard Power BI theme |
-| `DA77_COLOR`, `JA52_COLOR` | `components/charts.py` | Brand colours (change for product theming) |
-| `PHASE_COLORS`, `PHASE_LABELS` | `components/charts.py` | Corner-phase legend |
-| `CHART_FONT` | `components/charts.py` | Typography spec |
+| Function / Constant | File | In-code tag |
+|---------------------|------|-------------|
+| `apply_chart_layout(fig, height, title)` | `components/charts.py` | `G_VISUALIZE` |
+| `DA77_COLOR`, `JA52_COLOR` | `components/charts.py` | `G_VISUALIZE` |
+| `PHASE_COLORS`, `PHASE_LABELS` | `components/charts.py` | `G_VISUALIZE` |
+| `CHART_FONT` | `components/charts.py` | `G_VISUALIZE` |
 
 ---
 
@@ -163,21 +173,98 @@ Phase 2, leaving only `st.*` calls in `dashboard.py`.
 
 ---
 
-## Dependency rules (enforced by convention)
+## Dependency rules
+
+### Allowed import directions
 
 ```
-dashboard.py  →  domain/*
-              →  services/*
-              →  components/*
-
-domain/*      →  (stdlib, pandas, numpy only)
-services/*    →  (stdlib, pandas, requests/urllib only)
-components/*  →  (stdlib, plotly only)
+                 ┌─────────────────────────────────┐
+                 │         dashboard.py             │
+                 │  (Streamlit UI + routing only)   │
+                 └────────┬────────┬────────┬───────┘
+                          │        │        │
+                    import│  import│  import│
+                          ▼        ▼        ▼
+                     domain/  services/  components/
+                          │        │
+                    import│  import│  (services → domain: allowed)
+                    (min) │        │
+                          ▼        ▼
+                       domain/  domain/
 ```
 
-**None of `domain/`, `services/`, or `components/` may import from each other
-or from `dashboard.py`.**  
-This keeps them independently testable and deployable.
+| From \ To        | dashboard.py | domain/ | services/ | components/ | stdlib / 3rd-party |
+|------------------|:---:|:---:|:---:|:---:|:---:|
+| **dashboard.py** | —   | ✅  | ✅  | ✅  | ✅  |
+| **domain/**      | ❌  | —   | ❌  | ❌  | ✅  |
+| **services/**    | ❌  | ✅  | —   | ❌  | ✅  |
+| **components/**  | ❌  | ✅ ¹| ❌  | —   | ✅  |
+
+¹ `components → domain` is allowed for **shared constants only**
+(e.g. colour maps keyed on domain-defined identifiers).
+It must **not** call domain computation functions.
+
+### Rules in plain language
+
+1. **`domain/`** — pure logic only. Allowed imports: `stdlib`, `pandas`, `numpy`.  
+   Must never import `streamlit`, `services`, `components`, or `dashboard`.
+
+2. **`services/`** — I/O and external APIs. May import from `domain/` to apply
+   normalisation before returning data (e.g. calling `normalize_circuit`).  
+   Must never import `streamlit`, `components`, or `dashboard`.
+
+3. **`components/`** — rendering helpers. May import domain constants
+   (colour maps, label dicts) when those constants are semantically part of
+   the domain model. Must never import `services` or `dashboard`.
+
+4. **`dashboard.py`** — Streamlit entry point. The only layer that may import
+   from all three layers and from `streamlit` itself.
+
+### Forbidden examples
+
+The following imports are **compile-time errors** in this project's convention.
+If you see them in a PR, reject.
+
+```python
+# ❌ domain importing a service — breaks isolation
+# domain/lap_analysis.py
+from services.data_loader import load_lap_suspension_from_json   # FORBIDDEN
+
+# ❌ domain importing Streamlit — breaks testability
+# domain/lap_analysis.py
+import streamlit as st                                            # FORBIDDEN
+
+# ❌ services importing a chart helper — wrong direction
+# services/data_loader.py
+from components.charts import apply_chart_layout                  # FORBIDDEN
+
+# ❌ components calling a data service — bypasses pages layer
+# components/charts.py
+from services.supabase_client import fetch_table_paginated        # FORBIDDEN
+
+# ❌ any sub-module importing dashboard.py — circular and wrong
+# services/memory_service.py
+import dashboard                                                   # FORBIDDEN
+```
+
+### Allowed examples
+
+```python
+# ✅ services calling a domain normaliser before returning data
+# services/data_loader.py
+from domain.lap_analysis import normalize_circuit
+df["circuit"] = df["circuit"].apply(normalize_circuit)
+
+# ✅ components referencing a domain colour constant
+# components/charts.py
+from domain.lap_analysis import APEX_PHASE_COLORS   # hypothetical constant
+
+# ✅ dashboard importing from all three layers
+# dashboard.py
+from domain.lap_analysis    import classify_fast_slow_tiers
+from services.data_loader   import load_lap_suspension_from_json
+from components.charts      import apply_chart_layout
+```
 
 ---
 

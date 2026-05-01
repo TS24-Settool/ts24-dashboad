@@ -4,7 +4,7 @@ services/data_loader.py — Framework-agnostic data loading utilities
 No Streamlit dependency. Loads DataFrames from SQLite, Excel, or JSON.
 The @st.cache_data wrappers that call these functions live in dashboard.py.
 
-# PRODUCT-CANDIDATE: This entire module.
+# PRODUCT-CANDIDATE: D_DATA_LOADER — This entire module.
 """
 
 import sqlite3
@@ -34,7 +34,7 @@ _LAP_SUS_NUM_COLS = [
 def coerce_dynamics_numerics(df: pd.DataFrame) -> pd.DataFrame:
     """Cast DYNAMICS_ANALYSIS numeric columns; keep Date as string.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     for c in _DYN_NUM_COLS:
         if c in df.columns:
@@ -47,7 +47,7 @@ def coerce_dynamics_numerics(df: pd.DataFrame) -> pd.DataFrame:
 def coerce_lap_suspension(df: pd.DataFrame) -> pd.DataFrame:
     """Upper-case columns, coerce numeric LAP_SUSPENSION cols, drop blank rows.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     df.columns = [c.upper() for c in df.columns]
     for c in _LAP_SUS_NUM_COLS:
@@ -61,7 +61,7 @@ def coerce_lap_suspension(df: pd.DataFrame) -> pd.DataFrame:
 def sql_to_df(conn: sqlite3.Connection, query: str) -> pd.DataFrame:
     """Execute a query on a SQLite connection and return a DataFrame.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     cur = conn.execute(query)
     cols = [d[0] for d in cur.description]
@@ -76,7 +76,7 @@ def load_dynamics_from_excel(excel_path: Path) -> tuple:
     Returns:
         (df_dynamics, df_lap_times) — either may be an empty DataFrame on error.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     try:
         df_dyn = pd.read_excel(str(excel_path), sheet_name="DYNAMICS_ANALYSIS", header=1)
@@ -104,7 +104,7 @@ def load_dynamics_from_json(dyn_path: Path, lt_path: Path) -> tuple:
     Returns:
         (df_dynamics, df_lap_times) — either may be an empty DataFrame on error.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     try:
         df_dyn = (
@@ -134,7 +134,7 @@ def load_dynamics_from_json(dyn_path: Path, lt_path: Path) -> tuple:
 def load_lap_suspension_from_excel(excel_path: Path) -> pd.DataFrame:
     """Load LAP_SUSPENSION sheet from master Excel.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     try:
         df = pd.read_excel(str(excel_path), sheet_name="LAP_SUSPENSION", header=1)
@@ -146,7 +146,7 @@ def load_lap_suspension_from_excel(excel_path: Path) -> pd.DataFrame:
 def load_lap_suspension_from_sqlite(db_path: Path) -> pd.DataFrame:
     """Load lap_suspension table from a SQLite database.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     try:
         conn = sqlite3.connect(str(db_path))
@@ -163,7 +163,7 @@ def load_lap_suspension_from_sqlite(db_path: Path) -> pd.DataFrame:
 def load_lap_suspension_from_json(json_path: Path) -> pd.DataFrame:
     """Load lap_suspension_data from JSON fallback (Streamlit Cloud).
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: D_DATA_LOADER
     """
     try:
         df = pd.read_json(str(json_path), convert_dates=False)

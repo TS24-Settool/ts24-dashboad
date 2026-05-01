@@ -12,7 +12,7 @@ Schema (version 2):
   "conversation_summaries":[{date, page, rider, circuit, summary}]
 }
 
-# PRODUCT-CANDIDATE: This entire module.
+# PRODUCT-CANDIDATE: E_AI_CLIENT — This entire module.
 """
 
 import json
@@ -34,7 +34,7 @@ def load_race_memory(primary_path: Path, fallback_path: Path = None) -> dict:
     Tries ``fallback_path`` first (writable /tmp on Streamlit Cloud), then
     ``primary_path`` (repo file).  Returns a default structure if neither exists.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: E_AI_CLIENT
     """
     paths = [p for p in [fallback_path, primary_path] if p is not None]
     for path in paths:
@@ -53,7 +53,7 @@ def load_race_memory(primary_path: Path, fallback_path: Path = None) -> dict:
 def save_race_memory(memory: dict, *paths: Path) -> None:
     """Write memory JSON to all supplied paths (ignores write errors silently).
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: E_AI_CLIENT
     """
     blob = json.dumps(memory, ensure_ascii=False, indent=2)
     for path in paths:
@@ -74,7 +74,7 @@ def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
     Returns:
         Multi-line string prefixed with a header, or "" if no relevant data.
 
-    # PRODUCT-CANDIDATE
+    # PRODUCT-CANDIDATE: E_AI_CLIENT
     """
     lines: list = []
 
