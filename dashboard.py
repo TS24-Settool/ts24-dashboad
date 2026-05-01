@@ -458,6 +458,31 @@ def _load_dynamics_data():
 
 _JSON_LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
 
+_JSON_CORNER_PHASE = SCRIPT_DIR / "corner_phase_data.json"
+
+@st.cache_data(ttl=120)
+def _load_corner_phase() -> pd.DataFrame:
+    """corner_phase_data.json を読み込んで DataFrame を返す。"""
+    _NUM_COLS = [
+        "lap_time_s","corner_no","lap_no","run_no",
+        "ph12_duration_ms","ph12_brake_peak_bar","ph12_susf_avg",
+        "ph3_duration_ms","ph3_speed_min","ph3_susf_avg","ph3_susr_avg",
+        "ph45_duration_ms","ph45_gas_avg","ph45_susf_avg","total_corner_ms",
+        "brake_peak_progress","cluster_lap_count",
+    ]
+    try:
+        if _JSON_CORNER_PHASE.exists():
+            df = pd.read_json(str(_JSON_CORNER_PHASE), convert_dates=False)
+            df.columns = [c.lower() for c in df.columns]
+            for c in _NUM_COLS:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            return df.dropna(how="all").reset_index(drop=True)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
 @st.cache_data(ttl=120)
 def _load_lap_suspension():
     """LAP_SUSPENSION データを読み込む。
@@ -1260,6 +1285,7 @@ with _nav_col:
         "⏱  Race Pace",
         "📐  Lap Analysis",
         "🏎  2D Lap Data",
+        "🔄  Corner Phase",
         "🔬  Suspension Dynamics",
         "📊  Lap Sus Stats",
         "🎯  Setup Target",
@@ -2648,6 +2674,255 @@ with _content_col:
                               if c in df_2ds_f.columns]
                     st.dataframe(df_2ds_f[_setup].sort_values(["date","round","rider","run_no"]),
                                  use_container_width=True, hide_index=True)
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Corner Phase Analysis
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "🔄  Corner Phase":
+        st.markdown('<p class="section-title">🔄 Corner Phase Analysis — PH1-2 / PH3 / PH4-5 Timing</p>',
+                    unsafe_allow_html=True)
+
+        PH12_COLOR = "#0078D4"
+        PH3_COLOR  = "#107C10"
+        PH45_COLOR = "#D83B01"
+
+        df_cp = _load_corner_phase()
+
+        if df_cp.empty:
+            st.warning("corner_phase_data.json が見つかりません。`python corner_phase_analysis.py` を実行してください。")
+        else:
+            # ── フィルター ────────────────────────────────────────────
+            cp_circuits_raw = sorted(df_cp["circuit"].dropna().unique().tolist())
+            if cp_circuits_raw:
+                _latest_circ_cp = (
+                    df_cp.sort_values("date", ascending=False)
+                    .iloc[0]["circuit"]
+                )
+            else:
+                _latest_circ_cp = cp_circuits_raw[0] if cp_circuits_raw else "All"
+
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                cp_circuit = st.selectbox("Circuit", cp_circuits_raw,
+                                          index=cp_circuits_raw.index(_latest_circ_cp)
+                                          if _latest_circ_cp in cp_circuits_raw else 0,
+                                          key="cp_circuit")
+            df_c = df_cp[df_cp["circuit"] == cp_circuit].copy()
+
+            with f2:
+                cp_riders = sorted(df_c["rider"].dropna().unique().tolist())
+                cp_rider  = st.selectbox("Rider", cp_riders, key="cp_rider")
+            df_c = df_c[df_c["rider"] == cp_rider]
+
+            with f3:
+                cp_sessions = sorted(df_c["session_type"].dropna().unique().tolist())
+                cp_session  = st.selectbox("Session", cp_sessions, key="cp_session")
+            df_c = df_c[df_c["session_type"] == cp_session]
+
+            cp_runs = sorted(df_c["run_no"].dropna().unique().tolist())
+            if cp_runs:
+                cp_run = st.selectbox("Run No", cp_runs,
+                                      index=len(cp_runs) - 1, key="cp_run")
+                df_c = df_c[df_c["run_no"] == cp_run]
+
+            # ── 信頼度フィルター ──────────────────────────────────────
+            _has_conf = "cluster_confidence" in df_c.columns and df_c["cluster_confidence"].notna().any()
+            if _has_conf:
+                conf_filter = st.multiselect(
+                    "Corner ID信頼度", ["高", "中", "低"],
+                    default=["高", "中"], key="cp_conf",
+                )
+                if conf_filter:
+                    df_c = df_c[df_c["cluster_confidence"].isin(conf_filter)]
+
+            if df_c.empty:
+                st.info("このセッションのコーナーフェーズデータがありません。")
+            else:
+                # ── FAST / SLOW 分類 ──────────────────────────────────
+                lap_times = df_c.groupby("lap_no")["lap_time_s"].first().dropna()
+                if len(lap_times) < 3:
+                    st.info(f"ラップ数が少なすぎます ({len(lap_times)} laps)。3ラップ以上必要です。")
+                else:
+                    n_group = max(1, len(lap_times) // 3)
+                    sorted_laps = lap_times.sort_values()
+                    fast_laps   = set(sorted_laps.head(n_group).index.tolist())
+                    slow_laps   = set(sorted_laps.tail(n_group).index.tolist())
+
+                    df_fast = df_c[df_c["lap_no"].isin(fast_laps)]
+                    df_slow = df_c[df_c["lap_no"].isin(slow_laps)]
+
+                    # KPI
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Total Laps", len(lap_times))
+                    k2.metric("FAST Laps (top 1/3)", len(fast_laps),
+                              f"avg {sorted_laps.head(n_group).mean():.3f}s")
+                    k3.metric("SLOW Laps (bot 1/3)", len(slow_laps),
+                              f"avg {sorted_laps.tail(n_group).mean():.3f}s")
+
+                    # ── corner_id: pseudo_corner_id 優先、なければ corner_no ──
+                    _has_pseudo = "pseudo_corner_id" in df_c.columns and df_c["pseudo_corner_id"].notna().any()
+                    if _has_pseudo:
+                        all_corner_ids = sorted(df_c["pseudo_corner_id"].dropna().unique().tolist())
+                        def _corner_label(cid):
+                            conf = df_c[df_c["pseudo_corner_id"] == cid]["cluster_confidence"].mode()
+                            conf_str = conf.iloc[0] if len(conf) > 0 else "?"
+                            return f"{cid}({conf_str})"
+                        corner_label_map = {cid: _corner_label(cid) for cid in all_corner_ids}
+                        corner_order_labels = [corner_label_map[c] for c in all_corner_ids]
+                    else:
+                        all_corner_ids_raw = sorted(df_c["corner_no"].dropna().unique().tolist())
+                        all_corner_ids = all_corner_ids_raw
+                        corner_label_map = {cn: f"C{int(cn)}(旧)" for cn in all_corner_ids_raw}
+                        corner_order_labels = [corner_label_map[c] for c in all_corner_ids]
+
+                    k4.metric("Corners detected", len(all_corner_ids))
+
+                    st.divider()
+
+                    # ── SECTION A: FAST vs SLOW Δtime per corner ─────
+                    st.markdown('<p class="section-title">Section A — FAST vs SLOW Δtime per Corner (SLOW − FAST)</p>',
+                                unsafe_allow_html=True)
+
+                    _phase_cols   = ["ph12_duration_ms", "ph3_duration_ms", "ph45_duration_ms"]
+                    _phase_labels_map = {"ph12_duration_ms": "PH1-2",
+                                         "ph3_duration_ms":  "PH3",
+                                         "ph45_duration_ms": "PH4-5"}
+                    _phase_colors = {"PH1-2": PH12_COLOR, "PH3": PH3_COLOR, "PH4-5": PH45_COLOR}
+
+                    delta_rows = []
+                    _id_col = "pseudo_corner_id" if _has_pseudo else "corner_no"
+                    for cid in all_corner_ids:
+                        fast_cn = df_fast[df_fast[_id_col] == cid]
+                        slow_cn = df_slow[df_slow[_id_col] == cid]
+                        if fast_cn.empty or slow_cn.empty:
+                            continue
+                        for col in _phase_cols:
+                            f_avg = fast_cn[col].dropna().mean()
+                            s_avg = slow_cn[col].dropna().mean()
+                            if pd.notna(f_avg) and pd.notna(s_avg):
+                                delta_rows.append({
+                                    "Corner":  corner_label_map[cid],
+                                    "Phase":   _phase_labels_map[col],
+                                    "Δ (ms)": round(s_avg - f_avg, 1),
+                                })
+
+                    if delta_rows:
+                        df_delta = pd.DataFrame(delta_rows)
+                        fig_delta = go.Figure()
+                        for phase, color in _phase_colors.items():
+                            dph     = df_delta[df_delta["Phase"] == phase]
+                            dph_map = dict(zip(dph["Corner"], dph["Δ (ms)"]))
+                            vals    = [dph_map.get(c, 0) for c in corner_order_labels]
+                            fig_delta.add_trace(go.Bar(
+                                name=phase,
+                                y=corner_order_labels,
+                                x=vals,
+                                orientation="h",
+                                marker_color=color,
+                                text=[f"{v:+.0f}" for v in vals],
+                                textposition="outside",
+                                textfont=dict(size=9),
+                            ))
+                        fig_delta.add_vline(x=0, line_color="#333", line_width=1.5,
+                                            line_dash="dot")
+                        chart_layout(fig_delta, height=max(300, len(all_corner_ids) * 28))
+                        fig_delta.update_layout(
+                            barmode="stack",
+                            xaxis_title="Δ time ms (SLOW − FAST)  [positive = slower]",
+                            yaxis_title="Corner",
+                            yaxis=dict(autorange="reversed"),
+                            legend=dict(orientation="h", y=1.04),
+                        )
+                        st.plotly_chart(fig_delta, use_container_width=True,
+                                        config={"displayModeBar": False})
+                    else:
+                        st.info("FAST/SLOW 比較データ不足。")
+
+                    st.divider()
+
+                    # ── SECTION B: APEX Speed Heatmap ────────────────
+                    st.markdown('<p class="section-title">Section B — APEX Speed Heatmap (ph3_speed_min km/h)</p>',
+                                unsafe_allow_html=True)
+
+                    lap_order = sorted(df_c["lap_no"].dropna().unique().tolist())
+                    hm_data = []
+                    for cid in all_corner_ids:
+                        row_vals = []
+                        for ln in lap_order:
+                            sub = df_c[(df_c[_id_col] == cid) & (df_c["lap_no"] == ln)]["ph3_speed_min"]
+                            row_vals.append(float(sub.iloc[0]) if len(sub) > 0 and pd.notna(sub.iloc[0]) else None)
+                        hm_data.append(row_vals)
+
+                    hm_z = [[v if v is not None else float("nan") for v in row] for row in hm_data]
+                    fig_hm = go.Figure(data=go.Heatmap(
+                        z=hm_z,
+                        x=[f"Lap {ln}" for ln in lap_order],
+                        y=corner_order_labels,
+                        colorscale=[[0, "#D83B01"], [0.5, "#FFF2CC"], [1, "#0078D4"]],
+                        colorbar=dict(title="Speed (km/h)", tickfont=dict(size=10)),
+                        hovertemplate="Corner %{y}<br>%{x}<br>Speed: %{z:.1f} km/h<extra></extra>",
+                    ))
+                    chart_layout(fig_hm, height=max(300, len(all_corner_ids) * 26))
+                    fig_hm.update_layout(
+                        xaxis_title="Lap",
+                        yaxis_title="Corner",
+                        yaxis=dict(autorange="reversed"),
+                    )
+                    st.plotly_chart(fig_hm, use_container_width=True,
+                                    config={"displayModeBar": False})
+
+                    st.divider()
+
+                    # ── SECTION C: Phase timing — 1ラップ=1行集計テーブル ──
+                    st.markdown('<p class="section-title">Phase Timing Summary — 1 row per Lap</p>',
+                                unsafe_allow_html=True)
+
+                    def _fmt_lt(sec):
+                        if sec is None or (isinstance(sec, float) and pd.isna(sec)):
+                            return "—"
+                        m = int(sec // 60); s = sec - m * 60
+                        return f"{m}:{s:05.2f}"
+
+                    lap_summary_rows = []
+                    for ln in sorted(df_c["lap_no"].dropna().unique()):
+                        df_ln = df_c[df_c["lap_no"] == ln]
+                        lt_s  = df_ln["lap_time_s"].iloc[0] if len(df_ln) > 0 else None
+                        _pseudo_ids = df_ln["pseudo_corner_id"].dropna().unique().tolist() if _has_pseudo else []
+                        _conf_vals  = df_ln["cluster_confidence"].dropna().unique().tolist() if _has_pseudo else []
+                        _n_laps_val = int(df_ln["cluster_lap_count"].dropna().mean()) if (
+                            _has_pseudo and "cluster_lap_count" in df_ln and df_ln["cluster_lap_count"].notna().any()
+                        ) else None
+                        row_d = {
+                            "LAP NO":        int(ln),
+                            "LAP TIME":      _fmt_lt(lt_s),
+                            "CORNERS":       len(df_ln),
+                        }
+                        if _has_pseudo:
+                            row_d["CORNER IDs"]    = ", ".join(sorted(_pseudo_ids))
+                            row_d["CONFIDENCE"]    = "/".join(sorted(set(_conf_vals)))
+                            row_d["CLUSTER LAPS"]  = _n_laps_val
+                        row_d.update({
+                            "PH12 AVG (ms)": round(df_ln["ph12_duration_ms"].mean(), 0)
+                                             if "ph12_duration_ms" in df_ln else None,
+                            "PH3 AVG (ms)":  round(df_ln["ph3_duration_ms"].mean(), 0)
+                                             if "ph3_duration_ms" in df_ln else None,
+                            "PH45 AVG (ms)": round(df_ln["ph45_duration_ms"].mean(), 0)
+                                             if "ph45_duration_ms" in df_ln else None,
+                            "PH3 SPD MIN":   round(df_ln["ph3_speed_min"].min(), 1)
+                                             if "ph3_speed_min" in df_ln and df_ln["ph3_speed_min"].notna().any() else None,
+                            "PH3 SUSF AVG":  round(df_ln["ph3_susf_avg"].mean(), 1)
+                                             if "ph3_susf_avg" in df_ln and df_ln["ph3_susf_avg"].notna().any() else None,
+                        })
+                        lap_summary_rows.append(row_d)
+                    if lap_summary_rows:
+                        df_lap_sum = pd.DataFrame(lap_summary_rows)
+                        st.dataframe(df_lap_sum, use_container_width=True, height=380)
+
+        render_float_chat_component(
+            st.session_state.get("claude_api_key", ""),
+            st.session_state.get("race_memory", {}),
+            {"page": "Corner Phase", "circuit": sel_circuit, "rider": sel_rider},
+        )
 
     # ═══════════════════════════════════════════════════
     elif _NAV == "📋  Session Detail":
