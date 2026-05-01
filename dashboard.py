@@ -3392,10 +3392,18 @@ with _content_col:
                             st.markdown(
                                 f"#### 🔬 {_focus_turn} — Channel Detail (A vs B)"
                             )
-                            st.caption(
-                                "この区間内の平均値・最大値比較。"
-                                "Speed-weighted Estimated ΔTimeの参考情報。"
-                            )
+                            # キャプション: データソースによって信頼度を明示
+                            if not cp_a.empty:
+                                st.caption(
+                                    "📌 Source: corner_phase_data.json  |  "
+                                    "Alignment: brake-event based  |  "
+                                    "Reliability: higher than time-normalized overlay"
+                                )
+                            else:
+                                st.caption(
+                                    "⚠️ Reference only — time-normalized data, not track-position aligned.  "
+                                    "同じprogress位置 ≠ 同じトラック位置。絶対値は参考にしないこと。"
+                                )
                             cd1, cd2, cd3, cd4, cd5 = st.columns(5)
                             cd1.metric(
                                 "Speed avg",
