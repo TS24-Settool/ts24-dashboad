@@ -3064,13 +3064,20 @@ with _content_col:
     elif _NAV == "📈  Lap Overlay":
         from plotly.subplots import make_subplots as _make_subplots
 
+        # ── 修正1: Turn表記変換ヘルパー ──────────────────────────────
+        def _cid_to_turn(cid: str) -> str:
+            """'C01' → 'T1', 'C10' → 'T10'"""
+            if cid and cid.startswith("C") and cid[1:].isdigit():
+                return "T" + str(int(cid[1:]))
+            return cid
+
         # ── 色定数 ───────────────────────────────────────────────────
-        _OV_A     = "#0078D4"   # 青 (Reference Lap A)
-        _OV_B     = "#D83B01"   # 橙 (Compare Lap B)
-        _OV_A_L   = "#70B8FF"   # 薄青 (Gas A)
-        _OV_B_L   = "#F4A28C"   # 薄橙 (Gas B)
-        _OV_POS   = "rgba(216,59,1,0.25)"    # A遅い (赤塗り)
-        _OV_NEG   = "rgba(16,124,16,0.25)"   # A速い (緑塗り)
+        _OV_A     = "#0078D4"                    # 青 (Reference Lap A)
+        _OV_B     = "#D83B01"                    # 橙 (Compare Lap B)
+        _OV_A_L   = "#70B8FF"                    # 薄青 (Gas A)
+        _OV_B_L   = "#F4A28C"                    # 薄橙 (Gas B)
+        _OV_POS   = "rgba(214,39,40,0.35)"       # A遅い (赤塗り)
+        _OV_NEG   = "rgba(31,119,180,0.35)"      # A速い (青塗り)
 
         st.markdown(
             '<p class="section-title">📈 Lap Overlay  |  '
@@ -3163,26 +3170,32 @@ with _content_col:
                         m = int(sec // 60); s = sec - m * 60
                         return f"{m}:{s:05.2f}"
 
-                    # ── サマリーカード ────────────────────────────────
+                    # ── 修正4: サマリーカード（6列に拡張、Turn集計後に更新）──
+                    # ← Turn集計後に kk5/kk6 を埋める（プレースホルダー）
                     st.divider()
-                    sc1, sc2, sc3, sc4 = st.columns(4)
-                    sc1.metric("🔵 Lap A", _ltfmt(lt_a),
-                               f"{lap_a['rider']}  Lap{lap_a['lap_no']}")
-                    sc2.metric("🟠 Lap B", _ltfmt(lt_b),
-                               f"{lap_b['rider']}  Lap{lap_b['lap_no']}")
-                    sc3.metric("Estimated Linear ΔTime (A−B)",
-                               f"{delta_total_s:+.3f}s",
-                               "A faster" if delta_total_s < 0 else "A slower",
-                               delta_color="inverse")
-                    sc4.metric("Circuit", ov_circuit)
+                    _kk_cols = st.columns(6)
+                    _kk_cols[0].metric("🔵 Lap A", _ltfmt(lt_a),
+                                       f"{lap_a['rider']}  Lap{lap_a['lap_no']}")
+                    _kk_cols[1].metric("🟠 Lap B", _ltfmt(lt_b),
+                                       f"{lap_b['rider']}  Lap{lap_b['lap_no']}")
+                    _kk_cols[2].metric("Estimated Linear ΔTime",
+                                       f"{delta_total_s:+.3f}s",
+                                       "A faster" if delta_total_s < 0 else "A slower",
+                                       delta_color="inverse")
+                    _kk_cols[3].metric("Circuit", ov_circuit)
+                    # kk5/kk6 は Turn集計後に値を入れる（Streamlitは先に全部描画する）
+                    _kk5_placeholder = _kk_cols[4].empty()
+                    _kk6_placeholder = _kk_cols[5].empty()
 
-                    # ── ΔTime trace 計算 ──────────────────────────────
-                    # 線形補間: 各進捗点での累積時間差
-                    delta_sec = [lt_a * pa - lt_b * pb
-                                 for pa, pb in zip(x_a, x_b)]
+                    # ── 修正2: ΔTime trace 計算（numpy）─────────────────
+                    _xa_np = np.array(x_a)
+                    _xb_np = np.array(x_b)
+                    delta_sec = (lt_a * _xa_np - lt_b * _xb_np).tolist()
+                    _ds_np    = np.array(delta_sec)
                     # 正(A遅い)/ 負(A速い) を分離して fill='tozeroy'
-                    pos_y = [max(0.0, d) for d in delta_sec]
-                    neg_y = [min(0.0, d) for d in delta_sec]
+                    pos_y = np.where(_ds_np > 0, _ds_np, 0.0).tolist()
+                    neg_y = np.where(_ds_np < 0, _ds_np, 0.0).tolist()
+                    _max_abs_dt = float(np.max(np.abs(_ds_np))) * 1.15 or 0.5
 
                     # ── コーナーフェーズデータ取得 ─────────────────────
                     cp_df = _load_corner_phase()
@@ -3202,19 +3215,23 @@ with _content_col:
                     cp_b = _get_cp_lap(lap_b["rider"], lap_b["session_type"],
                                        lap_b["run_no"], lap_b["lap_no"])
 
-                    # コーナーマーカー位置（累積時間 → lap_progress）
+                    # コーナーマーカー位置（累積時間 → lap_progress, + confidence）
+                    # confidence は corner_phase_data.json に未実装 → 全て "中" として扱う
                     def _corner_progresses(cp_lap: pd.DataFrame,
-                                           lap_time_s: float) -> list[tuple[float, int]]:
+                                           lap_time_s: float
+                                           ) -> list[tuple[float, str, str]]:
+                        """Returns list of (progress, corner_id_str, confidence)"""
                         marks = []
                         cum_ms = 0.0
                         for _, row in cp_lap.iterrows():
-                            # PH3 startまでの累積時間 = cum_ms + ph12
                             brake_peak_prog = min(
                                 1.0,
                                 (cum_ms + (row.get("ph12_duration_ms") or 0))
                                 / (lap_time_s * 1000)
                             )
-                            marks.append((brake_peak_prog, int(row["corner_no"])))
+                            cid  = f"C{int(row['corner_no']):02d}"
+                            conf = row.get("confidence", "中") or "中"
+                            marks.append((brake_peak_prog, cid, conf))
                             cum_ms += (row.get("total_corner_ms") or 0)
                         return marks
 
@@ -3299,25 +3316,31 @@ with _content_col:
                         line=dict(color="#333", width=1.5),
                         showlegend=True), row=4, col=1)
 
-                    # コーナーマーカー（全行に縦線、Row1のみラベル）
-                    for prog, cno in corner_marks_a:
+                    # ── 修正5: Turn縦線 + Row1ラベル（confidence別色）────
+                    _conf_color = {
+                        "高": "rgba(80,80,80,0.6)",
+                        "中": "rgba(130,130,130,0.4)",
+                        "低": "rgba(180,180,180,0.2)",
+                    }
+                    for prog, cid, conf in corner_marks_a:
+                        _lc = _conf_color.get(conf, _conf_color["中"])
                         for row_i in [1, 2, 3, 4]:
                             fig_ov.add_vline(
                                 x=prog, row=row_i, col=1,
-                                line_dash="dot", line_color="gray",
-                                opacity=0.45, line_width=1,
+                                line_dash="dot", line_color=_lc,
+                                line_width=1.2,
                             )
+                        # Row1のみTurnラベル
                         fig_ov.add_annotation(
-                            x=prog, y=1.0, xref="x", yref="y domain",
-                            text=f"C{cno:02d}", showarrow=False,
-                            font=dict(size=8, color="gray"),
+                            x=prog, y=1.04, yref="y domain",
+                            text=_cid_to_turn(cid), showarrow=False,
+                            font=dict(size=9, color="#555"),
                             row=1, col=1,
                         )
 
-                    # ゼロライン (Row 4)
+                    # ゼロライン (Row 4) — 太め黒線
                     fig_ov.add_hline(y=0, row=4, col=1,
-                                     line_color="#888", line_width=1.0,
-                                     line_dash="dot")
+                                     line_color="#000000", line_width=1.8)
 
                     # レイアウト
                     fig_ov.update_layout(
@@ -3346,121 +3369,144 @@ with _content_col:
                             gridcolor="#E5E5E5", linecolor="#CCCCCC",
                             tickfont=dict(color="#333", size=10),
                         )})
-                    # サブプロットタイトルスタイル
+                    # ΔTime Row4: 0中心・対称レンジ
+                    fig_ov.update_yaxes(
+                        range=[-_max_abs_dt, _max_abs_dt], row=4, col=1,
+                        gridcolor="#E5E5E5", linecolor="#CCCCCC",
+                        tickfont=dict(color="#333", size=10),
+                    )
+                    # サブプロットタイトルスタイル（Turn/Tラベルは除外）
                     for _ann in fig_ov.layout.annotations:
-                        if _ann.text and "C0" not in _ann.text:
+                        if _ann.text and not _ann.text.startswith("T"):
                             _ann.font.size  = 11
                             _ann.font.color = "#444"
 
                     st.plotly_chart(fig_ov, use_container_width=True,
                                     config={"displayModeBar": False})
 
-                    # ── コーナー別フェーズΔTimeテーブル ──────────────────
+                    # ── 修正3: Turn-by-Turn Analysis テーブル ────────────
                     st.divider()
                     st.markdown(
                         '<p class="section-title">'
-                        'Per-Corner Phase ΔTime: Lap A vs Lap B (A − B, ms)</p>',
+                        'Turn-by-Turn Analysis  (A − B, positive = A slower)</p>',
                         unsafe_allow_html=True,
                     )
-                    if cp_a.empty or cp_b.empty:
+
+                    # 低confidenceを含めるかチェックボックス
+                    _show_low = st.checkbox(
+                        "低confidence Turnを集計に含める",
+                        value=False, key="ov_low_conf",
+                    )
+
+                    # cp_a が空 → データなし
+                    _cp_tbl_rows = []   # lap_comparison_latest.json 用にスコープを上に
+                    if cp_a.empty:
                         st.caption(
                             "Corner phase data not available for selected session "
                             "— run `corner_phase_analysis.py` first"
                         )
                     else:
-                        # 共通コーナー番号でマージ
-                        _cp_tbl_rows = []
-                        _shared_corners = sorted(
-                            set(cp_a["corner_no"].tolist()) &
-                            set(cp_b["corner_no"].tolist())
-                        )
-                        for cno in _shared_corners:
-                            ra = cp_a[cp_a["corner_no"] == cno].iloc[0]
-                            rb = cp_b[cp_b["corner_no"] == cno].iloc[0]
-                            ph12_a = ra.get("ph12_duration_ms") or 0
-                            ph12_b = rb.get("ph12_duration_ms") or 0
-                            ph3_a  = ra.get("ph3_duration_ms")  or 0
-                            ph3_b  = rb.get("ph3_duration_ms")  or 0
-                            ph45_a = ra.get("ph45_duration_ms") or 0
-                            ph45_b = rb.get("ph45_duration_ms") or 0
-                            d12  = round(ph12_a - ph12_b, 0)
-                            d3   = round(ph3_a  - ph3_b,  0)
-                            d45  = round(ph45_a - ph45_b, 0)
-                            dtot = round(d12 + d3 + d45, 0)
+                        # markers: [(progress, cid, confidence), ...]
+                        _markers = corner_marks_a.copy()
+                        if not _show_low:
+                            _markers = [(p, c, cf) for p, c, cf in _markers
+                                        if cf != "低"]
+
+                        _turn_rows = []
+                        _ds_list   = delta_sec  # list[float]
+                        _n_pts     = len(x_a)
+                        # チャンネルを numpy配列化（インデックスアクセス用）
+                        _ch_spd_a = np.array(ch_a["speed"])
+                        _ch_spd_b = np.array(ch_b["speed"])
+                        _ch_brk_a = np.array(ch_a["brake"])
+                        _ch_brk_b = np.array(ch_b["brake"])
+                        _ch_gas_a = np.array(ch_a["gas"])
+                        _ch_gas_b = np.array(ch_b["gas"])
+                        _ch_suf_a = np.array(ch_a["sus_f"])
+                        _ch_suf_b = np.array(ch_b["sus_f"])
+                        _norm     = {"Speed": 50.0, "Brake": 2.0,
+                                     "Gas": 30.0, "SusF": 30.0}
+
+                        for i, (prog, cid, conf) in enumerate(_markers):
+                            entry_prog = _markers[i - 1][0] if i > 0 else 0.0
+                            exit_prog  = prog
+
+                            entry_idx = max(0, min(_n_pts-1, int(entry_prog * (_n_pts-1))))
+                            exit_idx  = max(0, min(_n_pts-1, int(exit_prog  * (_n_pts-1))))
+
+                            dt_entry  = float(_ds_list[entry_idx])
+                            dt_exit   = float(_ds_list[exit_idx])
+                            loss_gain = dt_exit - dt_entry
+
+                            sl = slice(entry_idx, exit_idx + 1) if exit_idx > entry_idx else slice(entry_idx, entry_idx + 1)
+                            diffs = {
+                                "Speed":  float(np.mean(np.abs(_ch_spd_a[sl] - _ch_spd_b[sl]))),
+                                "Brake":  float(np.mean(np.abs(_ch_brk_a[sl] - _ch_brk_b[sl]))),
+                                "Gas":    float(np.mean(np.abs(_ch_gas_a[sl] - _ch_gas_b[sl]))),
+                                "SusF":   float(np.mean(np.abs(_ch_suf_a[sl] - _ch_suf_b[sl]))),
+                            }
+                            main_diff = max(diffs, key=lambda k: diffs[k] / _norm[k])
+
+                            _turn_rows.append({
+                                "Turn":               _cid_to_turn(cid),
+                                "Confidence":         conf,
+                                "ΔTime Entry (s)":    dt_entry,
+                                "ΔTime Exit (s)":     dt_exit,
+                                "Loss/Gain (s)":      loss_gain,
+                                "Main Diff":          main_diff,
+                            })
+                            # lap_comparison_latest 用 (後方互換で cid も保持)
                             _cp_tbl_rows.append({
-                                "Corner":     f"C{int(cno):02d}",
-                                "PH1-2 A":   int(ph12_a),
-                                "PH1-2 B":   int(ph12_b),
-                                "Δ PH1-2":   int(d12),
-                                "PH3 A":     int(ph3_a),
-                                "PH3 B":     int(ph3_b),
-                                "Δ PH3":     int(d3),
-                                "PH4-5 A":   int(ph45_a),
-                                "PH4-5 B":   int(ph45_b),
-                                "Δ PH4-5":   int(d45),
-                                "Total Δ":   int(dtot),
+                                "turn": _cid_to_turn(cid),
+                                "loss_gain_s": round(loss_gain, 4),
+                                "dt_entry_s":  round(dt_entry, 4),
+                                "dt_exit_s":   round(dt_exit, 4),
+                                "main_diff":   main_diff,
                             })
 
-                        if _cp_tbl_rows:
-                            df_tbl = pd.DataFrame(_cp_tbl_rows)
-                            # 最大|Total Δ|コーナーを太字
-                            _max_corner = df_tbl.loc[
-                                df_tbl["Total Δ"].abs().idxmax(), "Corner"
-                            ]
+                        if _turn_rows:
+                            df_turns = pd.DataFrame(_turn_rows)
 
-                            def _delta_color(val):
-                                try:
-                                    v = float(val)
-                                except Exception:
-                                    return ""
-                                if v > 20:
-                                    return "background-color:#FFC7CE;color:#9C0006"
-                                elif v < -20:
-                                    return "background-color:#C6EFCE;color:#276221"
-                                return ""
+                            # background_gradient (RdYlGn_r) + format
+                            try:
+                                _styled_turns = (
+                                    df_turns.style
+                                    .background_gradient(
+                                        subset=["Loss/Gain (s)"],
+                                        cmap="RdYlGn_r",
+                                        vmin=-0.3, vmax=0.3,
+                                    )
+                                    .format({
+                                        "Loss/Gain (s)":   "{:+.3f}",
+                                        "ΔTime Entry (s)": "{:+.3f}",
+                                        "ΔTime Exit (s)":  "{:+.3f}",
+                                    })
+                                )
+                            except Exception:
+                                _styled_turns = df_turns
 
-                            _delta_cols = ["Δ PH1-2", "Δ PH3", "Δ PH4-5", "Total Δ"]
-                            _styler = (
-                                getattr(df_tbl.style, "map", None)
-                                or getattr(df_tbl.style, "applymap")
-                            )
                             st.dataframe(
-                                _styler(_delta_color, subset=_delta_cols),
+                                _styled_turns,
                                 use_container_width=True,
-                                height=min(600, 38 + 35 * len(df_tbl)),
+                                height=min(560, 38 + 35 * len(df_turns)),
+                                hide_index=True,
                             )
                             st.caption(
-                                f"🔴 赤=A遅い(正)  🟢 緑=A速い(負)  "
-                                f"最大差コーナー: **{_max_corner}** "
-                                f"Total Δ={int(df_tbl.loc[df_tbl['Corner']==_max_corner,'Total Δ'].iloc[0])} ms  "
-                                f"(共通コーナー数: {len(_shared_corners)})"
+                                "🔴 赤=A遅い(ロス)  🟢 緑=A速い(ゲイン)  "
+                                "Loss/Gain = ΔTime at Exit − ΔTime at Entry  "
+                                f"(Turns: {len(_turn_rows)})"
                             )
 
-                            # ── サマリーカード（テーブル下）──────────
-                            st.divider()
-                            _max_row = df_tbl.loc[df_tbl["Total Δ"].abs().idxmax()]
-                            _best_ph = min(
-                                [("PH1-2", df_tbl["Δ PH1-2"].mean()),
-                                 ("PH3",   df_tbl["Δ PH3"].mean()),
-                                 ("PH4-5", df_tbl["Δ PH4-5"].mean())],
-                                key=lambda x: x[1],
+                            # サマリーカード kk5/kk6 を更新
+                            _worst_t = max(_turn_rows, key=lambda r: r["Loss/Gain (s)"])
+                            _best_t  = min(_turn_rows, key=lambda r: r["Loss/Gain (s)"])
+                            _kk5_placeholder.metric(
+                                "📈 Biggest Loss Turn",
+                                f"{_worst_t['Turn']}  {_worst_t['Loss/Gain (s)']:+.3f}s",
                             )
-                            sm1, sm2, sm3 = st.columns(3)
-                            sm1.metric(
-                                "🏁 Total Lap Time Δ (A−B)",
-                                f"{delta_total_s:+.3f}s",
-                                "A faster" if delta_total_s < 0 else "A slower",
-                                delta_color="inverse",
-                            )
-                            sm2.metric(
-                                f"🔥 最大Δコーナー",
-                                f"{_max_row['Corner']} — {int(_max_row['Total Δ'])} ms",
-                                "A slower" if _max_row["Total Δ"] > 0 else "A faster",
-                                delta_color="inverse",
-                            )
-                            sm3.metric(
-                                "📊 A優位フェーズ (avg Δ最小)",
-                                f"{_best_ph[0]} — avg {_best_ph[1]:+.0f} ms",
+                            _kk6_placeholder.metric(
+                                "📉 Biggest Gain Turn",
+                                f"{_best_t['Turn']}  {_best_t['Loss/Gain (s)']:+.3f}s",
                             )
 
                     # ── lap_comparison_latest.json 保存 ───────────────
@@ -3484,7 +3530,7 @@ with _content_col:
                                 "lap_time_s": lt_b,
                             },
                             "delta_total_s": round(delta_total_s, 3),
-                            "corner_deltas": _cp_tbl_rows if not cp_a.empty and not cp_b.empty else [],
+                            "turn_analysis": _cp_tbl_rows,   # Turn-by-Turn rows
                         }
                         _cmp_out.write_text(
                             json.dumps(_cmp_payload, ensure_ascii=False, indent=2),
