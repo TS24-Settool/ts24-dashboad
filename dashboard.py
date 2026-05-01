@@ -3234,14 +3234,20 @@ with _content_col:
                     _kk6_placeholder = _kk_cols[5].empty()
 
                     # ── 修正2: ΔTime trace 計算（numpy）─────────────────
-                    _xa_np = np.array(x_a)
-                    _xb_np = np.array(x_b)
-                    delta_sec = (lt_a * _xa_np - lt_b * _xb_np).tolist()
-                    _ds_np    = np.array(delta_sec)
+                    # ── Speed-weighted Estimated ΔTime（速度ベース累積差分）─
+                    _N   = len(x_a)
+                    _v_a = np.maximum(np.array(ch_a["speed"]), 1.0)
+                    _v_b = np.maximum(np.array(ch_b["speed"]), 1.0)
+                    # 各サンプル点での推定時間差の増分
+                    # 速度が低い区間 → 時間を多く使う → 差が拡大/縮小
+                    _dt_incr  = (lt_a / _N) * (1.0 - _v_a / _v_b)
+                    _ds_np    = np.cumsum(_dt_incr)
+                    delta_sec = _ds_np.tolist()   # 後続ブロック共通変数（統一済み）
+
                     # 正(A遅い)/ 負(A速い) を分離して fill='tozeroy'
                     pos_y = np.where(_ds_np > 0, _ds_np, 0.0).tolist()
                     neg_y = np.where(_ds_np < 0, _ds_np, 0.0).tolist()
-                    _max_abs_dt = float(np.max(np.abs(_ds_np))) * 1.15 or 0.5
+                    _max_abs_dt = float(np.max(np.abs(_ds_np))) * 1.15 or 0.1
 
                     # ── コーナーフェーズデータ取得 ─────────────────────
                     cp_df = _load_corner_phase()
