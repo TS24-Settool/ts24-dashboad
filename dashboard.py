@@ -3083,6 +3083,20 @@ with _content_col:
                 return "T" + str(int(cid[1:]))
             return cid
 
+        # Task1: Main Diff 翻訳辞書 ──────────────────────────────────
+        _MAIN_DIFF_TRANSLATION = {
+            "Speed": "Entry/Exit speed deficit",
+            "Brake": "Brake phase issue (late release or early application)",
+            "Gas":   "Throttle delay or early lift",
+            "SusF":  "Front load imbalance",
+            "—":     "Insufficient data",
+        }
+        def _translate_diff(main_diff: str) -> str:
+            return _MAIN_DIFF_TRANSLATION.get(main_diff, main_diff)
+
+        # 有意差しきい値
+        _SIGNIFICANT_THRESHOLD = 0.01  # 秒
+
         # ── 色定数 ───────────────────────────────────────────────────
         _OV_A     = "#0078D4"                    # 青 (Reference Lap A)
         _OV_B     = "#D83B01"                    # 橙 (Compare Lap B)
@@ -3247,8 +3261,12 @@ with _content_col:
                     cp_b = _get_cp_lap(lap_b["rider"], lap_b["session_type"],
                                        lap_b["run_no"], lap_b["lap_no"])
 
-                    # コーナーマーカー位置（累積時間 → lap_progress, + confidence）
-                    # confidence は corner_phase_data.json に未実装 → 全て "中" として扱う
+                    # コーナーマーカー位置（累積時間 → lap_progress）
+                    # Task5: turn_templates.json の confidence を使う
+                    _tmpl_turns = _turn_tmpls.get(ov_circuit, {}).get("turns", [])
+                    _tmpl_conf  = {t["cid_src"]: t.get("confidence", "中")
+                                   for t in _tmpl_turns}
+
                     def _corner_progresses(cp_lap: pd.DataFrame,
                                            lap_time_s: float
                                            ) -> list[tuple[float, str, str]]:
@@ -3262,24 +3280,52 @@ with _content_col:
                                 / (lap_time_s * 1000)
                             )
                             cid  = f"C{int(row['corner_no']):02d}"
-                            conf = row.get("confidence", "中") or "中"
+                            # turn_templates.json があれば そちらのconfidenceを優先
+                            conf = _tmpl_conf.get(cid, "中")
                             marks.append((brake_peak_prog, cid, conf))
                             cum_ms += (row.get("total_corner_ms") or 0)
                         return marks
 
                     corner_marks_a = _corner_progresses(cp_a, lt_a) if not cp_a.empty else []
 
-                    # ── ズームスライダー（center + window）───────────
+                    # ── Task3: Focus Turn セレクトボックス + ズームスライダー ──
                     st.divider()
+
+                    # Focus Turn: 選択するとZoomを自動セット
+                    _turn_options = ["（全体表示）"] + [
+                        _cid_to_turn(cid) for _, cid, _ in corner_marks_a
+                    ]
+                    _focus_turn = st.selectbox(
+                        "🔍 Focus Turn（選択するとそのTurnにズーム）",
+                        _turn_options, key="ov_focus_turn",
+                    )
+
+                    # Focus Turnが選択されたらsession_stateで中心を更新
+                    _focus_prog = None
+                    if _focus_turn != "（全体表示）":
+                        for _fp, _fc, _ in corner_marks_a:
+                            if _cid_to_turn(_fc) == _focus_turn:
+                                _focus_prog = _fp
+                                break
+                        if _focus_prog is not None:
+                            st.session_state["ov_zoom_center"] = _focus_prog
+                            st.session_state["ov_zoom_window"] = 0.12
+                            st.info(f"📍 {_focus_turn} にフォーカス中 "
+                                    f"(progress: {_focus_prog:.3f} ± 0.06)")
+
                     zc1, zc2 = st.columns(2)
                     with zc1:
-                        zoom_center = st.slider("Corner Zoom Center",
-                                                0.0, 1.0, 0.5, 0.01,
-                                                key="ov_zoom_center")
+                        zoom_center = st.slider(
+                            "Corner Zoom Center", 0.0, 1.0,
+                            value=float(st.session_state.get("ov_zoom_center", 0.5)),
+                            step=0.01, key="ov_zoom_center",
+                        )
                     with zc2:
-                        zoom_window = st.slider("Window Width",
-                                                0.05, 1.0, 1.0, 0.01,
-                                                key="ov_zoom_window")
+                        zoom_window = st.slider(
+                            "Window Width", 0.05, 1.0,
+                            value=float(st.session_state.get("ov_zoom_window", 1.0)),
+                            step=0.01, key="ov_zoom_window",
+                        )
                     x_lo = max(0.0, zoom_center - zoom_window / 2)
                     x_hi = min(1.0, zoom_center + zoom_window / 2)
 
@@ -3507,9 +3553,57 @@ with _content_col:
                             })
 
                         if _turn_rows:
+                            # ── 有意な差のある Turn を抽出 ─────────────────
+                            _sig_rows  = [r for r in _turn_rows
+                                          if abs(r["Loss/Gain (s)"]) >= _SIGNIFICANT_THRESHOLD]
+                            _loss_turns = sorted(
+                                [r for r in _sig_rows if r["Loss/Gain (s)"] > 0],
+                                key=lambda x: x["Loss/Gain (s)"], reverse=True,
+                            )[:3]
+                            _gain_turns = sorted(
+                                [r for r in _sig_rows if r["Loss/Gain (s)"] < 0],
+                                key=lambda x: x["Loss/Gain (s)"],
+                            )[:1]
+
+                            # ── Task2: Problem Summary（テーブルの上）────────
+                            st.markdown("### 🔍 Problem Summary")
+                            st.caption(
+                                "Speed-weighted Estimated ΔTime に基づく推定。"
+                                "絶対値ではなく相対的な参考情報として使用すること。"
+                            )
+
+                            if not _loss_turns and not _gain_turns:
+                                st.info(
+                                    "有意な差（±0.01s以上）が検出されませんでした。"
+                                    "より差の大きい2ラップを比較してください。"
+                                )
+                            else:
+                                if _loss_turns:
+                                    st.markdown("**⚠️ Loss Turns（AがBより遅い区間）**")
+                                    for _i, _r in enumerate(_loss_turns, 1):
+                                        _tr = _translate_diff(_r["Main Diff"])
+                                        st.markdown(
+                                            f"`{_i}. {_r['Turn']}:  {_r['Loss/Gain (s)']:+.3f}s loss`"
+                                            f"  → **{_tr}**"
+                                        )
+                                if _gain_turns:
+                                    st.markdown("**✅ Best Gain Turn（AがBより速い区間）**")
+                                    _gr = _gain_turns[0]
+                                    _tr = _translate_diff(_gr["Main Diff"])
+                                    st.markdown(
+                                        f"`{_gr['Turn']}:  {_gr['Loss/Gain (s)']:+.3f}s gain`"
+                                        f"  → **{_tr}**"
+                                    )
+                                st.caption(
+                                    "💡 Setup推奨はAI Chat（右下🤖ボタン）に"
+                                    "「T6のloss原因とセットアップ提案を教えて」と質問してください。"
+                                )
+
+                            st.divider()
+
+                            # ── Turn-by-Turn テーブル ─────────────────────
                             df_turns = pd.DataFrame(_turn_rows)
 
-                            # バグ1修正: background_gradient(matplotlib依存)を使わない
                             def _color_lg(val):
                                 try:
                                     v = float(val)
@@ -3539,20 +3633,33 @@ with _content_col:
                             st.caption(
                                 "🔴 赤=A遅い(ロス)  🟢 緑=A速い(ゲイン)  "
                                 "Loss/Gain = Speed-weighted Estimated ΔTime at Exit − Entry  "
-                                f"(Turns: {len(_turn_rows)})"
+                                f"(Turns: {len(_turn_rows)}  /  "
+                                f"有意差あり: {len(_sig_rows)})"
                             )
 
-                            # サマリーカード kk5/kk6 を更新
-                            _worst_t = max(_turn_rows, key=lambda r: r["Loss/Gain (s)"])
-                            _best_t  = min(_turn_rows, key=lambda r: r["Loss/Gain (s)"])
-                            _kk5_placeholder.metric(
-                                "📈 Biggest Loss Turn",
-                                f"{_worst_t['Turn']}  {_worst_t['Loss/Gain (s)']:+.3f}s",
-                            )
-                            _kk6_placeholder.metric(
-                                "📉 Biggest Gain Turn",
-                                f"{_best_t['Turn']}  {_best_t['Loss/Gain (s)']:+.3f}s",
-                            )
+                            # ── Task4: サマリーカード kk5/kk6 — 有意差フィルター ──
+                            if _loss_turns:
+                                _kk5_placeholder.metric(
+                                    "📈 Biggest Loss Turn",
+                                    f"{_loss_turns[0]['Turn']}  "
+                                    f"{_loss_turns[0]['Loss/Gain (s)']:+.3f}s",
+                                )
+                            else:
+                                _kk5_placeholder.metric(
+                                    "📈 Biggest Loss Turn", "—",
+                                    help="差が±0.01s未満 = 有意な差なし",
+                                )
+                            if _gain_turns:
+                                _kk6_placeholder.metric(
+                                    "📉 Biggest Gain Turn",
+                                    f"{_gain_turns[0]['Turn']}  "
+                                    f"{_gain_turns[0]['Loss/Gain (s)']:+.3f}s",
+                                )
+                            else:
+                                _kk6_placeholder.metric(
+                                    "📉 Biggest Gain Turn", "—",
+                                    help="差が±0.01s未満 = 有意な差なし",
+                                )
 
                     # ── lap_comparison_latest.json 保存 ───────────────
                     try:
