@@ -1,21 +1,42 @@
 # CLAUDE.md — TS24 Project Team Shared Context
 **Project:** TS24 SET-UP TOOL / Puccetti Racing WorldSSP Suspension Management System
-**Last Updated:** 2026-04-29
-**Read this file at the start of every session — Claude Code and Cowork Claude both.**
+**Last Updated:** 2026-05-01
+**Read this file at the start of every session — Claude Code, Cowork Claude, and ChatGPT both.**
 
 ---
 
 ## 1. チームとその役割
 
-このプロジェクトは3者チームで運営される。
+このプロジェクトは4者チームで運営される。
 
 | メンバー | 役割 | 主な責任 |
 |---------|------|---------|
-| **Tatsuki Suzuki（鈴木達樹）** | チームマネージャー / データ収集 | MESデータ収集・現場フィードバック・最終意思決定 |
-| **Claude (Cowork)** | データ分析 / ソリューション提示 | ダッシュボード上でのリアルタイム分析・セットアップ提案・知見の蓄積 |
+| **Tatsuki Suzuki（鈴木達樹）** | チームマネージャー / データ収集 | MESデータ収集・現場フィードバック・最終意思決定・AI間のハブ |
+| **Claude Cowork** | データ分析 / ソリューション提示 | ダッシュボード上でのリアルタイム分析・セットアップ提案・知見の蓄積 |
 | **Claude Code** | システム管理 / ダッシュボード維持 | dashboard.py更新・データ処理・Git管理・スクリプト実行 |
+| **ChatGPT** | プロジェクト監視 / 改善提案 | システム全体の俯瞰・問題発見・改善点の提示・第三者視点でのレビュー |
 
-**重要:** CoworkとClaude Codeは直接通信できない。このファイル（CLAUDE.md）と `race_memory.json` が共有の文脈として機能する。作業前に必ずこのファイルを読むこと。
+**重要:** 各AIは直接通信できない。Tatsukiがハブとなり情報を橋渡しする。
+このファイル（CLAUDE.md）と `race_memory.json` が全AIの共有文脈として機能する。
+作業前に必ずこのファイルを読むこと。
+
+### チーム通信フロー
+
+```
+ChatGPT
+   ↕ (問題・改善提案を報告)
+Tatsuki Suzuki ← → Claude Cowork（ダッシュボード上で分析対話）
+   ↕ (実装指示)
+Claude Code（コード修正・Git管理）
+```
+
+### 各AIの参照ファイル
+
+| AI | 主な参照 | 参照方法 |
+|---|---------|---------|
+| Claude Cowork | race_memory.json・ダッシュボードデータ | フローティングチャット |
+| Claude Code | CLAUDE.md・dashboard.py・全ファイル | ローカルファイルシステム |
+| ChatGPT | CLAUDE.md・Tatsukiが共有するスクリーンショット・コード断片 | Tatsuki経由で共有 |
 
 ---
 
