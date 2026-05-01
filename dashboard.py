@@ -3251,17 +3251,23 @@ with _content_col:
                     x_lo = max(0.0, zoom_center - zoom_window / 2)
                     x_hi = min(1.0, zoom_center + zoom_window / 2)
 
-                    # ── Plotly 4行サブプロット ────────────────────────
+                    # ── Plotly 4行サブプロット（バグ2修正: specs でRow2をdual-Y）──
                     fig_ov = _make_subplots(
                         rows=4, cols=1,
                         shared_xaxes=True,
                         row_heights=[3, 2, 2, 3],
                         vertical_spacing=0.04,
+                        specs=[
+                            [{"secondary_y": False}],
+                            [{"secondary_y": True}],   # Row2のみdual Y
+                            [{"secondary_y": False}],
+                            [{"secondary_y": False}],
+                        ],
                         subplot_titles=(
                             "Speed (km/h)",
                             "Brake (bar) + Gas (%)",
                             "Suspension Front (mm)",
-                            "Estimated Linear ΔTime (sec) (A - B)",
+                            "Estimated Linear ΔTime (sec)  (A − B)",
                         ),
                     )
 
@@ -3273,21 +3279,28 @@ with _content_col:
                         x=x_b, y=ch_b["speed"], name="Speed B",
                         line=dict(color=_OV_B, width=1.8, dash="dot")), row=1, col=1)
 
-                    # Row 2: Brake (left) + Gas (right)
+                    # Row 2: Brake (primary Y, left) + Gas (secondary Y, right)
                     fig_ov.add_trace(go.Scatter(
                         x=x_a, y=ch_a["brake"], name="Brake A",
-                        line=dict(color=_OV_A, width=1.5)), row=2, col=1)
+                        line=dict(color=_OV_A, width=1.5)),
+                        row=2, col=1, secondary_y=False)
                     fig_ov.add_trace(go.Scatter(
                         x=x_b, y=ch_b["brake"], name="Brake B",
-                        line=dict(color=_OV_B, width=1.5, dash="dot")), row=2, col=1)
+                        line=dict(color=_OV_B, width=1.5, dash="dot")),
+                        row=2, col=1, secondary_y=False)
                     fig_ov.add_trace(go.Scatter(
                         x=x_a, y=ch_a["gas"], name="Gas A",
-                        line=dict(color=_OV_A_L, width=1.2),
-                        yaxis="y4"), row=2, col=1)
+                        line=dict(color=_OV_A_L, width=1.2)),
+                        row=2, col=1, secondary_y=True)
                     fig_ov.add_trace(go.Scatter(
                         x=x_b, y=ch_b["gas"], name="Gas B",
-                        line=dict(color=_OV_B_L, width=1.2, dash="dot"),
-                        yaxis="y4"), row=2, col=1)
+                        line=dict(color=_OV_B_L, width=1.2, dash="dot")),
+                        row=2, col=1, secondary_y=True)
+                    # Gas Y軸レンジ設定
+                    fig_ov.update_yaxes(range=[0, 110], secondary_y=True, row=2, col=1,
+                                        title_text="Gas (%)",
+                                        tickfont=dict(color="#888", size=10),
+                                        showgrid=False)
 
                     # Row 3: SusF
                     fig_ov.add_trace(go.Scatter(
@@ -3342,7 +3355,7 @@ with _content_col:
                     fig_ov.add_hline(y=0, row=4, col=1,
                                      line_color="#000000", line_width=1.8)
 
-                    # レイアウト
+                    # レイアウト（yaxis4手動指定は削除、secondary_yで制御済み）
                     fig_ov.update_layout(
                         height=1000,
                         paper_bgcolor="#FFFFFF",
@@ -3352,18 +3365,15 @@ with _content_col:
                         legend=dict(orientation="h", y=1.03, x=1,
                                     xanchor="right", yanchor="bottom",
                                     font=dict(size=10)),
-                        xaxis4=dict(title="Lap Progress  (0 = start, 1 = finish)"),
-                        yaxis4=dict(
-                            title="Gas (%)", overlaying="y3",
-                            side="right", showgrid=False,
-                            tickfont=dict(color="#888", size=10),
-                            range=[0, 110],
-                        ),
                     )
-                    # X軸 zoom 適用（4軸すべて）
+                    # X軸: zoom 適用 + 最終行にタイトル
                     for _xk in ["xaxis", "xaxis2", "xaxis3", "xaxis4"]:
                         fig_ov.update_layout(**{_xk: dict(range=[x_lo, x_hi])})
-                    # Y軸グリッドスタイル
+                    fig_ov.update_xaxes(
+                        title_text="Lap Progress  (0 = start, 1 = finish)",
+                        row=4, col=1
+                    )
+                    # Y軸グリッドスタイル（primary axes）
                     for _yk in ["yaxis", "yaxis2", "yaxis3", "yaxis5", "yaxis6", "yaxis7"]:
                         fig_ov.update_layout(**{_yk: dict(
                             gridcolor="#E5E5E5", linecolor="#CCCCCC",
@@ -3467,23 +3477,26 @@ with _content_col:
                         if _turn_rows:
                             df_turns = pd.DataFrame(_turn_rows)
 
-                            # background_gradient (RdYlGn_r) + format
-                            try:
-                                _styled_turns = (
-                                    df_turns.style
-                                    .background_gradient(
-                                        subset=["Loss/Gain (s)"],
-                                        cmap="RdYlGn_r",
-                                        vmin=-0.3, vmax=0.3,
-                                    )
-                                    .format({
-                                        "Loss/Gain (s)":   "{:+.3f}",
-                                        "ΔTime Entry (s)": "{:+.3f}",
-                                        "ΔTime Exit (s)":  "{:+.3f}",
-                                    })
-                                )
-                            except Exception:
-                                _styled_turns = df_turns
+                            # バグ1修正: background_gradient(matplotlib依存)を使わない
+                            def _color_lg(val):
+                                try:
+                                    v = float(val)
+                                    if   v >  0.02: return "background-color:rgba(214,39,40,0.25)"
+                                    elif v < -0.02: return "background-color:rgba(31,119,180,0.25)"
+                                    else:           return "background-color:rgba(255,220,0,0.15)"
+                                except Exception:
+                                    return ""
+
+                            _map_fn = getattr(df_turns.style, "map", None) \
+                                      or getattr(df_turns.style, "applymap")
+                            _styled_turns = (
+                                _map_fn(_color_lg, subset=["Loss/Gain (s)"])
+                                .format({
+                                    "Loss/Gain (s)":   "{:+.3f}",
+                                    "ΔTime Entry (s)": "{:+.3f}",
+                                    "ΔTime Exit (s)":  "{:+.3f}",
+                                })
+                            )
 
                             st.dataframe(
                                 _styled_turns,
