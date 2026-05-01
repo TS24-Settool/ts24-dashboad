@@ -1,34 +1,25 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-extract_turn_templates.py — TS24 Turn Template Extractor
-=========================================================
+extract_turn_templates.py — TS24 Turn Template Extractor  (v2)
+=============================================================
 corner_phase_data.json から各サーキットの Turn 定義テンプレートを生成し
 turn_templates.json に出力する。
 
-【設計原則】
-コーナーは「検出するもの」ではなく「定義するもの」。
-このスクリプトが生成した draft は必ず手動検証を行ってから使用すること
-（manual_validated: true に変更してコミット）。
+【v2の修正点】
+- corner_no ごとに「何ラップで検出されたか（coverage）」を集計してデデュープ
+- coverage < 閾値（max_laps の 15%）のコーナーは除外（outlier 抑制）
+- median_corners_per_lap > 30 のサーキットは検出品質不良フラグ付きで出力
 
-出力スキーマ:
-{
-  "ASSEN": {
-    "n_turns": 18,
-    "source": "brake_cluster_extracted_2026-05-01",
-    "manual_validated": false,
-    "note": "Manual validation required before use in official analysis.",
-    "turns": [
-      {"turn": "T1", "cid_src": "C01", "progress": 0.0452, "confidence": "中"},
-      ...
-    ]
-  }
-}
+【設計原則】
+  コーナーは「検出するもの」ではなく「定義するもの」
+  → このスクリプトが生成した draft は必ず手動検証を行うこと
+  → manual_validated: true に変更してコミットする前にコーナー数を照合すること
 
 実行方法:
   python extract_turn_templates.py               # 全サーキット
   python extract_turn_templates.py --circuit ASSEN
-  python extract_turn_templates.py --dry-run     # JSON書き込みなし
+  python extract_turn_templates.py --dry-run
 """
 
 import sys
@@ -43,115 +34,139 @@ SCRIPT_DIR = Path(__file__).parent
 CP_JSON    = SCRIPT_DIR / "corner_phase_data.json"
 OUT_JSON   = SCRIPT_DIR / "turn_templates.json"
 
-# 既存テンプレートを読み込んで manual_validated を保持するために使用
-_EXISTING: dict = {}
+# median_corners_per_lap がこの値を超える場合、検出品質不良と判断
+POOR_QUALITY_THRESHOLD = 30
+# 正常品質サーキットの coverage threshold (max_count の何割以上)
+MIN_COVERAGE_FRAC      = 0.15
+# 最低 coverage サンプル数 (絶対値)
+MIN_COVERAGE_ABS       = 3
 
-
-def _cid(cno: int) -> str:
-    return f"C{cno:02d}"
-
-
-def _turn(cno: int) -> str:
-    return f"T{cno}"
+# 期待Turn数（確認用表示のみ、フィルタには使用しない）
+EXPECTED_TURNS = {
+    "ASSEN":          18,
+    "CREMONA":        10,
+    "JEREZ":          13,
+    "PHILLIP ISLAND": 12,
+    "PORTIMAO":       15,
+}
 
 
 def build_circuit_template(
     circuit: str,
-    cp_rows: list[dict],
+    rows: list[dict],
     today: str,
+    existing: dict,
 ) -> dict:
-    """
-    corner_phase_data の1サーキット分から Turn テンプレートを生成する。
+    """1サーキット分の corner_phase_data から Turn テンプレートを生成する。"""
 
-    アルゴリズム:
-    1. 各ラップの全コーナーの累積時間位置 → lap_progress を計算
-    2. 同じ corner_no のラップ間中央値で progress を代表値とする
-    3. ラップ数が多いほどconfidenceを上げる
-    """
-    # ラップ別にコーナー progress を計算
-    # {(run_no, lap_no): [(corner_no, progress), ...]}
-    lap_corners: dict[tuple, list[tuple[int, float]]] = defaultdict(list)
-    lap_times: dict[tuple, float] = {}
+    # ── ラップ識別（rider + run_no + lap_no で一意）─────────────────
+    by_lap: dict[tuple, list[dict]] = defaultdict(list)
+    for row in rows:
+        key = (row.get("rider", ""), row.get("run_no", 0), row.get("lap_no", 0))
+        by_lap[key].append(row)
 
-    for row in cp_rows:
-        key = (row.get("run_no", 0), row.get("lap_no", 0))
-        lap_times[key] = row.get("lap_time_s", 0.0) or 0.0
+    n_laps = len(by_lap)
+    if n_laps == 0:
+        return {}
 
-    # まず各ラップの全コーナーを収集
-    laps_grouped: dict[tuple, list[dict]] = defaultdict(list)
-    for row in cp_rows:
-        key = (row.get("run_no", 0), row.get("lap_no", 0))
-        laps_grouped[key].append(row)
+    # ── ラップごとのコーナー数を集計（品質判定用）──────────────────
+    lap_max_cno = [
+        max((r.get("corner_no", 0) for r in lap_rows), default=0)
+        for lap_rows in by_lap.values()
+    ]
+    median_corners_per_lap = statistics.median(lap_max_cno)
 
-    # 各ラップ→各コーナーの brake_peak_progress を計算
-    for key, rows in laps_grouped.items():
-        lt_s = lap_times.get(key, 0.0)
+    # ── corner_no ごとのラップカバレッジを集計 ─────────────────────
+    # cno → [progress_value, ...]  (progress = 累積時間/laptime)
+    by_corner: dict[int, list[float]] = defaultdict(list)
+
+    for lap_rows in by_lap.values():
+        lt_s = lap_rows[0].get("lap_time_s", 0.0) or 0.0
         if lt_s < 30.0:
             continue
-        sorted_rows = sorted(rows, key=lambda r: r.get("corner_no", 0))
+        sorted_rows = sorted(lap_rows, key=lambda r: r.get("corner_no", 0))
         cum_ms = 0.0
         for row in sorted_rows:
             cno  = int(row.get("corner_no", 0))
             ph12 = row.get("ph12_duration_ms") or 0
             prog = min(1.0, (cum_ms + ph12) / (lt_s * 1000))
-            lap_corners[key].append((cno, prog))
+            by_corner[cno].append(prog)
             cum_ms += (row.get("total_corner_ms") or 0)
 
-    # コーナーNo別に progress の中央値・標準偏差を計算
-    by_corner: dict[int, list[float]] = defaultdict(list)
-    for laps_data in lap_corners.values():
-        for cno, prog in laps_data:
-            by_corner[cno].append(prog)
+    if not by_corner:
+        return {}
 
-    # Turn テンプレート生成
+    max_count = max(len(v) for v in by_corner.values())
+
+    # ── 検出品質フラグ ──────────────────────────────────────────────
+    is_poor_quality = (median_corners_per_lap > POOR_QUALITY_THRESHOLD)
+    threshold = max(
+        MIN_COVERAGE_ABS,
+        int(max_count * MIN_COVERAGE_FRAC),
+    )
+
+    if is_poor_quality:
+        # 品質不良: 閾値を大幅に上げてノイズを除外
+        threshold = max(threshold, int(max_count * 0.70))
+        note = (
+            f"⚠️ 検出品質不良: median {median_corners_per_lap:.0f} corners/lap "
+            f"(expected ~{EXPECTED_TURNS.get(circuit, '?')}) — "
+            "ブレーキベース検出が過検出しています。手動マッピング推奨。"
+        )
+    else:
+        note = (
+            "自動抽出 draft。Turn数が実際のサーキットコーナー数と一致しない可能性があります。"
+            f"manual_validated: true にする前に実際のコーナー数"
+            f"（期待値 ~{EXPECTED_TURNS.get(circuit, '?')}）と照合してください。"
+        )
+
+    # ── Turn リスト生成（coverage >= threshold のみ）─────────────────
     turns = []
     for cno in sorted(by_corner.keys()):
         progs = by_corner[cno]
-        n     = len(progs)
-        med   = round(statistics.median(progs), 4)
-        stdev = round(statistics.stdev(progs), 4) if n >= 2 else 0.0
+        count = len(progs)
+        if count < threshold:
+            continue
+        med_prog = statistics.median(progs)
+        frac     = count / max_count
 
-        # confidence: 多くのラップで安定して検出 = 高
-        if n >= 10 and stdev < 0.02:
+        if frac >= 0.80:
             conf = "高"
-        elif n >= 5 and stdev < 0.05:
+        elif frac >= 0.50:
             conf = "中"
         else:
             conf = "低"
 
         turns.append({
-            "turn":       _turn(cno),
-            "cid_src":    _cid(cno),
-            "progress":   med,
+            "turn":       f"T{cno}",
+            "cid_src":    f"C{cno:02d}",
+            "progress":   round(med_prog, 4),
             "confidence": conf,
-            "n_laps":     n,
-            "stdev":      stdev,
+            "n_laps":     count,
         })
 
-    # 既存テンプレートの manual_validated を保持
-    existing_validated = _EXISTING.get(circuit, {}).get("manual_validated", False)
+    # ── 既存テンプレートの manual_validated を保持 ─────────────────
+    was_validated = existing.get(circuit, {}).get("manual_validated", False)
 
     return {
-        "n_turns":         len(turns),
-        "source":          f"brake_cluster_extracted_{today}",
-        "manual_validated": existing_validated,
-        "note":            (
-            "Manual validation required before use in official analysis. "
-            "GPS-based update planned. "
-            "Set manual_validated: true after verifying Turn positions on track map."
-        ),
-        "turns": turns,
+        "n_turns":                  len(turns),
+        "median_corners_per_lap":   round(median_corners_per_lap, 1),
+        "detection_quality":        "poor" if is_poor_quality else "acceptable",
+        "source":                   f"brake_cluster_extracted_{today}",
+        "manual_validated":         was_validated,
+        "note":                     note,
+        "turns":                    turns,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Turn Template Extractor")
-    parser.add_argument("--circuit", help="サーキット名でフィルター")
-    parser.add_argument("--dry-run", action="store_true", help="JSON書き込みなし")
+    parser = argparse.ArgumentParser(description="Turn Template Extractor v2")
+    parser.add_argument("--circuit",  help="サーキット名でフィルター")
+    parser.add_argument("--dry-run",  action="store_true", help="JSON書き込みなし")
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  TS24 Turn Template Extractor")
+    print("  TS24 Turn Template Extractor v2")
     print("=" * 60)
 
     if not CP_JSON.exists():
@@ -159,16 +174,14 @@ def main():
         sys.exit(1)
 
     cp_data = json.loads(CP_JSON.read_text(encoding="utf-8"))
+    today   = date.today().isoformat()
 
-    # 既存テンプレートを読み込む（manual_validated 保持のため）
-    global _EXISTING
+    existing: dict = {}
     if OUT_JSON.exists():
         try:
-            _EXISTING = json.loads(OUT_JSON.read_text(encoding="utf-8"))
+            existing = json.loads(OUT_JSON.read_text(encoding="utf-8"))
         except Exception:
-            _EXISTING = {}
-
-    today = date.today().isoformat()
+            pass
 
     # サーキット別グループ化
     by_circuit: dict[str, list[dict]] = defaultdict(list)
@@ -177,44 +190,53 @@ def main():
         if c:
             by_circuit[c].append(row)
 
-    if args.circuit:
-        circuits = [c for c in by_circuit if c == args.circuit]
-        if not circuits:
-            print(f"❌ サーキット '{args.circuit}' のデータが見つかりません")
-            print(f"   利用可能: {sorted(by_circuit.keys())}")
-            sys.exit(1)
-    else:
-        circuits = sorted(by_circuit.keys())
+    circuits = (
+        [c for c in by_circuit if c == args.circuit]
+        if args.circuit
+        else sorted(by_circuit.keys())
+    )
+    if args.circuit and not circuits:
+        print(f"❌ '{args.circuit}' のデータが見つかりません")
+        print(f"   利用可能: {sorted(by_circuit.keys())}")
+        sys.exit(1)
 
     templates: dict = {}
+    print()
     for circ in circuits:
-        rows = by_circuit[circ]
-        tmpl = build_circuit_template(circ, rows, today)
+        tmpl = build_circuit_template(circ, by_circuit[circ], today, existing)
+        if not tmpl:
+            continue
         templates[circ] = tmpl
-        validated_str = "✅ validated" if tmpl["manual_validated"] else "⚠️  NOT validated"
-        print(f"  {circ:20s}: {tmpl['n_turns']:3d} turns  {validated_str}  "
-              f"[high:{sum(1 for t in tmpl['turns'] if t['confidence']=='高')} "
-              f"mid:{sum(1 for t in tmpl['turns'] if t['confidence']=='中')} "
-              f"low:{sum(1 for t in tmpl['turns'] if t['confidence']=='低')}]")
+
+        expected = EXPECTED_TURNS.get(circ, "?")
+        n        = tmpl["n_turns"]
+        ok       = "✅" if (isinstance(expected, int) and abs(n - expected) <= 3) else "⚠️ "
+        qual     = "🔴 POOR" if tmpl["detection_quality"] == "poor" else "🟢 OK  "
+        validated = "✅ validated" if tmpl["manual_validated"] else "⚠️  NOT validated"
+
+        print(f"  {ok} {circ:20s}: {n:3d} turns "
+              f"(expected ~{expected:3})  "
+              f"{qual}  med={tmpl['median_corners_per_lap']:.0f}/lap  "
+              f"{validated}")
 
     if args.dry_run:
         print("\n[dry-run] JSON 書き込みをスキップ")
-        sample = next(iter(templates.values()), {})
-        if sample.get("turns"):
-            print(f"  sample turn: {sample['turns'][0]}")
+        for circ, tmpl in list(templates.items())[:2]:
+            print(f"\n  {circ} first 5 turns:")
+            for t in tmpl["turns"][:5]:
+                print(f"    {t['turn']:4s} prog={t['progress']:.4f}  "
+                      f"conf={t['confidence']}  n_laps={t['n_laps']}")
         return
 
-    # 既存テンプレートとマージ（指定サーキットのみ上書き、他は保持）
-    merged = dict(_EXISTING)
+    merged = dict(existing)
     merged.update(templates)
-
     OUT_JSON.write_text(
         json.dumps(merged, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     print(f"\n📄 Written: {OUT_JSON}  ({len(merged)} circuits)")
-    print("\n⚠️  重要: manual_validated はすべて false です。")
-    print("   実際のコーナー位置を確認後、該当サーキットの manual_validated を true に変更してください。")
+    print("\n⚠️  全サーキット manual_validated: false")
+    print("   サーキットマップで確認後、対象サーキットの manual_validated を true に変更してください。")
 
 
 if __name__ == "__main__":

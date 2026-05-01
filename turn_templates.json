@@ -1,6073 +1,1335 @@
 {
   "ASSEN": {
-    "n_turns": 40,
+    "n_turns": 17,
+    "median_corners_per_lap": 13.0,
+    "detection_quality": "acceptable",
     "source": "brake_cluster_extracted_2026-05-01",
     "manual_validated": false,
-    "note": "Manual validation required before use in official analysis. GPS-based update planned. Set manual_validated: true after verifying Turn positions on track map.",
+    "note": "自動抽出 draft。Turn数が実際のサーキットコーナー数と一致しない可能性があります。manual_validated: true にする前に実際のコーナー数（期待値 ~18）と照合してください。",
     "turns": [
       {
         "turn": "T1",
         "cid_src": "C01",
-        "progress": 0.0358,
-        "confidence": "低",
-        "n_laps": 110,
-        "stdev": 0.0504
+        "progress": 0.0237,
+        "confidence": "高",
+        "n_laps": 110
       },
       {
         "turn": "T2",
         "cid_src": "C02",
-        "progress": 0.1252,
-        "confidence": "低",
-        "n_laps": 110,
-        "stdev": 0.1111
+        "progress": 0.071,
+        "confidence": "高",
+        "n_laps": 110
       },
       {
         "turn": "T3",
         "cid_src": "C03",
-        "progress": 0.2189,
-        "confidence": "低",
-        "n_laps": 110,
-        "stdev": 0.175
+        "progress": 0.1201,
+        "confidence": "高",
+        "n_laps": 110
       },
       {
         "turn": "T4",
         "cid_src": "C04",
-        "progress": 0.305,
-        "confidence": "低",
-        "n_laps": 109,
-        "stdev": 0.232
+        "progress": 0.1675,
+        "confidence": "高",
+        "n_laps": 109
       },
       {
         "turn": "T5",
         "cid_src": "C05",
-        "progress": 0.3842,
-        "confidence": "低",
-        "n_laps": 109,
-        "stdev": 0.2892
+        "progress": 0.2201,
+        "confidence": "高",
+        "n_laps": 109
       },
       {
         "turn": "T6",
         "cid_src": "C06",
-        "progress": 0.4892,
-        "confidence": "低",
-        "n_laps": 108,
-        "stdev": 0.3175
+        "progress": 0.2594,
+        "confidence": "高",
+        "n_laps": 108
       },
       {
         "turn": "T7",
         "cid_src": "C07",
-        "progress": 0.5751,
-        "confidence": "低",
-        "n_laps": 108,
-        "stdev": 0.3312
+        "progress": 0.295,
+        "confidence": "高",
+        "n_laps": 108
       },
       {
         "turn": "T8",
         "cid_src": "C08",
-        "progress": 0.663,
-        "confidence": "低",
-        "n_laps": 107,
-        "stdev": 0.3233
+        "progress": 0.3501,
+        "confidence": "高",
+        "n_laps": 107
       },
       {
         "turn": "T9",
         "cid_src": "C09",
-        "progress": 0.7475,
-        "confidence": "低",
-        "n_laps": 103,
-        "stdev": 0.3077
+        "progress": 0.3915,
+        "confidence": "高",
+        "n_laps": 103
       },
       {
         "turn": "T10",
         "cid_src": "C10",
-        "progress": 0.8258,
-        "confidence": "低",
-        "n_laps": 96,
-        "stdev": 0.2941
+        "progress": 0.4564,
+        "confidence": "高",
+        "n_laps": 96
       },
       {
         "turn": "T11",
         "cid_src": "C11",
-        "progress": 0.8821,
-        "confidence": "低",
-        "n_laps": 83,
-        "stdev": 0.2839
+        "progress": 0.481,
+        "confidence": "中",
+        "n_laps": 83
       },
       {
         "turn": "T12",
         "cid_src": "C12",
-        "progress": 0.8845,
-        "confidence": "低",
-        "n_laps": 67,
-        "stdev": 0.2848
+        "progress": 0.5246,
+        "confidence": "中",
+        "n_laps": 67
       },
       {
         "turn": "T13",
         "cid_src": "C13",
-        "progress": 0.9406,
-        "confidence": "低",
-        "n_laps": 55,
-        "stdev": 0.2765
+        "progress": 0.5875,
+        "confidence": "中",
+        "n_laps": 55
       },
       {
         "turn": "T14",
         "cid_src": "C14",
-        "progress": 1.0,
+        "progress": 0.5823,
         "confidence": "低",
-        "n_laps": 43,
-        "stdev": 0.2769
+        "n_laps": 43
       },
       {
         "turn": "T15",
         "cid_src": "C15",
-        "progress": 1.0,
+        "progress": 0.6007,
         "confidence": "低",
-        "n_laps": 35,
-        "stdev": 0.2752
+        "n_laps": 35
       },
       {
         "turn": "T16",
         "cid_src": "C16",
-        "progress": 1.0,
+        "progress": 0.7364,
         "confidence": "低",
-        "n_laps": 25,
-        "stdev": 0.2776
+        "n_laps": 25
       },
       {
         "turn": "T17",
         "cid_src": "C17",
-        "progress": 1.0,
+        "progress": 0.6498,
         "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.2984
-      },
-      {
-        "turn": "T18",
-        "cid_src": "C18",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.2813
-      },
-      {
-        "turn": "T19",
-        "cid_src": "C19",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.2529
-      },
-      {
-        "turn": "T20",
-        "cid_src": "C20",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 8,
-        "stdev": 0.144
-      },
-      {
-        "turn": "T21",
-        "cid_src": "C21",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.1809
-      },
-      {
-        "turn": "T22",
-        "cid_src": "C22",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.1499
-      },
-      {
-        "turn": "T23",
-        "cid_src": "C23",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T24",
-        "cid_src": "C24",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T25",
-        "cid_src": "C25",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T26",
-        "cid_src": "C26",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T27",
-        "cid_src": "C27",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T28",
-        "cid_src": "C28",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T29",
-        "cid_src": "C29",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T30",
-        "cid_src": "C30",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T31",
-        "cid_src": "C31",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T32",
-        "cid_src": "C32",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T33",
-        "cid_src": "C33",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T34",
-        "cid_src": "C34",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T35",
-        "cid_src": "C35",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T36",
-        "cid_src": "C36",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T37",
-        "cid_src": "C37",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T38",
-        "cid_src": "C38",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T39",
-        "cid_src": "C39",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T40",
-        "cid_src": "C40",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
+        "n_laps": 18
       }
     ]
   },
   "CREMONA": {
-    "n_turns": 355,
+    "n_turns": 84,
+    "median_corners_per_lap": 87,
+    "detection_quality": "poor",
     "source": "brake_cluster_extracted_2026-05-01",
     "manual_validated": false,
-    "note": "Manual validation required before use in official analysis. GPS-based update planned. Set manual_validated: true after verifying Turn positions on track map.",
+    "note": "⚠️ 検出品質不良: median 87 corners/lap (expected ~10) — ブレーキベース検出が過検出しています。手動マッピング推奨。",
     "turns": [
       {
         "turn": "T1",
         "cid_src": "C01",
-        "progress": 0.0063,
+        "progress": 0.0018,
         "confidence": "高",
-        "n_laps": 34,
-        "stdev": 0.0114
+        "n_laps": 34
       },
       {
         "turn": "T2",
         "cid_src": "C02",
-        "progress": 0.0283,
-        "confidence": "中",
-        "n_laps": 33,
-        "stdev": 0.0266
+        "progress": 0.0114,
+        "confidence": "高",
+        "n_laps": 33
       },
       {
         "turn": "T3",
         "cid_src": "C03",
-        "progress": 0.0656,
-        "confidence": "中",
-        "n_laps": 32,
-        "stdev": 0.036
+        "progress": 0.0193,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T4",
         "cid_src": "C04",
-        "progress": 0.0892,
-        "confidence": "中",
-        "n_laps": 32,
-        "stdev": 0.0495
+        "progress": 0.0271,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T5",
         "cid_src": "C05",
-        "progress": 0.1026,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.0706
+        "progress": 0.0382,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T6",
         "cid_src": "C06",
-        "progress": 0.124,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.101
+        "progress": 0.0496,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T7",
         "cid_src": "C07",
-        "progress": 0.1519,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.1299
+        "progress": 0.0595,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T8",
         "cid_src": "C08",
-        "progress": 0.1839,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.1476
+        "progress": 0.0731,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T9",
         "cid_src": "C09",
-        "progress": 0.2082,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.1801
+        "progress": 0.0867,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T10",
         "cid_src": "C10",
-        "progress": 0.232,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.2007
+        "progress": 0.0977,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T11",
         "cid_src": "C11",
-        "progress": 0.2614,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.228
+        "progress": 0.1125,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T12",
         "cid_src": "C12",
-        "progress": 0.2931,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.2506
+        "progress": 0.1174,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T13",
         "cid_src": "C13",
-        "progress": 0.3198,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.2645
+        "progress": 0.1278,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T14",
         "cid_src": "C14",
-        "progress": 0.342,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.2665
+        "progress": 0.1391,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T15",
         "cid_src": "C15",
-        "progress": 0.37,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.2743
+        "progress": 0.1515,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T16",
         "cid_src": "C16",
-        "progress": 0.3895,
-        "confidence": "低",
-        "n_laps": 32,
-        "stdev": 0.2868
+        "progress": 0.1643,
+        "confidence": "高",
+        "n_laps": 32
       },
       {
         "turn": "T17",
         "cid_src": "C17",
-        "progress": 0.3947,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2792
+        "progress": 0.1764,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T18",
         "cid_src": "C18",
-        "progress": 0.4131,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2787
+        "progress": 0.1804,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T19",
         "cid_src": "C19",
-        "progress": 0.4377,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2809
+        "progress": 0.1921,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T20",
         "cid_src": "C20",
-        "progress": 0.4578,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2811
+        "progress": 0.2018,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T21",
         "cid_src": "C21",
-        "progress": 0.4906,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2772
+        "progress": 0.2117,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T22",
         "cid_src": "C22",
-        "progress": 0.5169,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2737
+        "progress": 0.2221,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T23",
         "cid_src": "C23",
-        "progress": 0.5437,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2696
+        "progress": 0.2372,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T24",
         "cid_src": "C24",
-        "progress": 0.5694,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2661
+        "progress": 0.2527,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T25",
         "cid_src": "C25",
-        "progress": 0.5975,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.264
+        "progress": 0.2634,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T26",
         "cid_src": "C26",
-        "progress": 0.6187,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2625
+        "progress": 0.2748,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T27",
         "cid_src": "C27",
-        "progress": 0.6388,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2614
+        "progress": 0.2866,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T28",
         "cid_src": "C28",
-        "progress": 0.653,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2617
+        "progress": 0.2966,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T29",
         "cid_src": "C29",
-        "progress": 0.6672,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2622
+        "progress": 0.3057,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T30",
         "cid_src": "C30",
-        "progress": 0.6846,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2624
+        "progress": 0.3232,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T31",
         "cid_src": "C31",
-        "progress": 0.7115,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.258
+        "progress": 0.3335,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T32",
         "cid_src": "C32",
-        "progress": 0.7331,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2533
+        "progress": 0.3456,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T33",
         "cid_src": "C33",
-        "progress": 0.7516,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2494
+        "progress": 0.3581,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T34",
         "cid_src": "C34",
-        "progress": 0.7794,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2474
+        "progress": 0.3739,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T35",
         "cid_src": "C35",
-        "progress": 0.8081,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2464
+        "progress": 0.3829,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T36",
         "cid_src": "C36",
-        "progress": 0.8412,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2431
+        "progress": 0.3914,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T37",
         "cid_src": "C37",
-        "progress": 0.8546,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2384
+        "progress": 0.4041,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T38",
         "cid_src": "C38",
-        "progress": 0.8765,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2345
+        "progress": 0.4083,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T39",
         "cid_src": "C39",
-        "progress": 0.8967,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2298
+        "progress": 0.4206,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T40",
         "cid_src": "C40",
-        "progress": 0.9104,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2253
+        "progress": 0.4351,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T41",
         "cid_src": "C41",
-        "progress": 0.9368,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2235
+        "progress": 0.4494,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T42",
         "cid_src": "C42",
-        "progress": 0.9681,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2218
+        "progress": 0.452,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T43",
         "cid_src": "C43",
-        "progress": 0.989,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.2199
+        "progress": 0.459,
+        "confidence": "高",
+        "n_laps": 31
       },
       {
         "turn": "T44",
         "cid_src": "C44",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2205
+        "progress": 0.4758,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T45",
         "cid_src": "C45",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2174
+        "progress": 0.4808,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T46",
         "cid_src": "C46",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2142
+        "progress": 0.4908,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T47",
         "cid_src": "C47",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2109
+        "progress": 0.5036,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T48",
         "cid_src": "C48",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2071
+        "progress": 0.5166,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T49",
         "cid_src": "C49",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2037
+        "progress": 0.5311,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T50",
         "cid_src": "C50",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.2015
+        "progress": 0.5443,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T51",
         "cid_src": "C51",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.1996
+        "progress": 0.5556,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T52",
         "cid_src": "C52",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 30,
-        "stdev": 0.1965
+        "progress": 0.5626,
+        "confidence": "高",
+        "n_laps": 30
       },
       {
         "turn": "T53",
         "cid_src": "C53",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 29,
-        "stdev": 0.196
+        "progress": 0.5831,
+        "confidence": "高",
+        "n_laps": 29
       },
       {
         "turn": "T54",
         "cid_src": "C54",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 28,
-        "stdev": 0.1341
+        "progress": 0.5986,
+        "confidence": "高",
+        "n_laps": 28
       },
       {
         "turn": "T55",
         "cid_src": "C55",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 27,
-        "stdev": 0.1329
+        "progress": 0.6087,
+        "confidence": "中",
+        "n_laps": 27
       },
       {
         "turn": "T56",
         "cid_src": "C56",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 27,
-        "stdev": 0.1282
+        "progress": 0.6203,
+        "confidence": "中",
+        "n_laps": 27
       },
       {
         "turn": "T57",
         "cid_src": "C57",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 27,
-        "stdev": 0.1227
+        "progress": 0.6332,
+        "confidence": "中",
+        "n_laps": 27
       },
       {
         "turn": "T58",
         "cid_src": "C58",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.1209
+        "progress": 0.6467,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T59",
         "cid_src": "C59",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.1174
+        "progress": 0.6605,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T60",
         "cid_src": "C60",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.114
+        "progress": 0.6726,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T61",
         "cid_src": "C61",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.1124
+        "progress": 0.6804,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T62",
         "cid_src": "C62",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.1086
+        "progress": 0.6885,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T63",
         "cid_src": "C63",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.1048
+        "progress": 0.6981,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T64",
         "cid_src": "C64",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.1002
+        "progress": 0.7119,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T65",
         "cid_src": "C65",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0947
+        "progress": 0.725,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T66",
         "cid_src": "C66",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0906
+        "progress": 0.7361,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T67",
         "cid_src": "C67",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0879
+        "progress": 0.7476,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T68",
         "cid_src": "C68",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0851
+        "progress": 0.756,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T69",
         "cid_src": "C69",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0803
+        "progress": 0.763,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T70",
         "cid_src": "C70",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0773
+        "progress": 0.7734,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T71",
         "cid_src": "C71",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0731
+        "progress": 0.7863,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T72",
         "cid_src": "C72",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0696
+        "progress": 0.7986,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T73",
         "cid_src": "C73",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0657
+        "progress": 0.8085,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T74",
         "cid_src": "C74",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0618
+        "progress": 0.8197,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T75",
         "cid_src": "C75",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 26,
-        "stdev": 0.0581
+        "progress": 0.8293,
+        "confidence": "中",
+        "n_laps": 26
       },
       {
         "turn": "T76",
         "cid_src": "C76",
-        "progress": 1.0,
+        "progress": 0.8405,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0471
+        "n_laps": 25
       },
       {
         "turn": "T77",
         "cid_src": "C77",
-        "progress": 1.0,
+        "progress": 0.8527,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0444
+        "n_laps": 25
       },
       {
         "turn": "T78",
         "cid_src": "C78",
-        "progress": 1.0,
+        "progress": 0.8638,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0416
+        "n_laps": 25
       },
       {
         "turn": "T79",
         "cid_src": "C79",
-        "progress": 1.0,
+        "progress": 0.8741,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0384
+        "n_laps": 25
       },
       {
         "turn": "T80",
         "cid_src": "C80",
-        "progress": 1.0,
+        "progress": 0.881,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0356
+        "n_laps": 25
       },
       {
         "turn": "T81",
         "cid_src": "C81",
-        "progress": 1.0,
+        "progress": 0.8904,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0342
+        "n_laps": 25
       },
       {
         "turn": "T82",
         "cid_src": "C82",
-        "progress": 1.0,
+        "progress": 0.9067,
         "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0325
+        "n_laps": 25
       },
       {
         "turn": "T83",
         "cid_src": "C83",
-        "progress": 1.0,
+        "progress": 0.9228,
         "confidence": "中",
-        "n_laps": 24,
-        "stdev": 0.0319
+        "n_laps": 24
       },
       {
         "turn": "T84",
         "cid_src": "C84",
-        "progress": 1.0,
+        "progress": 0.9331,
         "confidence": "中",
-        "n_laps": 24,
-        "stdev": 0.0296
-      },
-      {
-        "turn": "T85",
-        "cid_src": "C85",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 22,
-        "stdev": 0.0277
-      },
-      {
-        "turn": "T86",
-        "cid_src": "C86",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 22,
-        "stdev": 0.0264
-      },
-      {
-        "turn": "T87",
-        "cid_src": "C87",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 22,
-        "stdev": 0.0237
-      },
-      {
-        "turn": "T88",
-        "cid_src": "C88",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 19,
-        "stdev": 0.0229
-      },
-      {
-        "turn": "T89",
-        "cid_src": "C89",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 19,
-        "stdev": 0.0206
-      },
-      {
-        "turn": "T90",
-        "cid_src": "C90",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0198
-      },
-      {
-        "turn": "T91",
-        "cid_src": "C91",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0178
-      },
-      {
-        "turn": "T92",
-        "cid_src": "C92",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0161
-      },
-      {
-        "turn": "T93",
-        "cid_src": "C93",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0106
-      },
-      {
-        "turn": "T94",
-        "cid_src": "C94",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0071
-      },
-      {
-        "turn": "T95",
-        "cid_src": "C95",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0026
-      },
-      {
-        "turn": "T96",
-        "cid_src": "C96",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0011
-      },
-      {
-        "turn": "T97",
-        "cid_src": "C97",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0006
-      },
-      {
-        "turn": "T98",
-        "cid_src": "C98",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T99",
-        "cid_src": "C99",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T100",
-        "cid_src": "C100",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T101",
-        "cid_src": "C101",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T102",
-        "cid_src": "C102",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T103",
-        "cid_src": "C103",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 19,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T104",
-        "cid_src": "C104",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 17,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T105",
-        "cid_src": "C105",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 17,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T106",
-        "cid_src": "C106",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 17,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T107",
-        "cid_src": "C107",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 17,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T108",
-        "cid_src": "C108",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 17,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T109",
-        "cid_src": "C109",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 17,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T110",
-        "cid_src": "C110",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T111",
-        "cid_src": "C111",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T112",
-        "cid_src": "C112",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T113",
-        "cid_src": "C113",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T114",
-        "cid_src": "C114",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T115",
-        "cid_src": "C115",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T116",
-        "cid_src": "C116",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T117",
-        "cid_src": "C117",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T118",
-        "cid_src": "C118",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 15,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T119",
-        "cid_src": "C119",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T120",
-        "cid_src": "C120",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T121",
-        "cid_src": "C121",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T122",
-        "cid_src": "C122",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T123",
-        "cid_src": "C123",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T124",
-        "cid_src": "C124",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T125",
-        "cid_src": "C125",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T126",
-        "cid_src": "C126",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T127",
-        "cid_src": "C127",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T128",
-        "cid_src": "C128",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T129",
-        "cid_src": "C129",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T130",
-        "cid_src": "C130",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T131",
-        "cid_src": "C131",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T132",
-        "cid_src": "C132",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T133",
-        "cid_src": "C133",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T134",
-        "cid_src": "C134",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 13,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T135",
-        "cid_src": "C135",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 11,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T136",
-        "cid_src": "C136",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 11,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T137",
-        "cid_src": "C137",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 11,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T138",
-        "cid_src": "C138",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 11,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T139",
-        "cid_src": "C139",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T140",
-        "cid_src": "C140",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T141",
-        "cid_src": "C141",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T142",
-        "cid_src": "C142",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T143",
-        "cid_src": "C143",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T144",
-        "cid_src": "C144",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T145",
-        "cid_src": "C145",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T146",
-        "cid_src": "C146",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T147",
-        "cid_src": "C147",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T148",
-        "cid_src": "C148",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T149",
-        "cid_src": "C149",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T150",
-        "cid_src": "C150",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T151",
-        "cid_src": "C151",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T152",
-        "cid_src": "C152",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T153",
-        "cid_src": "C153",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T154",
-        "cid_src": "C154",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T155",
-        "cid_src": "C155",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T156",
-        "cid_src": "C156",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T157",
-        "cid_src": "C157",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T158",
-        "cid_src": "C158",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T159",
-        "cid_src": "C159",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T160",
-        "cid_src": "C160",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T161",
-        "cid_src": "C161",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T162",
-        "cid_src": "C162",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T163",
-        "cid_src": "C163",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T164",
-        "cid_src": "C164",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T165",
-        "cid_src": "C165",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T166",
-        "cid_src": "C166",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T167",
-        "cid_src": "C167",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T168",
-        "cid_src": "C168",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T169",
-        "cid_src": "C169",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T170",
-        "cid_src": "C170",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T171",
-        "cid_src": "C171",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T172",
-        "cid_src": "C172",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T173",
-        "cid_src": "C173",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T174",
-        "cid_src": "C174",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T175",
-        "cid_src": "C175",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T176",
-        "cid_src": "C176",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T177",
-        "cid_src": "C177",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T178",
-        "cid_src": "C178",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T179",
-        "cid_src": "C179",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T180",
-        "cid_src": "C180",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T181",
-        "cid_src": "C181",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T182",
-        "cid_src": "C182",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T183",
-        "cid_src": "C183",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T184",
-        "cid_src": "C184",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T185",
-        "cid_src": "C185",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T186",
-        "cid_src": "C186",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T187",
-        "cid_src": "C187",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T188",
-        "cid_src": "C188",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T189",
-        "cid_src": "C189",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T190",
-        "cid_src": "C190",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T191",
-        "cid_src": "C191",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T192",
-        "cid_src": "C192",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T193",
-        "cid_src": "C193",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T194",
-        "cid_src": "C194",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T195",
-        "cid_src": "C195",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T196",
-        "cid_src": "C196",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T197",
-        "cid_src": "C197",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T198",
-        "cid_src": "C198",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T199",
-        "cid_src": "C199",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T200",
-        "cid_src": "C200",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T201",
-        "cid_src": "C201",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T202",
-        "cid_src": "C202",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T203",
-        "cid_src": "C203",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T204",
-        "cid_src": "C204",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T205",
-        "cid_src": "C205",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T206",
-        "cid_src": "C206",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T207",
-        "cid_src": "C207",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T208",
-        "cid_src": "C208",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T209",
-        "cid_src": "C209",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T210",
-        "cid_src": "C210",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T211",
-        "cid_src": "C211",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T212",
-        "cid_src": "C212",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T213",
-        "cid_src": "C213",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T214",
-        "cid_src": "C214",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T215",
-        "cid_src": "C215",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T216",
-        "cid_src": "C216",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T217",
-        "cid_src": "C217",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T218",
-        "cid_src": "C218",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T219",
-        "cid_src": "C219",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T220",
-        "cid_src": "C220",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T221",
-        "cid_src": "C221",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T222",
-        "cid_src": "C222",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T223",
-        "cid_src": "C223",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T224",
-        "cid_src": "C224",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T225",
-        "cid_src": "C225",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T226",
-        "cid_src": "C226",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T227",
-        "cid_src": "C227",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T228",
-        "cid_src": "C228",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T229",
-        "cid_src": "C229",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T230",
-        "cid_src": "C230",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T231",
-        "cid_src": "C231",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T232",
-        "cid_src": "C232",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T233",
-        "cid_src": "C233",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T234",
-        "cid_src": "C234",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T235",
-        "cid_src": "C235",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T236",
-        "cid_src": "C236",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T237",
-        "cid_src": "C237",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T238",
-        "cid_src": "C238",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T239",
-        "cid_src": "C239",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T240",
-        "cid_src": "C240",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T241",
-        "cid_src": "C241",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T242",
-        "cid_src": "C242",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T243",
-        "cid_src": "C243",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T244",
-        "cid_src": "C244",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T245",
-        "cid_src": "C245",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T246",
-        "cid_src": "C246",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T247",
-        "cid_src": "C247",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T248",
-        "cid_src": "C248",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T249",
-        "cid_src": "C249",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T250",
-        "cid_src": "C250",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T251",
-        "cid_src": "C251",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T252",
-        "cid_src": "C252",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T253",
-        "cid_src": "C253",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T254",
-        "cid_src": "C254",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T255",
-        "cid_src": "C255",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T256",
-        "cid_src": "C256",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T257",
-        "cid_src": "C257",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T258",
-        "cid_src": "C258",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T259",
-        "cid_src": "C259",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T260",
-        "cid_src": "C260",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T261",
-        "cid_src": "C261",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T262",
-        "cid_src": "C262",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T263",
-        "cid_src": "C263",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T264",
-        "cid_src": "C264",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T265",
-        "cid_src": "C265",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T266",
-        "cid_src": "C266",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T267",
-        "cid_src": "C267",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T268",
-        "cid_src": "C268",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T269",
-        "cid_src": "C269",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T270",
-        "cid_src": "C270",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T271",
-        "cid_src": "C271",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T272",
-        "cid_src": "C272",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T273",
-        "cid_src": "C273",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T274",
-        "cid_src": "C274",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T275",
-        "cid_src": "C275",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T276",
-        "cid_src": "C276",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T277",
-        "cid_src": "C277",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T278",
-        "cid_src": "C278",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T279",
-        "cid_src": "C279",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T280",
-        "cid_src": "C280",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T281",
-        "cid_src": "C281",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T282",
-        "cid_src": "C282",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T283",
-        "cid_src": "C283",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T284",
-        "cid_src": "C284",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T285",
-        "cid_src": "C285",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T286",
-        "cid_src": "C286",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T287",
-        "cid_src": "C287",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T288",
-        "cid_src": "C288",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T289",
-        "cid_src": "C289",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T290",
-        "cid_src": "C290",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T291",
-        "cid_src": "C291",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T292",
-        "cid_src": "C292",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T293",
-        "cid_src": "C293",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T294",
-        "cid_src": "C294",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T295",
-        "cid_src": "C295",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T296",
-        "cid_src": "C296",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T297",
-        "cid_src": "C297",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T298",
-        "cid_src": "C298",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T299",
-        "cid_src": "C299",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T300",
-        "cid_src": "C300",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T301",
-        "cid_src": "C301",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T302",
-        "cid_src": "C302",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T303",
-        "cid_src": "C303",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T304",
-        "cid_src": "C304",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T305",
-        "cid_src": "C305",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T306",
-        "cid_src": "C306",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T307",
-        "cid_src": "C307",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T308",
-        "cid_src": "C308",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T309",
-        "cid_src": "C309",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T310",
-        "cid_src": "C310",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T311",
-        "cid_src": "C311",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T312",
-        "cid_src": "C312",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T313",
-        "cid_src": "C313",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T314",
-        "cid_src": "C314",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T315",
-        "cid_src": "C315",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T316",
-        "cid_src": "C316",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T317",
-        "cid_src": "C317",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T318",
-        "cid_src": "C318",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T319",
-        "cid_src": "C319",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T320",
-        "cid_src": "C320",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T321",
-        "cid_src": "C321",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T322",
-        "cid_src": "C322",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T323",
-        "cid_src": "C323",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T324",
-        "cid_src": "C324",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T325",
-        "cid_src": "C325",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T326",
-        "cid_src": "C326",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T327",
-        "cid_src": "C327",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T328",
-        "cid_src": "C328",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T329",
-        "cid_src": "C329",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T330",
-        "cid_src": "C330",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T331",
-        "cid_src": "C331",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T332",
-        "cid_src": "C332",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T333",
-        "cid_src": "C333",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T334",
-        "cid_src": "C334",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T335",
-        "cid_src": "C335",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T336",
-        "cid_src": "C336",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T337",
-        "cid_src": "C337",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T338",
-        "cid_src": "C338",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T339",
-        "cid_src": "C339",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T340",
-        "cid_src": "C340",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T341",
-        "cid_src": "C341",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T342",
-        "cid_src": "C342",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T343",
-        "cid_src": "C343",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T344",
-        "cid_src": "C344",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T345",
-        "cid_src": "C345",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T346",
-        "cid_src": "C346",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T347",
-        "cid_src": "C347",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T348",
-        "cid_src": "C348",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T349",
-        "cid_src": "C349",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T350",
-        "cid_src": "C350",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T351",
-        "cid_src": "C351",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T352",
-        "cid_src": "C352",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T353",
-        "cid_src": "C353",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T354",
-        "cid_src": "C354",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T355",
-        "cid_src": "C355",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
+        "n_laps": 24
       }
     ]
   },
   "JEREZ": {
-    "n_turns": 59,
+    "n_turns": 25,
+    "median_corners_per_lap": 18,
+    "detection_quality": "acceptable",
     "source": "brake_cluster_extracted_2026-05-01",
     "manual_validated": false,
-    "note": "Manual validation required before use in official analysis. GPS-based update planned. Set manual_validated: true after verifying Turn positions on track map.",
+    "note": "自動抽出 draft。Turn数が実際のサーキットコーナー数と一致しない可能性があります。manual_validated: true にする前に実際のコーナー数（期待値 ~13）と照合してください。",
     "turns": [
       {
         "turn": "T1",
         "cid_src": "C01",
-        "progress": 0.0824,
-        "confidence": "低",
-        "n_laps": 162,
-        "stdev": 0.11
+        "progress": 0.0426,
+        "confidence": "高",
+        "n_laps": 162
       },
       {
         "turn": "T2",
         "cid_src": "C02",
-        "progress": 0.3549,
-        "confidence": "低",
-        "n_laps": 162,
-        "stdev": 0.2289
+        "progress": 0.1972,
+        "confidence": "高",
+        "n_laps": 162
       },
       {
         "turn": "T3",
         "cid_src": "C03",
-        "progress": 0.6742,
-        "confidence": "低",
-        "n_laps": 162,
-        "stdev": 0.2889
+        "progress": 0.3473,
+        "confidence": "高",
+        "n_laps": 162
       },
       {
         "turn": "T4",
         "cid_src": "C04",
-        "progress": 0.9744,
-        "confidence": "低",
-        "n_laps": 162,
-        "stdev": 0.272
+        "progress": 0.5024,
+        "confidence": "高",
+        "n_laps": 162
       },
       {
         "turn": "T5",
         "cid_src": "C05",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 161,
-        "stdev": 0.2201
+        "progress": 0.6466,
+        "confidence": "高",
+        "n_laps": 161
       },
       {
         "turn": "T6",
         "cid_src": "C06",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 161,
-        "stdev": 0.1757
+        "progress": 0.7628,
+        "confidence": "高",
+        "n_laps": 161
       },
       {
         "turn": "T7",
         "cid_src": "C07",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 160,
-        "stdev": 0.1337
+        "progress": 0.8959,
+        "confidence": "高",
+        "n_laps": 160
       },
       {
         "turn": "T8",
         "cid_src": "C08",
         "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 160,
-        "stdev": 0.1008
+        "confidence": "高",
+        "n_laps": 160
       },
       {
         "turn": "T9",
         "cid_src": "C09",
         "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 158,
-        "stdev": 0.0685
+        "confidence": "高",
+        "n_laps": 158
       },
       {
         "turn": "T10",
         "cid_src": "C10",
         "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 156,
-        "stdev": 0.0399
+        "confidence": "高",
+        "n_laps": 156
       },
       {
         "turn": "T11",
         "cid_src": "C11",
         "progress": 1.0,
         "confidence": "高",
-        "n_laps": 154,
-        "stdev": 0.0136
+        "n_laps": 154
       },
       {
         "turn": "T12",
         "cid_src": "C12",
         "progress": 1.0,
         "confidence": "高",
-        "n_laps": 152,
-        "stdev": 0.0
+        "n_laps": 152
       },
       {
         "turn": "T13",
         "cid_src": "C13",
         "progress": 1.0,
         "confidence": "高",
-        "n_laps": 146,
-        "stdev": 0.0
+        "n_laps": 146
       },
       {
         "turn": "T14",
         "cid_src": "C14",
         "progress": 1.0,
         "confidence": "高",
-        "n_laps": 142,
-        "stdev": 0.0
+        "n_laps": 142
       },
       {
         "turn": "T15",
         "cid_src": "C15",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 124,
-        "stdev": 0.0
+        "confidence": "中",
+        "n_laps": 124
       },
       {
         "turn": "T16",
         "cid_src": "C16",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 116,
-        "stdev": 0.0
+        "confidence": "中",
+        "n_laps": 116
       },
       {
         "turn": "T17",
         "cid_src": "C17",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 106,
-        "stdev": 0.0
+        "confidence": "中",
+        "n_laps": 106
       },
       {
         "turn": "T18",
         "cid_src": "C18",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 86,
-        "stdev": 0.0
+        "confidence": "中",
+        "n_laps": 86
       },
       {
         "turn": "T19",
         "cid_src": "C19",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 76,
-        "stdev": 0.0
+        "confidence": "低",
+        "n_laps": 76
       },
       {
         "turn": "T20",
         "cid_src": "C20",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 62,
-        "stdev": 0.0
+        "confidence": "低",
+        "n_laps": 62
       },
       {
         "turn": "T21",
         "cid_src": "C21",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 58,
-        "stdev": 0.0
+        "confidence": "低",
+        "n_laps": 58
       },
       {
         "turn": "T22",
         "cid_src": "C22",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 46,
-        "stdev": 0.0
+        "confidence": "低",
+        "n_laps": 46
       },
       {
         "turn": "T23",
         "cid_src": "C23",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 28,
-        "stdev": 0.0
+        "confidence": "低",
+        "n_laps": 28
       },
       {
         "turn": "T24",
         "cid_src": "C24",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 28,
-        "stdev": 0.0
+        "confidence": "低",
+        "n_laps": 28
       },
       {
         "turn": "T25",
         "cid_src": "C25",
         "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 24,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T26",
-        "cid_src": "C26",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 22,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T27",
-        "cid_src": "C27",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 16,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T28",
-        "cid_src": "C28",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T29",
-        "cid_src": "C29",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T30",
-        "cid_src": "C30",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 14,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T31",
-        "cid_src": "C31",
-        "progress": 1.0,
-        "confidence": "高",
-        "n_laps": 10,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T32",
-        "cid_src": "C32",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 8,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T33",
-        "cid_src": "C33",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T34",
-        "cid_src": "C34",
-        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T35",
-        "cid_src": "C35",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T36",
-        "cid_src": "C36",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T37",
-        "cid_src": "C37",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T38",
-        "cid_src": "C38",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T39",
-        "cid_src": "C39",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T40",
-        "cid_src": "C40",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T41",
-        "cid_src": "C41",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T42",
-        "cid_src": "C42",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T43",
-        "cid_src": "C43",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T44",
-        "cid_src": "C44",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T45",
-        "cid_src": "C45",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T46",
-        "cid_src": "C46",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T47",
-        "cid_src": "C47",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T48",
-        "cid_src": "C48",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T49",
-        "cid_src": "C49",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T50",
-        "cid_src": "C50",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T51",
-        "cid_src": "C51",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T52",
-        "cid_src": "C52",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T53",
-        "cid_src": "C53",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T54",
-        "cid_src": "C54",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T55",
-        "cid_src": "C55",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T56",
-        "cid_src": "C56",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T57",
-        "cid_src": "C57",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T58",
-        "cid_src": "C58",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T59",
-        "cid_src": "C59",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
+        "n_laps": 24
       }
     ]
   },
   "PHILLIP ISLAND": {
-    "n_turns": 117,
+    "n_turns": 20,
+    "median_corners_per_lap": 12.0,
+    "detection_quality": "acceptable",
     "source": "brake_cluster_extracted_2026-05-01",
     "manual_validated": false,
-    "note": "Manual validation required before use in official analysis. GPS-based update planned. Set manual_validated: true after verifying Turn positions on track map.",
+    "note": "自動抽出 draft。Turn数が実際のサーキットコーナー数と一致しない可能性があります。manual_validated: true にする前に実際のコーナー数（期待値 ~12）と照合してください。",
     "turns": [
       {
         "turn": "T1",
         "cid_src": "C01",
-        "progress": 0.095,
-        "confidence": "低",
-        "n_laps": 288,
-        "stdev": 0.1248
+        "progress": 0.0506,
+        "confidence": "高",
+        "n_laps": 288
       },
       {
         "turn": "T2",
         "cid_src": "C02",
-        "progress": 0.3497,
-        "confidence": "低",
-        "n_laps": 287,
-        "stdev": 0.2545
+        "progress": 0.1851,
+        "confidence": "高",
+        "n_laps": 287
       },
       {
         "turn": "T3",
         "cid_src": "C03",
-        "progress": 0.5901,
-        "confidence": "低",
-        "n_laps": 286,
-        "stdev": 0.3175
+        "progress": 0.326,
+        "confidence": "高",
+        "n_laps": 286
       },
       {
         "turn": "T4",
         "cid_src": "C04",
-        "progress": 0.8059,
-        "confidence": "低",
-        "n_laps": 286,
-        "stdev": 0.2978
+        "progress": 0.4688,
+        "confidence": "高",
+        "n_laps": 286
       },
       {
         "turn": "T5",
         "cid_src": "C05",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 285,
-        "stdev": 0.2803
+        "progress": 0.6108,
+        "confidence": "高",
+        "n_laps": 285
       },
       {
         "turn": "T6",
         "cid_src": "C06",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 268,
-        "stdev": 0.2567
+        "progress": 0.7284,
+        "confidence": "高",
+        "n_laps": 268
       },
       {
         "turn": "T7",
         "cid_src": "C07",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 236,
-        "stdev": 0.2421
+        "progress": 0.8457,
+        "confidence": "高",
+        "n_laps": 236
       },
       {
         "turn": "T8",
         "cid_src": "C08",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 212,
-        "stdev": 0.22
+        "progress": 0.9275,
+        "confidence": "中",
+        "n_laps": 212
       },
       {
         "turn": "T9",
         "cid_src": "C09",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 187,
-        "stdev": 0.2207
+        "progress": 0.9202,
+        "confidence": "中",
+        "n_laps": 187
       },
       {
         "turn": "T10",
         "cid_src": "C10",
         "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 169,
-        "stdev": 0.2123
+        "confidence": "中",
+        "n_laps": 169
       },
       {
         "turn": "T11",
         "cid_src": "C11",
         "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 151,
-        "stdev": 0.2163
+        "confidence": "中",
+        "n_laps": 151
       },
       {
         "turn": "T12",
         "cid_src": "C12",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 128,
-        "stdev": 0.2251
+        "n_laps": 128
       },
       {
         "turn": "T13",
         "cid_src": "C13",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 110,
-        "stdev": 0.2262
+        "n_laps": 110
       },
       {
         "turn": "T14",
         "cid_src": "C14",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 87,
-        "stdev": 0.2475
+        "n_laps": 87
       },
       {
         "turn": "T15",
         "cid_src": "C15",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 79,
-        "stdev": 0.2517
+        "n_laps": 79
       },
       {
         "turn": "T16",
         "cid_src": "C16",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 64,
-        "stdev": 0.2674
+        "n_laps": 64
       },
       {
         "turn": "T17",
         "cid_src": "C17",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 60,
-        "stdev": 0.2582
+        "n_laps": 60
       },
       {
         "turn": "T18",
         "cid_src": "C18",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 53,
-        "stdev": 0.2683
+        "n_laps": 53
       },
       {
         "turn": "T19",
         "cid_src": "C19",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 53,
-        "stdev": 0.2669
+        "n_laps": 53
       },
       {
         "turn": "T20",
         "cid_src": "C20",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 50,
-        "stdev": 0.2716
-      },
-      {
-        "turn": "T21",
-        "cid_src": "C21",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 42,
-        "stdev": 0.2899
-      },
-      {
-        "turn": "T22",
-        "cid_src": "C22",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 40,
-        "stdev": 0.293
-      },
-      {
-        "turn": "T23",
-        "cid_src": "C23",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 38,
-        "stdev": 0.2957
-      },
-      {
-        "turn": "T24",
-        "cid_src": "C24",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 35,
-        "stdev": 0.3035
-      },
-      {
-        "turn": "T25",
-        "cid_src": "C25",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.3147
-      },
-      {
-        "turn": "T26",
-        "cid_src": "C26",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 27,
-        "stdev": 0.3294
-      },
-      {
-        "turn": "T27",
-        "cid_src": "C27",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 25,
-        "stdev": 0.3186
-      },
-      {
-        "turn": "T28",
-        "cid_src": "C28",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 23,
-        "stdev": 0.3272
-      },
-      {
-        "turn": "T29",
-        "cid_src": "C29",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 23,
-        "stdev": 0.326
-      },
-      {
-        "turn": "T30",
-        "cid_src": "C30",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 21,
-        "stdev": 0.3366
-      },
-      {
-        "turn": "T31",
-        "cid_src": "C31",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3439
-      },
-      {
-        "turn": "T32",
-        "cid_src": "C32",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3425
-      },
-      {
-        "turn": "T33",
-        "cid_src": "C33",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3406
-      },
-      {
-        "turn": "T34",
-        "cid_src": "C34",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3384
-      },
-      {
-        "turn": "T35",
-        "cid_src": "C35",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3367
-      },
-      {
-        "turn": "T36",
-        "cid_src": "C36",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3418
-      },
-      {
-        "turn": "T37",
-        "cid_src": "C37",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3401
-      },
-      {
-        "turn": "T38",
-        "cid_src": "C38",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3387
-      },
-      {
-        "turn": "T39",
-        "cid_src": "C39",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3373
-      },
-      {
-        "turn": "T40",
-        "cid_src": "C40",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3356
-      },
-      {
-        "turn": "T41",
-        "cid_src": "C41",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3345
-      },
-      {
-        "turn": "T42",
-        "cid_src": "C42",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3333
-      },
-      {
-        "turn": "T43",
-        "cid_src": "C43",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 19,
-        "stdev": 0.3323
-      },
-      {
-        "turn": "T44",
-        "cid_src": "C44",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.3373
-      },
-      {
-        "turn": "T45",
-        "cid_src": "C45",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.3346
-      },
-      {
-        "turn": "T46",
-        "cid_src": "C46",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.3323
-      },
-      {
-        "turn": "T47",
-        "cid_src": "C47",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.3298
-      },
-      {
-        "turn": "T48",
-        "cid_src": "C48",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.3286
-      },
-      {
-        "turn": "T49",
-        "cid_src": "C49",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.328
-      },
-      {
-        "turn": "T50",
-        "cid_src": "C50",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.3259
-      },
-      {
-        "turn": "T51",
-        "cid_src": "C51",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 17,
-        "stdev": 0.3313
-      },
-      {
-        "turn": "T52",
-        "cid_src": "C52",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.3465
-      },
-      {
-        "turn": "T53",
-        "cid_src": "C53",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 14,
-        "stdev": 0.3098
-      },
-      {
-        "turn": "T54",
-        "cid_src": "C54",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.2503
-      },
-      {
-        "turn": "T55",
-        "cid_src": "C55",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.2578
-      },
-      {
-        "turn": "T56",
-        "cid_src": "C56",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.2536
-      },
-      {
-        "turn": "T57",
-        "cid_src": "C57",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.2511
-      },
-      {
-        "turn": "T58",
-        "cid_src": "C58",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2392
-      },
-      {
-        "turn": "T59",
-        "cid_src": "C59",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2386
-      },
-      {
-        "turn": "T60",
-        "cid_src": "C60",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2381
-      },
-      {
-        "turn": "T61",
-        "cid_src": "C61",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2367
-      },
-      {
-        "turn": "T62",
-        "cid_src": "C62",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2358
-      },
-      {
-        "turn": "T63",
-        "cid_src": "C63",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2347
-      },
-      {
-        "turn": "T64",
-        "cid_src": "C64",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2335
-      },
-      {
-        "turn": "T65",
-        "cid_src": "C65",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.2322
-      },
-      {
-        "turn": "T66",
-        "cid_src": "C66",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.2419
-      },
-      {
-        "turn": "T67",
-        "cid_src": "C67",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.2411
-      },
-      {
-        "turn": "T68",
-        "cid_src": "C68",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.2402
-      },
-      {
-        "turn": "T69",
-        "cid_src": "C69",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.2392
-      },
-      {
-        "turn": "T70",
-        "cid_src": "C70",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.2381
-      },
-      {
-        "turn": "T71",
-        "cid_src": "C71",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.2496
-      },
-      {
-        "turn": "T72",
-        "cid_src": "C72",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.2488
-      },
-      {
-        "turn": "T73",
-        "cid_src": "C73",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.2469
-      },
-      {
-        "turn": "T74",
-        "cid_src": "C74",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.245
-      },
-      {
-        "turn": "T75",
-        "cid_src": "C75",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.2449
-      },
-      {
-        "turn": "T76",
-        "cid_src": "C76",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 7,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T77",
-        "cid_src": "C77",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 7,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T78",
-        "cid_src": "C78",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 7,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T79",
-        "cid_src": "C79",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 7,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T80",
-        "cid_src": "C80",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 7,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T81",
-        "cid_src": "C81",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T82",
-        "cid_src": "C82",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 6,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T83",
-        "cid_src": "C83",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 5,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T84",
-        "cid_src": "C84",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 5,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T85",
-        "cid_src": "C85",
-        "progress": 1.0,
-        "confidence": "中",
-        "n_laps": 5,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T86",
-        "cid_src": "C86",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T87",
-        "cid_src": "C87",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T88",
-        "cid_src": "C88",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T89",
-        "cid_src": "C89",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T90",
-        "cid_src": "C90",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T91",
-        "cid_src": "C91",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T92",
-        "cid_src": "C92",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T93",
-        "cid_src": "C93",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T94",
-        "cid_src": "C94",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T95",
-        "cid_src": "C95",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T96",
-        "cid_src": "C96",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T97",
-        "cid_src": "C97",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T98",
-        "cid_src": "C98",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T99",
-        "cid_src": "C99",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T100",
-        "cid_src": "C100",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T101",
-        "cid_src": "C101",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T102",
-        "cid_src": "C102",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T103",
-        "cid_src": "C103",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T104",
-        "cid_src": "C104",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T105",
-        "cid_src": "C105",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T106",
-        "cid_src": "C106",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T107",
-        "cid_src": "C107",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T108",
-        "cid_src": "C108",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T109",
-        "cid_src": "C109",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T110",
-        "cid_src": "C110",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T111",
-        "cid_src": "C111",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T112",
-        "cid_src": "C112",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T113",
-        "cid_src": "C113",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T114",
-        "cid_src": "C114",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T115",
-        "cid_src": "C115",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T116",
-        "cid_src": "C116",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T117",
-        "cid_src": "C117",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
+        "n_laps": 50
       }
     ]
   },
   "PORTIMAO": {
-    "n_turns": 165,
+    "n_turns": 21,
+    "median_corners_per_lap": 15.5,
+    "detection_quality": "acceptable",
     "source": "brake_cluster_extracted_2026-05-01",
     "manual_validated": false,
-    "note": "Manual validation required before use in official analysis. GPS-based update planned. Set manual_validated: true after verifying Turn positions on track map.",
+    "note": "自動抽出 draft。Turn数が実際のサーキットコーナー数と一致しない可能性があります。manual_validated: true にする前に実際のコーナー数（期待値 ~15）と照合してください。",
     "turns": [
       {
         "turn": "T1",
         "cid_src": "C01",
-        "progress": 0.0418,
-        "confidence": "低",
-        "n_laps": 218,
-        "stdev": 0.0829
+        "progress": 0.0354,
+        "confidence": "高",
+        "n_laps": 218
       },
       {
         "turn": "T2",
         "cid_src": "C02",
-        "progress": 0.1833,
-        "confidence": "低",
-        "n_laps": 216,
-        "stdev": 0.3014
+        "progress": 0.1194,
+        "confidence": "高",
+        "n_laps": 216
       },
       {
         "turn": "T3",
         "cid_src": "C03",
-        "progress": 0.3251,
-        "confidence": "低",
-        "n_laps": 215,
-        "stdev": 0.3396
+        "progress": 0.1971,
+        "confidence": "高",
+        "n_laps": 215
       },
       {
         "turn": "T4",
         "cid_src": "C04",
-        "progress": 0.4735,
-        "confidence": "低",
-        "n_laps": 214,
-        "stdev": 0.3729
+        "progress": 0.2787,
+        "confidence": "高",
+        "n_laps": 214
       },
       {
         "turn": "T5",
         "cid_src": "C05",
-        "progress": 0.5954,
-        "confidence": "低",
-        "n_laps": 214,
-        "stdev": 0.3629
+        "progress": 0.3448,
+        "confidence": "高",
+        "n_laps": 214
       },
       {
         "turn": "T6",
         "cid_src": "C06",
-        "progress": 0.7099,
-        "confidence": "低",
-        "n_laps": 208,
-        "stdev": 0.3552
+        "progress": 0.4032,
+        "confidence": "高",
+        "n_laps": 208
       },
       {
         "turn": "T7",
         "cid_src": "C07",
-        "progress": 0.8253,
-        "confidence": "低",
-        "n_laps": 198,
-        "stdev": 0.3625
+        "progress": 0.4865,
+        "confidence": "高",
+        "n_laps": 198
       },
       {
         "turn": "T8",
         "cid_src": "C08",
-        "progress": 0.9274,
-        "confidence": "低",
-        "n_laps": 185,
-        "stdev": 0.3653
+        "progress": 0.5646,
+        "confidence": "高",
+        "n_laps": 185
       },
       {
         "turn": "T9",
         "cid_src": "C09",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 175,
-        "stdev": 0.3671
+        "progress": 0.6523,
+        "confidence": "高",
+        "n_laps": 175
       },
       {
         "turn": "T10",
         "cid_src": "C10",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 167,
-        "stdev": 0.3631
+        "progress": 0.7312,
+        "confidence": "中",
+        "n_laps": 167
       },
       {
         "turn": "T11",
         "cid_src": "C11",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 158,
-        "stdev": 0.3586
+        "progress": 0.7974,
+        "confidence": "中",
+        "n_laps": 158
       },
       {
         "turn": "T12",
         "cid_src": "C12",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 146,
-        "stdev": 0.3587
+        "progress": 0.8546,
+        "confidence": "中",
+        "n_laps": 146
       },
       {
         "turn": "T13",
         "cid_src": "C13",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 133,
-        "stdev": 0.3617
+        "progress": 0.9294,
+        "confidence": "中",
+        "n_laps": 133
       },
       {
         "turn": "T14",
         "cid_src": "C14",
-        "progress": 1.0,
-        "confidence": "低",
-        "n_laps": 114,
-        "stdev": 0.37
+        "progress": 0.9747,
+        "confidence": "中",
+        "n_laps": 114
       },
       {
         "turn": "T15",
         "cid_src": "C15",
         "progress": 1.0,
         "confidence": "低",
-        "n_laps": 99,
-        "stdev": 0.3824
+        "n_laps": 99
       },
       {
         "turn": "T16",
         "cid_src": "C16",
-        "progress": 0.9505,
+        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 81,
-        "stdev": 0.3943
+        "n_laps": 81
       },
       {
         "turn": "T17",
         "cid_src": "C17",
-        "progress": 0.8537,
+        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 69,
-        "stdev": 0.4037
+        "n_laps": 69
       },
       {
         "turn": "T18",
         "cid_src": "C18",
-        "progress": 0.8631,
+        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 58,
-        "stdev": 0.4154
+        "n_laps": 58
       },
       {
         "turn": "T19",
         "cid_src": "C19",
-        "progress": 0.7718,
+        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 48,
-        "stdev": 0.4255
+        "n_laps": 48
       },
       {
         "turn": "T20",
         "cid_src": "C20",
-        "progress": 0.7449,
+        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 43,
-        "stdev": 0.4257
+        "n_laps": 43
       },
       {
         "turn": "T21",
         "cid_src": "C21",
-        "progress": 0.256,
+        "progress": 1.0,
         "confidence": "低",
-        "n_laps": 38,
-        "stdev": 0.4284
-      },
-      {
-        "turn": "T22",
-        "cid_src": "C22",
-        "progress": 0.1976,
-        "confidence": "低",
-        "n_laps": 31,
-        "stdev": 0.4229
-      },
-      {
-        "turn": "T23",
-        "cid_src": "C23",
-        "progress": 0.2003,
-        "confidence": "低",
-        "n_laps": 29,
-        "stdev": 0.4138
-      },
-      {
-        "turn": "T24",
-        "cid_src": "C24",
-        "progress": 0.2038,
-        "confidence": "低",
-        "n_laps": 25,
-        "stdev": 0.3726
-      },
-      {
-        "turn": "T25",
-        "cid_src": "C25",
-        "progress": 0.2116,
-        "confidence": "低",
-        "n_laps": 24,
-        "stdev": 0.3534
-      },
-      {
-        "turn": "T26",
-        "cid_src": "C26",
-        "progress": 0.1872,
-        "confidence": "低",
-        "n_laps": 22,
-        "stdev": 0.3001
-      },
-      {
-        "turn": "T27",
-        "cid_src": "C27",
-        "progress": 0.2242,
-        "confidence": "低",
-        "n_laps": 21,
-        "stdev": 0.3051
-      },
-      {
-        "turn": "T28",
-        "cid_src": "C28",
-        "progress": 0.2288,
-        "confidence": "低",
-        "n_laps": 21,
-        "stdev": 0.3029
-      },
-      {
-        "turn": "T29",
-        "cid_src": "C29",
-        "progress": 0.235,
-        "confidence": "低",
-        "n_laps": 21,
-        "stdev": 0.3013
-      },
-      {
-        "turn": "T30",
-        "cid_src": "C30",
-        "progress": 0.243,
-        "confidence": "低",
-        "n_laps": 21,
-        "stdev": 0.3001
-      },
-      {
-        "turn": "T31",
-        "cid_src": "C31",
-        "progress": 0.2172,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3058
-      },
-      {
-        "turn": "T32",
-        "cid_src": "C32",
-        "progress": 0.223,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.3043
-      },
-      {
-        "turn": "T33",
-        "cid_src": "C33",
-        "progress": 0.1894,
-        "confidence": "低",
-        "n_laps": 18,
-        "stdev": 0.2727
-      },
-      {
-        "turn": "T34",
-        "cid_src": "C34",
-        "progress": 0.2028,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2186
-      },
-      {
-        "turn": "T35",
-        "cid_src": "C35",
-        "progress": 0.2046,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2178
-      },
-      {
-        "turn": "T36",
-        "cid_src": "C36",
-        "progress": 0.2076,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2177
-      },
-      {
-        "turn": "T37",
-        "cid_src": "C37",
-        "progress": 0.2138,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2169
-      },
-      {
-        "turn": "T38",
-        "cid_src": "C38",
-        "progress": 0.2152,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2163
-      },
-      {
-        "turn": "T39",
-        "cid_src": "C39",
-        "progress": 0.216,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2163
-      },
-      {
-        "turn": "T40",
-        "cid_src": "C40",
-        "progress": 0.2232,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2151
-      },
-      {
-        "turn": "T41",
-        "cid_src": "C41",
-        "progress": 0.2246,
-        "confidence": "低",
-        "n_laps": 16,
-        "stdev": 0.2133
-      },
-      {
-        "turn": "T42",
-        "cid_src": "C42",
-        "progress": 0.2313,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.2204
-      },
-      {
-        "turn": "T43",
-        "cid_src": "C43",
-        "progress": 0.2345,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.2183
-      },
-      {
-        "turn": "T44",
-        "cid_src": "C44",
-        "progress": 0.2466,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.2164
-      },
-      {
-        "turn": "T45",
-        "cid_src": "C45",
-        "progress": 0.2525,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.2161
-      },
-      {
-        "turn": "T46",
-        "cid_src": "C46",
-        "progress": 0.253,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.2152
-      },
-      {
-        "turn": "T47",
-        "cid_src": "C47",
-        "progress": 0.2681,
-        "confidence": "低",
-        "n_laps": 15,
-        "stdev": 0.2147
-      },
-      {
-        "turn": "T48",
-        "cid_src": "C48",
-        "progress": 0.2641,
-        "confidence": "低",
-        "n_laps": 14,
-        "stdev": 0.1016
-      },
-      {
-        "turn": "T49",
-        "cid_src": "C49",
-        "progress": 0.2679,
-        "confidence": "低",
-        "n_laps": 14,
-        "stdev": 0.1027
-      },
-      {
-        "turn": "T50",
-        "cid_src": "C50",
-        "progress": 0.2696,
-        "confidence": "低",
-        "n_laps": 14,
-        "stdev": 0.1025
-      },
-      {
-        "turn": "T51",
-        "cid_src": "C51",
-        "progress": 0.2716,
-        "confidence": "低",
-        "n_laps": 14,
-        "stdev": 0.1076
-      },
-      {
-        "turn": "T52",
-        "cid_src": "C52",
-        "progress": 0.2865,
-        "confidence": "低",
-        "n_laps": 14,
-        "stdev": 0.115
-      },
-      {
-        "turn": "T53",
-        "cid_src": "C53",
-        "progress": 0.2772,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.1062
-      },
-      {
-        "turn": "T54",
-        "cid_src": "C54",
-        "progress": 0.2822,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.1087
-      },
-      {
-        "turn": "T55",
-        "cid_src": "C55",
-        "progress": 0.2871,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.112
-      },
-      {
-        "turn": "T56",
-        "cid_src": "C56",
-        "progress": 0.2894,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.1125
-      },
-      {
-        "turn": "T57",
-        "cid_src": "C57",
-        "progress": 0.2909,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.1123
-      },
-      {
-        "turn": "T58",
-        "cid_src": "C58",
-        "progress": 0.293,
-        "confidence": "低",
-        "n_laps": 13,
-        "stdev": 0.1119
-      },
-      {
-        "turn": "T59",
-        "cid_src": "C59",
-        "progress": 0.2971,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1051
-      },
-      {
-        "turn": "T60",
-        "cid_src": "C60",
-        "progress": 0.3042,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1058
-      },
-      {
-        "turn": "T61",
-        "cid_src": "C61",
-        "progress": 0.3062,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1051
-      },
-      {
-        "turn": "T62",
-        "cid_src": "C62",
-        "progress": 0.3139,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1059
-      },
-      {
-        "turn": "T63",
-        "cid_src": "C63",
-        "progress": 0.3182,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1061
-      },
-      {
-        "turn": "T64",
-        "cid_src": "C64",
-        "progress": 0.3197,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.108
-      },
-      {
-        "turn": "T65",
-        "cid_src": "C65",
-        "progress": 0.3209,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1125
-      },
-      {
-        "turn": "T66",
-        "cid_src": "C66",
-        "progress": 0.3281,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1177
-      },
-      {
-        "turn": "T67",
-        "cid_src": "C67",
-        "progress": 0.3295,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1176
-      },
-      {
-        "turn": "T68",
-        "cid_src": "C68",
-        "progress": 0.3314,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1176
-      },
-      {
-        "turn": "T69",
-        "cid_src": "C69",
-        "progress": 0.3364,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1175
-      },
-      {
-        "turn": "T70",
-        "cid_src": "C70",
-        "progress": 0.3407,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1169
-      },
-      {
-        "turn": "T71",
-        "cid_src": "C71",
-        "progress": 0.3427,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1142
-      },
-      {
-        "turn": "T72",
-        "cid_src": "C72",
-        "progress": 0.3477,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1134
-      },
-      {
-        "turn": "T73",
-        "cid_src": "C73",
-        "progress": 0.3486,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1113
-      },
-      {
-        "turn": "T74",
-        "cid_src": "C74",
-        "progress": 0.3518,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.112
-      },
-      {
-        "turn": "T75",
-        "cid_src": "C75",
-        "progress": 0.3531,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1101
-      },
-      {
-        "turn": "T76",
-        "cid_src": "C76",
-        "progress": 0.3604,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1076
-      },
-      {
-        "turn": "T77",
-        "cid_src": "C77",
-        "progress": 0.3613,
-        "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.1073
-      },
-      {
-        "turn": "T78",
-        "cid_src": "C78",
-        "progress": 0.3585,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.106
-      },
-      {
-        "turn": "T79",
-        "cid_src": "C79",
-        "progress": 0.3588,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.107
-      },
-      {
-        "turn": "T80",
-        "cid_src": "C80",
-        "progress": 0.3631,
-        "confidence": "低",
-        "n_laps": 11,
-        "stdev": 0.1072
-      },
-      {
-        "turn": "T81",
-        "cid_src": "C81",
-        "progress": 0.3774,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.1124
-      },
-      {
-        "turn": "T82",
-        "cid_src": "C82",
-        "progress": 0.3831,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.1133
-      },
-      {
-        "turn": "T83",
-        "cid_src": "C83",
-        "progress": 0.3864,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.114
-      },
-      {
-        "turn": "T84",
-        "cid_src": "C84",
-        "progress": 0.3911,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.1148
-      },
-      {
-        "turn": "T85",
-        "cid_src": "C85",
-        "progress": 0.3925,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.1148
-      },
-      {
-        "turn": "T86",
-        "cid_src": "C86",
-        "progress": 0.3957,
-        "confidence": "低",
-        "n_laps": 10,
-        "stdev": 0.1156
-      },
-      {
-        "turn": "T87",
-        "cid_src": "C87",
-        "progress": 0.3782,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1227
-      },
-      {
-        "turn": "T88",
-        "cid_src": "C88",
-        "progress": 0.383,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1225
-      },
-      {
-        "turn": "T89",
-        "cid_src": "C89",
-        "progress": 0.3834,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1218
-      },
-      {
-        "turn": "T90",
-        "cid_src": "C90",
-        "progress": 0.388,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1229
-      },
-      {
-        "turn": "T91",
-        "cid_src": "C91",
-        "progress": 0.3883,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1225
-      },
-      {
-        "turn": "T92",
-        "cid_src": "C92",
-        "progress": 0.3932,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1225
-      },
-      {
-        "turn": "T93",
-        "cid_src": "C93",
-        "progress": 0.3935,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1221
-      },
-      {
-        "turn": "T94",
-        "cid_src": "C94",
-        "progress": 0.399,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1226
-      },
-      {
-        "turn": "T95",
-        "cid_src": "C95",
-        "progress": 0.3994,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1226
-      },
-      {
-        "turn": "T96",
-        "cid_src": "C96",
-        "progress": 0.4051,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.123
-      },
-      {
-        "turn": "T97",
-        "cid_src": "C97",
-        "progress": 0.4055,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1235
-      },
-      {
-        "turn": "T98",
-        "cid_src": "C98",
-        "progress": 0.4117,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1244
-      },
-      {
-        "turn": "T99",
-        "cid_src": "C99",
-        "progress": 0.4121,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1246
-      },
-      {
-        "turn": "T100",
-        "cid_src": "C100",
-        "progress": 0.4182,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1252
-      },
-      {
-        "turn": "T101",
-        "cid_src": "C101",
-        "progress": 0.4186,
-        "confidence": "低",
-        "n_laps": 9,
-        "stdev": 0.1252
-      },
-      {
-        "turn": "T102",
-        "cid_src": "C102",
-        "progress": 0.4192,
-        "confidence": "低",
-        "n_laps": 7,
-        "stdev": 0.1435
-      },
-      {
-        "turn": "T103",
-        "cid_src": "C103",
-        "progress": 0.4192,
-        "confidence": "低",
-        "n_laps": 7,
-        "stdev": 0.1424
-      },
-      {
-        "turn": "T104",
-        "cid_src": "C104",
-        "progress": 0.4203,
-        "confidence": "低",
-        "n_laps": 7,
-        "stdev": 0.1433
-      },
-      {
-        "turn": "T105",
-        "cid_src": "C105",
-        "progress": 0.4203,
-        "confidence": "低",
-        "n_laps": 7,
-        "stdev": 0.1422
-      },
-      {
-        "turn": "T106",
-        "cid_src": "C106",
-        "progress": 0.3783,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0966
-      },
-      {
-        "turn": "T107",
-        "cid_src": "C107",
-        "progress": 0.3789,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0955
-      },
-      {
-        "turn": "T108",
-        "cid_src": "C108",
-        "progress": 0.3801,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0962
-      },
-      {
-        "turn": "T109",
-        "cid_src": "C109",
-        "progress": 0.3807,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0948
-      },
-      {
-        "turn": "T110",
-        "cid_src": "C110",
-        "progress": 0.3826,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0957
-      },
-      {
-        "turn": "T111",
-        "cid_src": "C111",
-        "progress": 0.3829,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0943
-      },
-      {
-        "turn": "T112",
-        "cid_src": "C112",
-        "progress": 0.3838,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0951
-      },
-      {
-        "turn": "T113",
-        "cid_src": "C113",
-        "progress": 0.3844,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0937
-      },
-      {
-        "turn": "T114",
-        "cid_src": "C114",
-        "progress": 0.3852,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0946
-      },
-      {
-        "turn": "T115",
-        "cid_src": "C115",
-        "progress": 0.3859,
-        "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.0936
-      },
-      {
-        "turn": "T116",
-        "cid_src": "C116",
-        "progress": 0.3568,
-        "confidence": "低",
-        "n_laps": 5,
-        "stdev": 0.096
-      },
-      {
-        "turn": "T117",
-        "cid_src": "C117",
-        "progress": 0.3898,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.1092
-      },
-      {
-        "turn": "T118",
-        "cid_src": "C118",
-        "progress": 0.3906,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.1106
-      },
-      {
-        "turn": "T119",
-        "cid_src": "C119",
-        "progress": 0.3937,
-        "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.1091
-      },
-      {
-        "turn": "T120",
-        "cid_src": "C120",
-        "progress": 0.4219,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1354
-      },
-      {
-        "turn": "T121",
-        "cid_src": "C121",
-        "progress": 0.4219,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1338
-      },
-      {
-        "turn": "T122",
-        "cid_src": "C122",
-        "progress": 0.4221,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1362
-      },
-      {
-        "turn": "T123",
-        "cid_src": "C123",
-        "progress": 0.4221,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1344
-      },
-      {
-        "turn": "T124",
-        "cid_src": "C124",
-        "progress": 0.4232,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1369
-      },
-      {
-        "turn": "T125",
-        "cid_src": "C125",
-        "progress": 0.4233,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1349
-      },
-      {
-        "turn": "T126",
-        "cid_src": "C126",
-        "progress": 0.4239,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1375
-      },
-      {
-        "turn": "T127",
-        "cid_src": "C127",
-        "progress": 0.424,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1356
-      },
-      {
-        "turn": "T128",
-        "cid_src": "C128",
-        "progress": 0.4251,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1382
-      },
-      {
-        "turn": "T129",
-        "cid_src": "C129",
-        "progress": 0.4254,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.136
-      },
-      {
-        "turn": "T130",
-        "cid_src": "C130",
-        "progress": 0.4254,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1438
-      },
-      {
-        "turn": "T131",
-        "cid_src": "C131",
-        "progress": 0.4255,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1423
-      },
-      {
-        "turn": "T132",
-        "cid_src": "C132",
-        "progress": 0.4256,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1448
-      },
-      {
-        "turn": "T133",
-        "cid_src": "C133",
-        "progress": 0.4257,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1442
-      },
-      {
-        "turn": "T134",
-        "cid_src": "C134",
-        "progress": 0.4257,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1468
-      },
-      {
-        "turn": "T135",
-        "cid_src": "C135",
-        "progress": 0.4259,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1414
-      },
-      {
-        "turn": "T136",
-        "cid_src": "C136",
-        "progress": 0.4301,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1443
-      },
-      {
-        "turn": "T137",
-        "cid_src": "C137",
-        "progress": 0.4303,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1427
-      },
-      {
-        "turn": "T138",
-        "cid_src": "C138",
-        "progress": 0.4303,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1453
-      },
-      {
-        "turn": "T139",
-        "cid_src": "C139",
-        "progress": 0.4304,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1409
-      },
-      {
-        "turn": "T140",
-        "cid_src": "C140",
-        "progress": 0.4304,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1517
-      },
-      {
-        "turn": "T141",
-        "cid_src": "C141",
-        "progress": 0.4305,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1506
-      },
-      {
-        "turn": "T142",
-        "cid_src": "C142",
-        "progress": 0.4305,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1527
-      },
-      {
-        "turn": "T143",
-        "cid_src": "C143",
-        "progress": 0.4306,
-        "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.1528
-      },
-      {
-        "turn": "T144",
-        "cid_src": "C144",
-        "progress": 0.3538,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.1086
-      },
-      {
-        "turn": "T145",
-        "cid_src": "C145",
-        "progress": 0.354,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.1086
-      },
-      {
-        "turn": "T146",
-        "cid_src": "C146",
-        "progress": 0.3556,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.1064
-      },
-      {
-        "turn": "T147",
-        "cid_src": "C147",
-        "progress": 0.3557,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.1063
-      },
-      {
-        "turn": "T148",
-        "cid_src": "C148",
-        "progress": 0.3612,
-        "confidence": "低",
-        "n_laps": 2,
-        "stdev": 0.0986
-      },
-      {
-        "turn": "T149",
-        "cid_src": "C149",
-        "progress": 0.431,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T150",
-        "cid_src": "C150",
-        "progress": 0.4311,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T151",
-        "cid_src": "C151",
-        "progress": 0.4312,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T152",
-        "cid_src": "C152",
-        "progress": 0.4312,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T153",
-        "cid_src": "C153",
-        "progress": 0.4313,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T154",
-        "cid_src": "C154",
-        "progress": 0.4313,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T155",
-        "cid_src": "C155",
-        "progress": 0.4314,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T156",
-        "cid_src": "C156",
-        "progress": 0.4315,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T157",
-        "cid_src": "C157",
-        "progress": 0.4316,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T158",
-        "cid_src": "C158",
-        "progress": 0.4316,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T159",
-        "cid_src": "C159",
-        "progress": 0.4317,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T160",
-        "cid_src": "C160",
-        "progress": 0.4317,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T161",
-        "cid_src": "C161",
-        "progress": 0.4318,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T162",
-        "cid_src": "C162",
-        "progress": 0.4319,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T163",
-        "cid_src": "C163",
-        "progress": 0.4342,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T164",
-        "cid_src": "C164",
-        "progress": 0.4347,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T165",
-        "cid_src": "C165",
-        "progress": 0.4348,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
+        "n_laps": 38
       }
     ]
   },
   "WORKSHOP": {
-    "n_turns": 17,
+    "n_turns": 15,
+    "median_corners_per_lap": 8,
+    "detection_quality": "acceptable",
     "source": "brake_cluster_extracted_2026-05-01",
     "manual_validated": false,
-    "note": "Manual validation required before use in official analysis. GPS-based update planned. Set manual_validated: true after verifying Turn positions on track map.",
+    "note": "自動抽出 draft。Turn数が実際のサーキットコーナー数と一致しない可能性があります。manual_validated: true にする前に実際のコーナー数（期待値 ~?）と照合してください。",
     "turns": [
       {
         "turn": "T1",
         "cid_src": "C01",
         "progress": 0.0378,
-        "confidence": "中",
-        "n_laps": 25,
-        "stdev": 0.0339
+        "confidence": "高",
+        "n_laps": 25
       },
       {
         "turn": "T2",
         "cid_src": "C02",
-        "progress": 0.106,
-        "confidence": "低",
-        "n_laps": 25,
-        "stdev": 0.07
+        "progress": 0.1098,
+        "confidence": "高",
+        "n_laps": 25
       },
       {
         "turn": "T3",
         "cid_src": "C03",
-        "progress": 0.1506,
-        "confidence": "低",
-        "n_laps": 24,
-        "stdev": 0.1106
+        "progress": 0.169,
+        "confidence": "高",
+        "n_laps": 24
       },
       {
         "turn": "T4",
         "cid_src": "C04",
-        "progress": 0.1973,
-        "confidence": "低",
-        "n_laps": 24,
-        "stdev": 0.1435
+        "progress": 0.2126,
+        "confidence": "高",
+        "n_laps": 24
       },
       {
         "turn": "T5",
         "cid_src": "C05",
-        "progress": 0.2346,
-        "confidence": "低",
-        "n_laps": 24,
-        "stdev": 0.1833
+        "progress": 0.2381,
+        "confidence": "高",
+        "n_laps": 24
       },
       {
         "turn": "T6",
         "cid_src": "C06",
-        "progress": 0.2912,
-        "confidence": "低",
-        "n_laps": 22,
-        "stdev": 0.2182
+        "progress": 0.2926,
+        "confidence": "高",
+        "n_laps": 22
       },
       {
         "turn": "T7",
         "cid_src": "C07",
-        "progress": 0.3105,
-        "confidence": "低",
-        "n_laps": 20,
-        "stdev": 0.2338
+        "progress": 0.3247,
+        "confidence": "高",
+        "n_laps": 20
       },
       {
         "turn": "T8",
         "cid_src": "C08",
-        "progress": 0.495,
+        "progress": 0.4482,
         "confidence": "低",
-        "n_laps": 12,
-        "stdev": 0.272
+        "n_laps": 12
       },
       {
         "turn": "T9",
         "cid_src": "C09",
-        "progress": 0.8405,
+        "progress": 0.5322,
         "confidence": "低",
-        "n_laps": 6,
-        "stdev": 0.3544
+        "n_laps": 6
       },
       {
         "turn": "T10",
         "cid_src": "C10",
-        "progress": 0.9377,
+        "progress": 0.5937,
         "confidence": "低",
-        "n_laps": 5,
-        "stdev": 0.302
+        "n_laps": 5
       },
       {
         "turn": "T11",
         "cid_src": "C11",
-        "progress": 1.0,
+        "progress": 0.6581,
         "confidence": "低",
-        "n_laps": 5,
-        "stdev": 0.3272
+        "n_laps": 5
       },
       {
         "turn": "T12",
         "cid_src": "C12",
-        "progress": 1.0,
+        "progress": 0.7235,
         "confidence": "低",
-        "n_laps": 5,
-        "stdev": 0.3278
+        "n_laps": 5
       },
       {
         "turn": "T13",
         "cid_src": "C13",
-        "progress": 1.0,
+        "progress": 0.7737,
         "confidence": "低",
-        "n_laps": 5,
-        "stdev": 0.3217
+        "n_laps": 5
       },
       {
         "turn": "T14",
         "cid_src": "C14",
-        "progress": 1.0,
+        "progress": 0.8917,
         "confidence": "低",
-        "n_laps": 4,
-        "stdev": 0.3551
+        "n_laps": 4
       },
       {
         "turn": "T15",
         "cid_src": "C15",
-        "progress": 1.0,
+        "progress": 0.8138,
         "confidence": "低",
-        "n_laps": 3,
-        "stdev": 0.3897
-      },
-      {
-        "turn": "T16",
-        "cid_src": "C16",
-        "progress": 0.34,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
-      },
-      {
-        "turn": "T17",
-        "cid_src": "C17",
-        "progress": 0.3533,
-        "confidence": "低",
-        "n_laps": 1,
-        "stdev": 0.0
+        "n_laps": 3
       }
     ]
   }
