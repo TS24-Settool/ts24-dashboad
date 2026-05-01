@@ -20,6 +20,44 @@ import urllib.error
 import json
 import hashlib
 
+# ── Layered architecture imports ──────────────────────────────────
+# domain/   — pure analysis logic (no Streamlit)
+# services/ — data loading, external APIs (no Streamlit)
+# components/ — chart helpers (no Streamlit)
+from domain.lap_analysis import (
+    normalize_circuit     as _dyn_norm_circuit,   # backward-compat alias
+    normalize_session     as _dyn_norm_session,   # backward-compat alias
+    classify_fast_slow_tiers,
+    build_lap_sus_map,
+    build_lap_time_map,
+    join_sus_and_laptimes,
+)
+from services.data_loader import (
+    sql_to_df               as _sql_to_df,          # backward-compat alias
+    coerce_dynamics_numerics as _coerce_dyn_numerics, # backward-compat alias
+    load_dynamics_from_excel,
+    load_dynamics_from_json,
+    load_lap_suspension_from_excel,
+    load_lap_suspension_from_sqlite,
+    load_lap_suspension_from_json,
+)
+from services.claude_client import call_claude        # replaces local def
+from services.memory_service import (
+    load_race_memory    as _ms_load_race_memory,
+    save_race_memory    as _ms_save_race_memory,
+    build_memory_context,                             # replaces local def
+)
+from services.supabase_client import (
+    supa_request        as _supa_req_base,
+    fetch_table_paginated,
+    supa_upsert         as _supa_upsert_base,
+    supa_delete_row     as _supa_delete_row_base,
+)
+from components.charts import (
+    apply_chart_layout  as chart_layout,             # backward-compat alias
+    DA77_COLOR, JA52_COLOR, PHASE_COLORS, PHASE_LABELS, CHART_FONT,
+)
+
 # ── Path ─────────────────────────────────────────
 SCRIPT_DIR  = Path(__file__).resolve().parent
 CONFIG_FILE = SCRIPT_DIR / "ts24_config.json"
@@ -136,35 +174,17 @@ def _supa_upsert_user(username, password_hash, role, rider):
     url, key = _supa_creds()
     if not url or not key:
         return False
-    payload = json.dumps({
-        "username": username, "password_hash": password_hash,
-        "role": role, "rider": rider
-    }).encode()
-    headers = {"apikey": key, "Authorization": f"Bearer {key}",
-               "Content-Type": "application/json",
-               "Prefer": "resolution=merge-duplicates,return=minimal"}
-    req = urllib.request.Request(f"{url}/rest/v1/dashboard_users",
-                                 data=payload, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=10):
-            return True
-    except Exception:
-        return False
+    return _supa_upsert_base(
+        "dashboard_users",
+        {"username": username, "password_hash": password_hash, "role": role, "rider": rider},
+        key, url,
+    )
 
 def _supa_delete_user(username):
     url, key = _supa_creds()
     if not url or not key:
         return False
-    headers = {"apikey": key, "Authorization": f"Bearer {key}",
-               "Content-Type": "application/json"}
-    req = urllib.request.Request(
-        f"{url}/rest/v1/dashboard_users?username=eq.{username}",
-        headers=headers, method="DELETE")
-    try:
-        with urllib.request.urlopen(req, timeout=10):
-            return True
-    except Exception:
-        return False
+    return _supa_delete_row_base("dashboard_users", f"username=eq.{username}", key, url)
 
 def get_users() -> dict:
     """Return {username: user_data} dict — Supabase + JSON merged."""
@@ -256,37 +276,27 @@ def delete_user(username: str):
     save_config(cfg)
 
 # ── Supabase helpers ──────────────────────────────
+# Low-level supa_request imported from services.supabase_client (as _supa_req_base).
+# Thin wrappers below keep the original names used throughout dashboard.py.
+
 def _supa_req(method: str, url: str, key: str, data: dict = None):
-    headers = {
-        "apikey":        key,
-        "Authorization": f"Bearer {key}",
-        "Content-Type":  "application/json",
-        "Prefer":        "return=representation",
-    }
-    body = json.dumps(data).encode() if data else None
-    req  = urllib.request.Request(url, data=body, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw else []
-    except Exception:
-        return []
+    return _supa_req_base(method, url, key, data)
 
 def supa_insert(table: str, data: dict, anon_key: str, supabase_url: str) -> bool:
-    url = f"{supabase_url}/rest/v1/{table}"
-    result = _supa_req("POST", url, anon_key, data)
+    url    = f"{supabase_url}/rest/v1/{table}"
+    result = _supa_req_base("POST", url, anon_key, data)
     return isinstance(result, list) and len(result) > 0 or isinstance(result, dict)
 
 def supa_fetch(table: str, service_key: str, supabase_url: str,
                filters: str = "status=eq.pending") -> list:
-    url = f"{supabase_url}/rest/v1/{table}?{filters}&select=*&order=submitted_at.asc"
-    result = _supa_req("GET", url, service_key)
+    url    = f"{supabase_url}/rest/v1/{table}?{filters}&select=*&order=submitted_at.asc"
+    result = _supa_req_base("GET", url, service_key)
     return result if isinstance(result, list) else []
 
 def supa_update_status(table: str, record_id: int, status: str,
                        service_key: str, supabase_url: str):
     url = f"{supabase_url}/rest/v1/{table}?id=eq.{record_id}"
-    _supa_req("PATCH", url, service_key, {"status": status})
+    _supa_req_base("PATCH", url, service_key, {"status": status})
 
 # ── Login gate — must pass before any content ─────
 def login_page():
@@ -331,10 +341,7 @@ if not st.session_state.get("authenticated"):
 DB_PATH = find_db()  # None in Supabase-only environments — OK
 
 # ── Data loading ──────────────────────────────────
-def _sql_to_df(conn, query):
-    cur = conn.execute(query)
-    cols = [d[0] for d in cur.description]
-    return pd.DataFrame(cur.fetchall(), columns=cols)
+# _sql_to_df imported from services.data_loader (alias set above)
 
 def _load_sqlite():
     """Load data from local SQLite (fallback)."""
@@ -361,36 +368,8 @@ def _load_sqlite():
 
 def _supa_to_df(table: str, svc_key: str, supa_url: str,
                 order: str = "", where: str = "") -> pd.DataFrame:
-    """Fetch a Supabase table with pagination (1000 rows/page) until all rows retrieved."""
-    CHUNK = 1000
-    all_rows = []
-    offset   = 0
-    base_q   = f"select=*"
-    if where: base_q += f"&{where}"
-    if order: base_q += f"&order={order}"
-    headers = {
-        "apikey":        svc_key,
-        "Authorization": f"Bearer {svc_key}",
-        "Prefer":        "count=none",
-    }
-    while True:
-        url = (f"{supa_url}/rest/v1/{table}"
-               f"?{base_q}&limit={CHUNK}&offset={offset}")
-        req = urllib.request.Request(url, headers=headers, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                chunk = json.loads(resp.read())
-        except Exception:
-            break
-        if not chunk:
-            break
-        all_rows.extend(chunk)
-        if len(chunk) < CHUNK:
-            break          # 最終ページ
-        offset += CHUNK
-        if offset > 50000: # 安全上限
-            break
-    return pd.DataFrame(all_rows) if all_rows else pd.DataFrame()
+    """Thin wrapper — delegates to services.supabase_client.fetch_table_paginated."""
+    return fetch_table_paginated(table, svc_key, supa_url, order=order, where=where)
 
 @st.cache_data(ttl=60)
 def load_data():
@@ -466,55 +445,15 @@ _DYNAMICS_EXCEL = SCRIPT_DIR.parent / "02_DATABASE" / "TS24 DB Master.xlsx"
 _JSON_DYN = SCRIPT_DIR / "dynamics_data.json"
 _JSON_LT  = SCRIPT_DIR / "lap_times_data.json"
 
-def _coerce_dyn_numerics(df_dyn):
-    num_cols = ["APEX Count","APEX Spd (km/h)","APEX SusF (mm)","APEX SusR (mm)",
-                "APEX WhlF (N)","APEX WhlR (N)","APEX ax (m/s²)",
-                "Pit Count","Pit Spd (km/h)","Pit SusF (mm)","Pit SusR (mm)",
-                "Brk Count","Brk Spd (km/h)","Brk SusF (mm)","Brk SusR (mm)"]
-    for c in num_cols:
-        if c in df_dyn.columns:
-            df_dyn[c] = pd.to_numeric(df_dyn[c], errors="coerce")
-    if "Date" in df_dyn.columns:
-        df_dyn["Date"] = df_dyn["Date"].astype(str)
-    return df_dyn
+# _coerce_dyn_numerics imported from services.data_loader (alias set above)
 
 @st.cache_data(ttl=120)
 def _load_dynamics_data():
     """Load DYNAMICS_ANALYSIS and LAP_TIMES.
     Priority: TS24 DB Master.xlsx (local Mac) → JSON fallback (Streamlit Cloud)."""
-
-    # ── 1. ローカル Excel（Mac実行時）───────────────────────
     if _DYNAMICS_EXCEL.exists():
-        try:
-            df_dyn = pd.read_excel(str(_DYNAMICS_EXCEL),
-                                   sheet_name="DYNAMICS_ANALYSIS", header=1)
-            df_dyn = _coerce_dyn_numerics(
-                df_dyn.dropna(subset=["Rider"]).reset_index(drop=True))
-        except Exception:
-            df_dyn = pd.DataFrame()
-        try:
-            df_lt = pd.read_excel(str(_DYNAMICS_EXCEL),
-                                  sheet_name="LAP_TIMES", header=1)
-            df_lt = df_lt.dropna(how="all").reset_index(drop=True)
-        except Exception:
-            df_lt = pd.DataFrame()
-        return df_dyn, df_lt
-
-    # ── 2. JSON フォールバック（Streamlit Cloud）────────────
-    # convert_dates=False: 日付文字列を datetime に自動変換しない（文字列のまま保持）
-    # これにより LT の str(date) と DYN の Date_s が同じ '2025-01-01' 形式で一致する
-    try:
-        df_dyn = pd.read_json(str(_JSON_DYN), convert_dates=False) if _JSON_DYN.exists() else pd.DataFrame()
-        if not df_dyn.empty:
-            df_dyn = _coerce_dyn_numerics(df_dyn)
-    except Exception:
-        df_dyn = pd.DataFrame()
-    try:
-        df_lt = pd.read_json(str(_JSON_LT), convert_dates=False) if _JSON_LT.exists() else pd.DataFrame()
-    except Exception:
-        df_lt = pd.DataFrame()
-
-    return df_dyn, df_lt
+        return load_dynamics_from_excel(_DYNAMICS_EXCEL)
+    return load_dynamics_from_json(_JSON_DYN, _JSON_LT)
 
 
 _JSON_LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
@@ -523,114 +462,28 @@ _JSON_LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
 def _load_lap_suspension():
     """LAP_SUSPENSION データを読み込む。
     優先: TS24 DB Master.xlsx (ローカル) → ts24_unified.db → JSON フォールバック"""
-    _NUM_COLS = ["LAP_TIME_S","APEX_CNT","APEX_SPD_AVG","APEX_SUSF_AVG","APEX_SUSR_AVG",
-                 "BRK_CNT","BRK_SPD_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
-                 "FULLBRK_CNT","FULLBRK_SUSF","FULLBRK_SUSR",
-                 "LAP_SUSF_MEAN","LAP_SUSF_MIN","LAP_SUSF_MAX","LAP_SUSR_MEAN","RUN_NO","LAP_NO"]
-
-    def _coerce(df):
-        df.columns = [c.upper() for c in df.columns]
-        for c in _NUM_COLS:
-            if c in df.columns:
-                df[c] = pd.to_numeric(df[c], errors="coerce")
-        return df.dropna(how="all").reset_index(drop=True)
-
-    # 1. ローカル Excel
     if _DYNAMICS_EXCEL.exists():
-        try:
-            df = pd.read_excel(str(_DYNAMICS_EXCEL), sheet_name="LAP_SUSPENSION", header=1)
-            return _coerce(df)
-        except Exception:
-            pass
-    # 2. ローカル SQLite
-    try:
-        _udb = _DYNAMICS_EXCEL.parent / "ts24_unified.db"
-        if _udb.exists():
-            conn = sqlite3.connect(str(_udb))
-            df = pd.read_sql("SELECT * FROM lap_suspension ORDER BY round,circuit,session,rider,run_no,lap_no", conn)
-            conn.close()
-            return _coerce(df)
-    except Exception:
-        pass
-    # 3. JSON フォールバック（Streamlit Cloud）
-    try:
-        if _JSON_LAP_SUS.exists():
-            df = pd.read_json(str(_JSON_LAP_SUS), convert_dates=False)
-            return _coerce(df)
-    except Exception:
-        pass
-    return pd.DataFrame()
+        df = load_lap_suspension_from_excel(_DYNAMICS_EXCEL)
+        if not df.empty:
+            return df
+    _udb = _DYNAMICS_EXCEL.parent / "ts24_unified.db"
+    if _udb.exists():
+        df = load_lap_suspension_from_sqlite(_udb)
+        if not df.empty:
+            return df
+    return load_lap_suspension_from_json(_JSON_LAP_SUS)
 
 
-def _dyn_norm_circuit(c):
-    c = str(c or "").upper().strip()
-    if c in ("PHILLIPISLAND","PHILLIP ISLAND","PHI","AUSTRALIA","WORKSHOP","PHILLIP_ISLAND"):
-        return "PHILLIP ISLAND"
-    return c
-
-def _dyn_norm_session(s):
-    s = str(s or "").upper().strip()
-    m = {"WUP":"WUP","WUP1":"WUP","WUP2":"WUP",
-         "FP":"FP","FP1":"FP","FP2":"FP","L1":"FP","L2":"FP",
-         "QP":"QP","QP1":"QP","QP2":"QP",
-         "SP":"SP","RACE1":"RACE1","RACE2":"RACE2",
-         "TEST_D1":"TEST_D1","TEST_D2":"TEST_D2"}
-    return m.get(s, s)
+# _dyn_norm_circuit / _dyn_norm_session imported from domain.lap_analysis (aliases set above)
 
 # ── Color palette (Power BI style) ────────────────
-DA77_COLOR = "#0078D4"   # Microsoft blue
-JA52_COLOR = "#E74C3C"   # Red
-PHASE_COLORS = {
-    "PH1": "#C0392B",
-    "PH2": "#E67E22",
-    "PH3": "#F1C40F",
-    "PH4": "#27AE60",
-    "PH5": "#2980B9",
-}
-PHASE_LABELS = {
-    "PH1": "PH1 Braking",
-    "PH2": "PH2 Entry",
-    "PH3": "PH3 Apex",
-    "PH4": "PH4 Exit",
-    "PH5": "PH5 Hi-Speed",
-}
-
-CHART_FONT = dict(family="Arial, sans-serif", size=12, color="#111111")
+# DA77_COLOR, JA52_COLOR, PHASE_COLORS, PHASE_LABELS, CHART_FONT
+# are all imported from components.charts at the top of this file.
 
 # ── Claude API helper ─────────────────────────────
-CLAUDE_API_URL   = "https://api.anthropic.com/v1/messages"
-CLAUDE_API_MODEL = "claude-sonnet-4-6"
-
-def call_claude(api_key: str, user_msg: str, system_msg: str = "", max_tokens: int = 2000) -> str:
-    payload = {
-        "model": CLAUDE_API_MODEL,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": user_msg}],
-    }
-    if system_msg:
-        payload["system"] = system_msg
-    data = json.dumps(payload).encode("utf-8")
-    req  = urllib.request.Request(
-        CLAUDE_API_URL, data=data,
-        headers={
-            "x-api-key":           api_key,
-            "anthropic-version":   "2023-06-01",
-            "content-type":        "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            return result["content"][0]["text"]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        try:
-            err = json.loads(body)
-            return f"API Error {e.code}: {err.get('error', {}).get('message', body)}"
-        except Exception:
-            return f"API Error {e.code}: {body}"
-    except Exception as e:
-        return f"Error: {type(e).__name__}: {e}"
+# call_claude imported from services.claude_client at the top of this file.
+# Model constants exposed for any local reference:
+from services.claude_client import CLAUDE_API_URL, CLAUDE_API_MODEL
 
 # ══════════════════════════════════════════════════════════════
 # RACE MEMORY SYSTEM — persistent knowledge across sessions
@@ -638,34 +491,11 @@ def call_claude(api_key: str, user_msg: str, system_msg: str = "", max_tokens: i
 
 def load_race_memory() -> dict:
     """Load persistent race memory. /tmp first (writable on Cloud), then repo."""
-    default = {
-        "version": 2,
-        "circuit_insights": {},          # {CIRCUIT: {RIDER: [insight, ...]}}
-        "global_insights": [],           # cross-circuit learnings
-        "setup_learnings": [],           # {date, circuit, rider, insight, page}
-        "conversation_summaries": [],    # {date, page, riders, summary}
-    }
-    for path in [_TMP_MEMORY, MEMORY_FILE]:
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                # Merge: fill missing keys from default
-                for k, v in default.items():
-                    if k not in data:
-                        data[k] = v
-                return data
-            except Exception:
-                pass
-    return default
+    return _ms_load_race_memory(MEMORY_FILE, _TMP_MEMORY)
 
 def save_race_memory(memory: dict):
     """Save memory to both /tmp (Cloud) and repo (local)."""
-    blob = json.dumps(memory, ensure_ascii=False, indent=2)
-    for path in [_TMP_MEMORY, MEMORY_FILE]:
-        try:
-            path.write_text(blob, encoding="utf-8")
-        except Exception:
-            pass
+    _ms_save_race_memory(memory, _TMP_MEMORY, MEMORY_FILE)
 
 def extract_and_save_insights(api_key: str, conversation: list, context: dict):
     """Call Claude to extract key insights from conversation, save to memory."""
@@ -733,37 +563,7 @@ def extract_and_save_insights(api_key: str, conversation: list, context: dict):
 
     save_race_memory(memory)
 
-def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
-    """Build a memory context string to inject into system prompt."""
-    lines = []
-
-    # Circuit-specific insights for this rider
-    if circuit and circuit != "All":
-        c_insights = memory.get("circuit_insights", {}).get(circuit, {})
-        for r in ([rider] if rider != "All" else list(c_insights.keys())):
-            r_ins = c_insights.get(r, [])
-            if r_ins:
-                lines.append(f"[{circuit} / {r} — past insights]")
-                lines.extend(f"  • {i}" for i in r_ins[-5:])
-
-    # Recent global insights
-    g_ins = memory.get("global_insights", [])
-    if g_ins:
-        lines.append("[Cross-circuit learnings]")
-        lines.extend(f"  • {i}" for i in g_ins[-4:])
-
-    # Recent conversation summaries
-    summaries = memory.get("conversation_summaries", [])
-    recent = [s for s in summaries[-6:] if
-              (circuit == "All" or s.get("circuit") in ("All", circuit))]
-    if recent:
-        lines.append("[Recent analysis sessions]")
-        for s in recent[-3:]:
-            lines.append(f"  • [{s['date']}] {s['summary']}")
-
-    if not lines:
-        return ""
-    return "\n\nPAST KNOWLEDGE BASE (use this to give more contextual answers):\n" + "\n".join(lines)
+# build_memory_context imported from services.memory_service at the top of this file.
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1173,44 +973,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
     components.html(html, height=0, scrolling=False)
 
 
-def chart_layout(fig, height=300, title=""):
-    fig.update_layout(
-        height=height,
-        title=dict(
-            text=title,
-            font=dict(size=13, color="#222222", family="Arial, sans-serif"),
-            x=0
-        ),
-        font=CHART_FONT,
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#F8F9FA",
-        margin=dict(l=10, r=10, t=44, b=10),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="right", x=1,
-            font=dict(color="#111111", size=11),
-            bgcolor="rgba(0,0,0,0)",
-        ),
-        coloraxis_colorbar=dict(
-            tickfont=dict(color="#111111"),
-        ),
-    )
-    fig.update_xaxes(
-        gridcolor="#E5E5E5",
-        linecolor="#CCCCCC",
-        tickfont=dict(color="#333333", size=11),
-        title_font=dict(color="#333333"),
-        zerolinecolor="#CCCCCC",
-    )
-    fig.update_yaxes(
-        gridcolor="#E5E5E5",
-        linecolor="#CCCCCC",
-        tickfont=dict(color="#333333", size=11),
-        title_font=dict(color="#333333"),
-        zerolinecolor="#CCCCCC",
-    )
-    return fig
+# chart_layout imported from components.charts as alias at the top of this file.
 
 # ── Page config ───────────────────────────────────
 st.set_page_config(
@@ -3512,78 +3275,15 @@ with _content_col:
             # ── Apex定義: THR_ON (③アクセルON点) を使用 ──────────
             MIN_LAP_S_CORR = 80.0
 
-            # ── LAP_SUSPENSION から THR_ON / BRK をラン別集計 ────
-            df_ls = _load_lap_suspension()
-            ls_map = {}
-            if not df_ls.empty:
-                for nc in ["THRON_SUSF_AVG","THRON_SUSR_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
-                           "THRON_CNT","BRK_CNT","APEX_SPD_AVG","APEX_CNT"]:
-                    if nc in df_ls.columns:
-                        df_ls[nc] = pd.to_numeric(df_ls[nc], errors="coerce")
-                _grp_cols = [c for c in ["RIDER","CIRCUIT","DATE","RUN_NO"] if c in df_ls.columns]
-                if _grp_cols:
-                    for _gkey, _gdf in df_ls.groupby(_grp_cols):
-                        if len(_grp_cols) == 4:
-                            rider_g, circ_g, date_g, run_g = _gkey
-                        else:
-                            continue
-                        circ_n = _dyn_norm_circuit(circ_g)
-                        date_s = str(date_g or "")
-                        try: run_i = int(run_g or 0)
-                        except: run_i = 0
-                        g_thron = _gdf[_gdf["THRON_CNT"] > 0] if "THRON_CNT" in _gdf.columns else _gdf
-                        g_brk   = _gdf[_gdf["BRK_CNT"] > 0]   if "BRK_CNT"   in _gdf.columns else _gdf
-                        ls_map[(rider_g, circ_n, date_s, run_i)] = {
-                            "thron_susF": g_thron["THRON_SUSF_AVG"].dropna().mean() if not g_thron.empty else None,
-                            "thron_susR": g_thron["THRON_SUSR_AVG"].dropna().mean() if not g_thron.empty else None,
-                            "brk_susF":   g_brk["BRK_SUSF_AVG"].dropna().mean()    if not g_brk.empty   else None,
-                            "brk_susR":   g_brk["BRK_SUSR_AVG"].dropna().mean()    if not g_brk.empty   else None,
-                            "apex_spd":   _gdf["APEX_SPD_AVG"].dropna().mean()      if "APEX_SPD_AVG" in _gdf.columns else None,
-                        }
+            # ── LAP_SUSPENSION → suspension map (domain layer) ───
+            df_ls  = _load_lap_suspension()
+            ls_map = build_lap_sus_map(df_ls)
 
-            # ── LAP_TIMES からラン最良タイム ────────────────────
-            lt_map = {}
-            if not df_lt.empty:
-                lt_rider_col  = next((c for c in df_lt.columns if str(c).lower() in ("rider","rider_id")), None)
-                lt_circ_col   = next((c for c in df_lt.columns if str(c).lower() in ("circuit","circ")), None)
-                lt_date_col   = next((c for c in df_lt.columns if str(c).lower() in ("date","session_date")), None)
-                lt_run_col    = next((c for c in df_lt.columns if str(c).lower() in ("run","run_no","run no")), None)
-                lt_ts_col     = next((c for c in df_lt.columns if str(c).lower() in
-                                      ("lap_time_s","laptime_s","lap time s","time (s)")), None)
-                lt_outlap_col = next((c for c in df_lt.columns if str(c).lower() in
-                                      ("outlap","is_outlap","out_lap","outlap?")), None)
-                if all([lt_rider_col, lt_circ_col, lt_date_col, lt_run_col, lt_ts_col]):
-                    for _, lr in df_lt.iterrows():
-                        rider = str(lr[lt_rider_col] or "")
-                        if not rider: continue
-                        if lt_outlap_col and str(lr.get(lt_outlap_col,"")).upper() == "YES": continue
-                        ts = lr[lt_ts_col]
-                        if not isinstance(ts, (int, float)) or ts < MIN_LAP_S_CORR or ts > 400: continue
-                        circ = _dyn_norm_circuit(lr[lt_circ_col])
-                        date = str(lr[lt_date_col] or "")
-                        try: run = int(lr[lt_run_col] or 0)
-                        except: run = 0
-                        lt_map.setdefault((rider, circ, date, run), []).append(float(ts))
-            lt_best = {k: min(v) for k, v in lt_map.items()}
+            # ── LAP_TIMES → best-lap map (domain layer) ──────────
+            lt_best = build_lap_time_map(df_lt, min_lap_s=MIN_LAP_S_CORR)
 
-            # ── THR_ON データ × LAP_TIMES をジョイン ────────────
-            matched_rows = []
-            for key, best_s in lt_best.items():
-                if key not in ls_map: continue
-                ld = ls_map[key]
-                rider, circ, date, run = key
-                matched_rows.append({
-                    "rider": rider, "circuit": circ, "date": date, "run": run,
-                    "best_s": best_s,
-                    "apex_susF": ld.get("thron_susF"),  # ③ THR_ON SusF
-                    "apex_susR": ld.get("thron_susR"),  # ③ THR_ON SusR
-                    "apex_whlF": None,
-                    "apex_whlR": None,
-                    "apex_spd":  ld.get("apex_spd"),
-                    "brk_susF":  ld.get("brk_susF"),
-                    "brk_susR":  ld.get("brk_susR"),
-                    "brk_spd":   None,
-                })
+            # ── Join suspension × lap times (domain layer) ───────
+            matched_rows = join_sus_and_laptimes(ls_map, lt_best)
 
             if not matched_rows:
                 st.info(f"マッチするセッションが見つかりません（LAP_SUS={len(ls_map)}件 / LT={len(lt_best)}件）。\n\n"
@@ -3592,24 +3292,8 @@ with _content_col:
                 st.caption(f"✅ THR_ON Apex / {len(matched_rows)} セッションマッチ")
                 df_m = pd.DataFrame(matched_rows)
 
-                # Tier classification per rider×circuit（groupby.apply を避けて手動ループ）
-                df_m = df_m.copy()
-                df_m["tier"] = "MED"
-                for (rider_k, circ_k), idx in df_m.groupby(["rider","circuit"]).groups.items():
-                    sub = df_m.loc[idx].sort_values("best_s")
-                    n = len(sub)
-                    idxs = list(sub.index)
-                    for rank, orig_idx in enumerate(idxs):
-                        pct = rank / max(n - 1, 1)
-                        if n < 3:
-                            t = "FAST" if rank == 0 else "SLOW"
-                        elif pct <= 0.33:
-                            t = "FAST"
-                        elif pct >= 0.67:
-                            t = "SLOW"
-                        else:
-                            t = "MED"
-                        df_m.at[orig_idx, "tier"] = t
+                # Tier classification — domain layer (FAST / MED / SLOW per rider×circuit)
+                df_m = classify_fast_slow_tiers(df_m)
 
                 # apex_whlF/R は THR_ON ソースにないので除外
                 METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_spd"]
