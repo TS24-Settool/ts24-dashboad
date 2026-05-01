@@ -408,8 +408,39 @@ python lap_suspension_stats.py
 
 **禁止:**
 - `"全体的にAが速い"` のような定性的結論のみで終わること
-- `"Estimated Linear ΔTime"` の値を「実際のΔTime」として断言すること（時間軸正規化のため実際の距離位置と異なる場合がある）
+- `"Speed-weighted Estimated ΔTime"` の値を「実際のΔTime」として断言すること（時間軸正規化のため実際の距離位置と異なる場合がある）
 - コーナー番号の裏付けなしにフェーズ差を述べること
+
+---
+
+## 13. 設計原則 — TS24 SET-UP TOOL
+
+### コーナー定義の哲学
+
+```
+コーナーは「検出するもの」ではなく「定義するもの」
+→ Turn定義は回路固有テンプレート(turn_templates.json)で管理
+→ manual_validated: true になるまでは参考値として扱う
+→ GPSベースのDistance-based ΔTime 実装後に正式版へ更新予定
+```
+
+| ファイル | 役割 |
+|---------|------|
+| `turn_templates.json` | 各サーキットのTurn定義テンプレート（手動検証フラグ付き） |
+| `extract_turn_templates.py` | corner_phase_data.json から draft を生成するスクリプト |
+
+**manual_validated フラグ運用:**
+- `false`: ブレーキクラスター検出による自動生成draft。画面上に警告表示。
+- `true`: 実走データとのコーナーマップ照合で確認済み。警告非表示。
+
+### ΔTime命名規則（厳守）
+
+| 用語 | 定義 | 状態 |
+|------|------|------|
+| **Speed-weighted Estimated ΔTime** | time-normalized速度比による推定値 | 現行実装 |
+| **Distance-based ΔTime** | GPS距離軸による正式値 | 将来実装 |
+
+**禁止:** `"ΔTime"` 単体での表記。必ず上記いずれかの正式名称を使うこと。
 
 ---
 

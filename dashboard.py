@@ -586,7 +586,19 @@ def _load_corner_phase() -> pd.DataFrame:
     return pd.DataFrame()
 
 
-_JSON_LAP_OVERLAY = SCRIPT_DIR / "lap_overlay_data.json"
+_JSON_LAP_OVERLAY    = SCRIPT_DIR / "lap_overlay_data.json"
+_JSON_TURN_TEMPLATES = SCRIPT_DIR / "turn_templates.json"
+
+@st.cache_data(ttl=300)
+def _load_turn_templates() -> dict:
+    """turn_templates.json を読み込んで dict を返す。存在しなければ空dict。"""
+    try:
+        if _JSON_TURN_TEMPLATES.exists():
+            return json.loads(_JSON_TURN_TEMPLATES.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
 
 @st.cache_data(ttl=120)
 def _load_lap_overlay() -> list[dict]:
@@ -3085,10 +3097,15 @@ with _content_col:
             unsafe_allow_html=True,
         )
         st.caption("目的: どのコーナー・どのフェーズで何ms差が出たかを定量的に答えるツール")
-        st.info("⚠️ Time-normalized Overlay — distance synchronization not yet applied. "
-                "ΔTime values are Estimated Linear Interpolation only.")
+        st.info(
+            "📌 Speed-weighted Estimated ΔTime — "
+            "time-normalizedデータ上で速度差を重み付けした推定値です。\n"
+            "正式なDistance-based ΔTimeではないため、区間損失の絶対値としては使用しないこと。"
+            "GPS距離軸実装後に正式版へ更新予定。"
+        )
 
-        overlay_data = _load_lap_overlay()
+        overlay_data   = _load_lap_overlay()
+        _turn_tmpls    = _load_turn_templates()
 
         if not overlay_data:
             st.warning("lap_overlay_data.json が見つかりません。"
@@ -3110,6 +3127,17 @@ with _content_col:
                           if _latest_circ_ov in ov_circuits else 0,
                     key="ov_circuit")
             ov_filtered = [d for d in overlay_data if d.get("circuit") == ov_circuit]
+
+            # ── 変更2: manual_validated チェック ──────────────────────
+            _circ_tmpl = _turn_tmpls.get(ov_circuit, {})
+            if _circ_tmpl and not _circ_tmpl.get("manual_validated", False):
+                st.warning(
+                    f"⚠️ {ov_circuit} のTurnテンプレートは未検証です"
+                    f"（manual_validated: false）。"
+                    " Turn位置が実際のコーナーとズレている可能性があります。"
+                    " 検証後は `turn_templates.json` の該当サーキットで"
+                    " `manual_validated: true` に変更してください。"
+                )
 
             with ff2:
                 ov_riders = sorted(set(d["rider"] for d in ov_filtered))
@@ -3178,10 +3206,14 @@ with _content_col:
                                        f"{lap_a['rider']}  Lap{lap_a['lap_no']}")
                     _kk_cols[1].metric("🟠 Lap B", _ltfmt(lt_b),
                                        f"{lap_b['rider']}  Lap{lap_b['lap_no']}")
-                    _kk_cols[2].metric("Estimated Linear ΔTime",
-                                       f"{delta_total_s:+.3f}s",
-                                       "A faster" if delta_total_s < 0 else "A slower",
-                                       delta_color="inverse")
+                    _kk_cols[2].metric(
+                        "Speed-weighted Estimated ΔTime",
+                        f"{delta_total_s:+.3f}s",
+                        "A faster" if delta_total_s < 0 else "A slower",
+                        delta_color="inverse",
+                        help="Speed-weighted Estimated ΔTime (A − B). "
+                             "Distance-based ΔTimeではありません。",
+                    )
                     _kk_cols[3].metric("Circuit", ov_circuit)
                     # kk5/kk6 は Turn集計後に値を入れる（Streamlitは先に全部描画する）
                     _kk5_placeholder = _kk_cols[4].empty()
@@ -3267,7 +3299,7 @@ with _content_col:
                             "Speed (km/h)",
                             "Brake (bar) + Gas (%)",
                             "Suspension Front (mm)",
-                            "Estimated Linear ΔTime (sec)  (A − B)",
+                            "Speed-weighted Estimated ΔTime (sec)  (A − B)",
                         ),
                     )
 
@@ -3325,7 +3357,7 @@ with _content_col:
                         showlegend=True), row=4, col=1)
                     # ΔTime ライン本体
                     fig_ov.add_trace(go.Scatter(
-                        x=x_a, y=delta_sec, name="Est. Linear ΔTime (A−B)",
+                        x=x_a, y=delta_sec, name="Spd-wtd Est. ΔTime (A−B)",
                         line=dict(color="#333", width=1.5),
                         showlegend=True), row=4, col=1)
 
@@ -3506,7 +3538,7 @@ with _content_col:
                             )
                             st.caption(
                                 "🔴 赤=A遅い(ロス)  🟢 緑=A速い(ゲイン)  "
-                                "Loss/Gain = ΔTime at Exit − ΔTime at Entry  "
+                                "Loss/Gain = Speed-weighted Estimated ΔTime at Exit − Entry  "
                                 f"(Turns: {len(_turn_rows)})"
                             )
 
