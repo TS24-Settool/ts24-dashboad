@@ -10,6 +10,7 @@ Run:
 """
 
 import sqlite3
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -405,10 +406,9 @@ def load_data():
             tags     = _supa_to_df("session_tags",   svc_key, supa_url)
             results  = _supa_to_df("race_results",   svc_key, supa_url, order="round_no,session_type,rider_id")
             sectors  = _supa_to_df("sector_results", svc_key, supa_url)
-            # lap_times: DA77(77) + JA52(52) のみ取得 — 全体9,931行→約530行に絞り込み
+            # lap_times: 全ライダー取得（Race Paceページのコンペティター比較に必要）
             laps     = _supa_to_df("lap_times", svc_key, supa_url,
-                                   order="round_id,session_type,rider_num,lap_no",
-                                   where="rider_num=in.(52,77)")
+                                   order="round_id,session_type,rider_num,lap_no")
             return sessions, tags, results, sectors, laps
         except Exception:
             pass  # Fallback to SQLite
@@ -557,6 +557,30 @@ def _load_lap_suspension():
         if _JSON_LAP_SUS.exists():
             df = pd.read_json(str(_JSON_LAP_SUS), convert_dates=False)
             return _coerce(df)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+_JSON_CORNER_PHASE = SCRIPT_DIR / "corner_phase_data.json"
+
+@st.cache_data(ttl=120)
+def _load_corner_phase() -> pd.DataFrame:
+    """corner_phase_data.json を読み込んで DataFrame を返す。"""
+    _NUM_COLS = [
+        "lap_time_s","corner_no","lap_no","run_no",
+        "ph12_duration_ms","ph12_brake_peak_bar","ph12_susf_avg",
+        "ph3_duration_ms","ph3_speed_min","ph3_susf_avg","ph3_susr_avg",
+        "ph45_duration_ms","ph45_gas_avg","ph45_susf_avg","total_corner_ms",
+    ]
+    try:
+        if _JSON_CORNER_PHASE.exists():
+            df = pd.read_json(str(_JSON_CORNER_PHASE), convert_dates=False)
+            df.columns = [c.lower() for c in df.columns]
+            for c in _NUM_COLS:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            return df.dropna(how="all").reset_index(drop=True)
     except Exception:
         pass
     return pd.DataFrame()
@@ -789,7 +813,7 @@ def render_float_chat_component(api_key: str, memory: dict, page_ctx: dict):
         "あなたはWorldSSPモーターサイクルレーシングチームのシニアエンジニアです。"
         f"現在のダッシュボード: ページ={page}, サーキット={circ}, ライダー={rider}。"
         "ライダーはDA77とJA52の2名。"
-        "サスペンションデータはTHR_ON / BRAKE_OFF / ACC_Y Peakの3定義を使用。"
+        "サスペンションデータはAPEX定義(BRAKE_FRONT+GAS+dTPS_A+SUSP_F+SUSP_R 5条件同時成立区間)を使用。"
         "具体的な数値と範囲を示して答えてください。日本語で回答してください。"
         + (f"\n\n[現在の表示データ]\n{snap}" if snap else "")
         + memory_ctx
@@ -1480,6 +1504,7 @@ with _nav_col:
         "🔬  Suspension Dynamics",
         "📊  Lap Sus Stats",
         "🎯  Setup Target",
+        "🔄  Corner Phase",
         "📋  Session Detail",
         "📉  Trend Analysis",
         "🔍  Problem→Solution",
@@ -2252,12 +2277,19 @@ with _content_col:
             st.plotly_chart(fig_pace, use_container_width=True, config={"displayModeBar": False})
 
             # ── CHART 2: Sector Time Comparison ──────────────────────
-            if has_da77 or has_ja52:
-                st.markdown('<p class="section-title">Sector Time Evolution</p>', unsafe_allow_html=True)
-                sc1, sc2 = st.columns(2, gap="medium")
+            _sector_targets = []
+            if has_da77: _sector_targets.append((77, "DA77", DA77_COLOR))
+            if has_ja52: _sector_targets.append((52, "JA52", JA52_COLOR))
+            for rnum in compare_nums[:2]:
+                _sector_targets.append((rnum, rider_labels.get(rnum, f"#{rnum}"), compare_colors[rnum]))
 
-                for col_idx, (rnum, rname, color) in enumerate([(77, "DA77", DA77_COLOR), (52, "JA52", JA52_COLOR)]):
-                    col = sc1 if col_idx == 0 else sc2
+            if _sector_targets:
+                st.markdown('<p class="section-title">Sector Time Evolution</p>', unsafe_allow_html=True)
+                _n_sec_cols = min(len(_sector_targets), 2)
+                _sec_cols = st.columns(_n_sec_cols, gap="medium")
+
+                for col_idx, (rnum, rname, color) in enumerate(_sector_targets):
+                    col = _sec_cols[col_idx % _n_sec_cols]
                     df_r = df_lp[(df_lp["rider_num"] == rnum) & (df_lp["is_valid"] == 1)].sort_values("lap_no")
                     if df_r.empty:
                         col.info(f"{rname}: no data")
@@ -2296,7 +2328,10 @@ with _content_col:
             st.markdown('<p class="section-title">Gap to Session Best Lap (per lap)</p>', unsafe_allow_html=True)
 
             gap_traces = []
-            for rnum, rname, color in [(77, "DA77", DA77_COLOR), (52, "JA52", JA52_COLOR)]:
+            _gap_targets = [(77, "DA77", DA77_COLOR), (52, "JA52", JA52_COLOR)]
+            for rnum in compare_nums:
+                _gap_targets.append((rnum, rider_labels.get(rnum, f"#{rnum}"), compare_colors[rnum]))
+            for rnum, rname, color in _gap_targets:
                 df_r = df_lp[(df_lp["rider_num"] == rnum) & (df_lp["is_valid"] == 1)].sort_values("lap_no")
                 if df_r.empty:
                     continue
@@ -2324,6 +2359,111 @@ with _content_col:
                 st.plotly_chart(fig_gap, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("No gap data for DA77/JA52 — field data only session.")
+
+            # ── CHART: Pace Comparison (Avg & Best) ──────────────────
+            if compare_nums:
+                st.markdown('<p class="section-title">Pace Comparison — vs Selected Competitors</p>',
+                            unsafe_allow_html=True)
+
+                pace_rows = []
+                _pace_targets = []
+                if has_da77: _pace_targets.append((77, "DA77", DA77_COLOR))
+                if has_ja52: _pace_targets.append((52, "JA52", JA52_COLOR))
+                for rnum in compare_nums:
+                    _pace_targets.append((rnum, rider_labels.get(rnum, f"#{rnum}"), compare_colors[rnum]))
+
+                for rnum, rname, color in _pace_targets:
+                    df_r = df_lp[(df_lp["rider_num"] == rnum) & (df_lp["is_valid"] == 1)]
+                    if df_r.empty:
+                        continue
+                    times = df_r["lap_time"].dropna().values
+                    if len(times) == 0:
+                        continue
+                    top_n = max(1, len(times) // 3)
+                    race_pace = float(np.sort(times)[:top_n].mean())
+                    pace_rows.append({
+                        "Rider":    rname,
+                        "color":    color,
+                        "Best":     float(df_r["lap_time"].min()),
+                        "RacePace": race_pace,
+                        "Avg":      float(df_r["lap_time"].mean()),
+                        "Laps":     len(times),
+                    })
+
+                if pace_rows:
+                    df_pace = pd.DataFrame(pace_rows)
+                    pc1, pc2 = st.columns(2, gap="medium")
+
+                    with pc1:
+                        fig_rp = go.Figure()
+                        for _, row in df_pace.iterrows():
+                            fig_rp.add_trace(go.Bar(
+                                x=[row["Rider"]], y=[row["RacePace"]],
+                                name=row["Rider"],
+                                marker_color=row["color"],
+                                text=[fmt_laptime(row["RacePace"])],
+                                textposition="outside",
+                                textfont=dict(size=11),
+                                showlegend=False,
+                            ))
+                        _rp_vals = df_pace["RacePace"].values
+                        _rp_lo = float(np.min(_rp_vals)) - 0.5
+                        _rp_hi = float(np.max(_rp_vals)) + 0.5
+                        _rp_step = 0.5
+                        _rp_ticks = list(np.arange(
+                            np.floor(_rp_lo / _rp_step) * _rp_step,
+                            np.ceil(_rp_hi / _rp_step) * _rp_step + _rp_step,
+                            _rp_step,
+                        ))
+                        fig_rp.update_layout(
+                            yaxis=dict(
+                                tickvals=_rp_ticks,
+                                ticktext=[fmt_laptime(v) for v in _rp_ticks],
+                                range=[_rp_hi + 0.3, _rp_lo - 0.3],
+                                title="Race Pace (Top 1/3 avg)",
+                            ),
+                            height=300,
+                            margin=dict(l=60, r=20, t=30, b=40),
+                            plot_bgcolor="#FAFAFA",
+                            paper_bgcolor="white",
+                            title_text="Race Pace (Top 1/3 Laps Avg)",
+                        )
+                        pc1.plotly_chart(fig_rp, use_container_width=True,
+                                         config={"displayModeBar": False})
+
+                    with pc2:
+                        _da77_best = df_pace[df_pace["Rider"] == "DA77"]["Best"].values
+                        ref_best = float(_da77_best[0]) if len(_da77_best) > 0 else float(df_pace["Best"].min())
+                        fig_gap2 = go.Figure()
+                        for _, row in df_pace.iterrows():
+                            delta = row["RacePace"] - ref_best
+                            fig_gap2.add_trace(go.Bar(
+                                x=[row["Rider"]], y=[delta],
+                                name=row["Rider"],
+                                marker_color=row["color"],
+                                text=[f"+{delta:.3f}s" if delta >= 0 else f"{delta:.3f}s"],
+                                textposition="outside",
+                                textfont=dict(size=11),
+                                showlegend=False,
+                            ))
+                        fig_gap2.add_hline(y=0, line_color="#27AE60", line_width=1.5)
+                        fig_gap2.update_layout(
+                            yaxis_title="Race Pace Δ vs DA77 Best (s)",
+                            height=300,
+                            margin=dict(l=50, r=20, t=30, b=40),
+                            plot_bgcolor="#FAFAFA",
+                            paper_bgcolor="white",
+                            title_text="Race Pace Gap vs DA77",
+                        )
+                        pc2.plotly_chart(fig_gap2, use_container_width=True,
+                                         config={"displayModeBar": False})
+
+                    df_pace_disp = df_pace[["Rider","Best","RacePace","Avg","Laps"]].copy()
+                    df_pace_disp["Best"]     = df_pace_disp["Best"].apply(fmt_laptime)
+                    df_pace_disp["RacePace"] = df_pace_disp["RacePace"].apply(fmt_laptime)
+                    df_pace_disp["Avg"]      = df_pace_disp["Avg"].apply(fmt_laptime)
+                    df_pace_disp.columns     = ["Rider","Best Lap","Race Pace (top 1/3)","Avg Lap","Laps"]
+                    st.dataframe(df_pace_disp, use_container_width=True, hide_index=True)
 
             # ── Statistics Summary ───────────────────────────────────
             st.markdown('<p class="section-title">Lap Time Statistics</p>', unsafe_allow_html=True)
@@ -3260,17 +3400,14 @@ with _content_col:
                 # ── APEX タブ ───────────────────────────────
                 with tab_apex:
                     st.caption(
-                        "**3定義によるAPEX比較** — "
-                        "①ACC_Y Peak: 幾何学的Apex (純旋回荷重) / "
-                        "②Brake Off: ブレーキ解放点 (縦+横の複合荷重ピーク) / "
-                        "③Thr On: アクセルON点 (ライダー体感Apex)"
+                        "**APEX SusF** — "
+                        "新定義 (2026-04-30): BRAKE_FRONT -0.6~0.3Bar / GAS 0~6% / "
+                        "dTPS_A 5~50 / SUSP_F 20~140mm / SUSP_R 5~50mm の5条件同時成立区間"
                     )
 
-                    # ── 3定義 SusF ラップ別比較 ─────────────────
+                    # ── APEX SusF ラップ別 ────────────────────────
                     apex_cols = [
-                        ("APEX_SUSF_AVG",  "① AccY Peak (SusF)"),
-                        ("BOFF_SUSF_AVG",  "② Brake Off (SusF)"),
-                        ("THRON_SUSF_AVG", "③ Thr On   (SusF)"),
+                        ("APEX_SUSF_AVG", "APEX SusF (mm)"),
                     ]
                     rows_3 = []
                     for _, r in dfW.iterrows():
@@ -3286,9 +3423,7 @@ with _content_col:
 
                         # ── Power BI スタイル: 定義別カラー ─────────
                         DEF_COLORS = {
-                            "① AccY Peak (SusF)": "#0078D4",   # Power BI blue
-                            "② Brake Off (SusF)": "#107C10",   # green
-                            "③ Thr On   (SusF)": "#C43E1C",   # orange-red
+                            "APEX SusF (mm)": "#0078D4",   # Power BI blue
                         }
                         # ライダー別シンボル
                         riders_u = sorted(df3["Rider"].unique())
@@ -3351,7 +3486,7 @@ with _content_col:
 
                     # ── ラン別平均 棒グラフ（Power BI スタイル）──────
                     st.divider()
-                    st.markdown("**ラン別 APEX SusF 平均 (3定義)**")
+                    st.markdown("**ラン別 APEX SusF 平均**")
                     rows_bar = []
                     for col, label in apex_cols:
                         if col in dfW.columns:
@@ -3515,10 +3650,8 @@ with _content_col:
                 with tab_table:
                     disp_cols_ls = ["RUN_ID","LAP_ID","ROUND","CIRCUIT","SESSION","RIDER",
                                     "RUN_NO","LAP_NO","LAP_TIME","LAP_TIME_S",
-                                    # 3定義
+                                    # APEX
                                     "APEX_CNT","APEX_SUSF_AVG","APEX_SUSR_AVG","APEX_SPD_AVG",
-                                    "BOFF_CNT","BOFF_SUSF_AVG","BOFF_SUSR_AVG","BOFF_SPD_AVG",
-                                    "THRON_CNT","THRON_SUSF_AVG","THRON_SUSR_AVG","THRON_SPD_AVG",
                                     # ブレーキ / ラップ全体
                                     "BRK_CNT","BRK_SUSF_AVG","BRK_SUSR_AVG",
                                     "FULLBRK_SUSF","FULLBRK_SUSR",
@@ -3549,15 +3682,15 @@ with _content_col:
                        "Mac で run_full_analysis.command を実行後、git push してください。")
             st.caption(f"DYN JSON exists: {_JSON_DYN.exists()} | LT JSON exists: {_JSON_LT.exists()} | Excel exists: {_DYNAMICS_EXCEL.exists()}")
         else:
-            # ── Apex定義: THR_ON (③アクセルON点) を使用 ──────────
+            # ── Apex定義: 新APEX定義 (2026-04-30) を使用 ─────────
             MIN_LAP_S_CORR = 80.0
 
-            # ── LAP_SUSPENSION から THR_ON / BRK をラン別集計 ────
+            # ── LAP_SUSPENSION から APEX / BRK をラン別集計 ──────
             df_ls = _load_lap_suspension()
             ls_map = {}
             if not df_ls.empty:
-                for nc in ["THRON_SUSF_AVG","THRON_SUSR_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
-                           "THRON_CNT","BRK_CNT","APEX_SPD_AVG","APEX_CNT"]:
+                for nc in ["APEX_SUSF_AVG","APEX_SUSR_AVG","BRK_SUSF_AVG","BRK_SUSR_AVG",
+                           "APEX_CNT","BRK_CNT","APEX_SPD_AVG"]:
                     if nc in df_ls.columns:
                         df_ls[nc] = pd.to_numeric(df_ls[nc], errors="coerce")
                 _grp_cols = [c for c in ["RIDER","CIRCUIT","DATE","RUN_NO"] if c in df_ls.columns]
@@ -3571,14 +3704,14 @@ with _content_col:
                         date_s = str(date_g or "")
                         try: run_i = int(run_g or 0)
                         except: run_i = 0
-                        g_thron = _gdf[_gdf["THRON_CNT"] > 0] if "THRON_CNT" in _gdf.columns else _gdf
-                        g_brk   = _gdf[_gdf["BRK_CNT"] > 0]   if "BRK_CNT"   in _gdf.columns else _gdf
+                        g_apex = _gdf[_gdf["APEX_CNT"] > 0] if "APEX_CNT" in _gdf.columns else _gdf
+                        g_brk  = _gdf[_gdf["BRK_CNT"] > 0]  if "BRK_CNT"  in _gdf.columns else _gdf
                         ls_map[(rider_g, circ_n, date_s, run_i)] = {
-                            "thron_susF": g_thron["THRON_SUSF_AVG"].dropna().mean() if not g_thron.empty else None,
-                            "thron_susR": g_thron["THRON_SUSR_AVG"].dropna().mean() if not g_thron.empty else None,
-                            "brk_susF":   g_brk["BRK_SUSF_AVG"].dropna().mean()    if not g_brk.empty   else None,
-                            "brk_susR":   g_brk["BRK_SUSR_AVG"].dropna().mean()    if not g_brk.empty   else None,
-                            "apex_spd":   _gdf["APEX_SPD_AVG"].dropna().mean()      if "APEX_SPD_AVG" in _gdf.columns else None,
+                            "thron_susF": g_apex["APEX_SUSF_AVG"].dropna().mean() if not g_apex.empty else None,
+                            "thron_susR": g_apex["APEX_SUSR_AVG"].dropna().mean() if not g_apex.empty else None,
+                            "brk_susF":   g_brk["BRK_SUSF_AVG"].dropna().mean()  if not g_brk.empty  else None,
+                            "brk_susR":   g_brk["BRK_SUSR_AVG"].dropna().mean()  if not g_brk.empty  else None,
+                            "apex_spd":   _gdf["APEX_SPD_AVG"].dropna().mean()    if "APEX_SPD_AVG" in _gdf.columns else None,
                         }
 
             # ── LAP_TIMES からラン最良タイム ────────────────────
@@ -3615,8 +3748,8 @@ with _content_col:
                 matched_rows.append({
                     "rider": rider, "circuit": circ, "date": date, "run": run,
                     "best_s": best_s,
-                    "apex_susF": ld.get("thron_susF"),  # ③ THR_ON SusF
-                    "apex_susR": ld.get("thron_susR"),  # ③ THR_ON SusR
+                    "apex_susF": ld.get("thron_susF"),  # APEX SusF
+                    "apex_susR": ld.get("thron_susR"),  # APEX SusR
                     "apex_whlF": None,
                     "apex_whlR": None,
                     "apex_spd":  ld.get("apex_spd"),
@@ -3629,7 +3762,7 @@ with _content_col:
                 st.info(f"マッチするセッションが見つかりません（LAP_SUS={len(ls_map)}件 / LT={len(lt_best)}件）。\n\n"
                         "lap_suspension_data.json が最新か確認してください。")
             else:
-                st.caption(f"✅ THR_ON Apex / {len(matched_rows)} セッションマッチ")
+                st.caption(f"✅ APEX / {len(matched_rows)} セッションマッチ")
                 df_m = pd.DataFrame(matched_rows)
 
                 # Tier classification per rider×circuit（groupby.apply を避けて手動ループ）
@@ -3651,11 +3784,10 @@ with _content_col:
                             t = "MED"
                         df_m.at[orig_idx, "tier"] = t
 
-                # apex_whlF/R は THR_ON ソースにないので除外
                 METRICS = ["apex_susF","apex_susR","brk_susF","brk_susR","apex_spd"]
                 METRIC_LABELS = {
-                    "apex_susF": "THR_ON SusF (mm)", "apex_susR": "THR_ON SusR (mm)",
-                    "brk_susF":  "Brk SusF (mm)",    "brk_susR":  "Brk SusR (mm)",
+                    "apex_susF": "APEX SusF (mm)", "apex_susR": "APEX SusR (mm)",
+                    "brk_susF":  "Brk SusF (mm)",  "brk_susR":  "Brk SusR (mm)",
                     "apex_spd":  "APEX Spd (km/h)",
                 }
 
@@ -3711,8 +3843,8 @@ with _content_col:
                     st.divider()
                     st.markdown('<p class="section-title">Δ (FAST − SLOW) — Suspension Direction per Circuit</p>',
                                 unsafe_allow_html=True)
-                    bar_metrics = [("Δ THR_ON SusF (mm)", "THR_ON SusF"), ("Δ THR_ON SusR (mm)", "THR_ON SusR"),
-                                   ("Δ Brk SusF (mm)",    "Brk SusF"),   ("Δ Brk SusR (mm)",    "Brk SusR")]
+                    bar_metrics = [("Δ APEX SusF (mm)", "APEX SusF"), ("Δ APEX SusR (mm)", "APEX SusR"),
+                                   ("Δ Brk SusF (mm)",  "Brk SusF"),  ("Δ Brk SusR (mm)",  "Brk SusR")]
                     bar_rows = []
                     for _, sr in df_sum.iterrows():
                         for col, short in bar_metrics:
@@ -3725,10 +3857,10 @@ with _content_col:
                     if bar_rows:
                         df_bar = pd.DataFrame(bar_rows)
                         _metric_colors = {
-                            "THR_ON SusF": "#0078D4",
-                            "THR_ON SusR": "#50B0F0",
-                            "Brk SusF":    "#E8543A",
-                            "Brk SusR":    "#F4A28C",
+                            "APEX SusF": "#0078D4",
+                            "APEX SusR": "#50B0F0",
+                            "Brk SusF":  "#E8543A",
+                            "Brk SusR":  "#F4A28C",
                         }
                         _riders_sorted = sorted(df_bar["Rider"].unique())
                         _n_riders = len(_riders_sorted)
@@ -3825,7 +3957,7 @@ with _content_col:
                     lambda s: f"{int(s)//60}:{s%60:06.3f}" if pd.notna(s) else "—")
                 disp_m = disp_m.drop(columns=["best_s"])
                 disp_m.columns = ["Rider","Circuit","Date","Run","Tier",
-                                   "THR_ON SusF","THR_ON SusR","Brk SusF","Brk SusR",
+                                   "APEX SusF","APEX SusR","Brk SusF","Brk SusR",
                                    "APEX Spd","Best Lap"]
 
                 def _tier_color(v):
@@ -3838,6 +3970,226 @@ with _content_col:
                     use_container_width=True, height=360
                 )
 
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Corner Phase Analysis
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "🔄  Corner Phase":
+        st.markdown('<p class="section-title">🔄 Corner Phase Analysis — PH1-2 / PH3 / PH4-5 Timing</p>',
+                    unsafe_allow_html=True)
+
+        PH12_COLOR = "#0078D4"
+        PH3_COLOR  = "#107C10"
+        PH45_COLOR = "#D83B01"
+
+        df_cp = _load_corner_phase()
+
+        if df_cp.empty:
+            st.warning("corner_phase_data.json が見つかりません。`python corner_phase_analysis.py` を実行してください。")
+        else:
+            # ── フィルター ────────────────────────────────────────────
+            cp_circuits_raw = sorted(df_cp["circuit"].dropna().unique().tolist())
+            # デフォルト: 最新日付のサーキット
+            if cp_circuits_raw:
+                _latest_circ_cp = (
+                    df_cp.sort_values("date", ascending=False)
+                    .iloc[0]["circuit"]
+                )
+            else:
+                _latest_circ_cp = cp_circuits_raw[0] if cp_circuits_raw else "All"
+
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                cp_circuit = st.selectbox("Circuit", cp_circuits_raw,
+                                          index=cp_circuits_raw.index(_latest_circ_cp)
+                                          if _latest_circ_cp in cp_circuits_raw else 0,
+                                          key="cp_circuit")
+            df_c = df_cp[df_cp["circuit"] == cp_circuit].copy()
+
+            with f2:
+                cp_riders = sorted(df_c["rider"].dropna().unique().tolist())
+                cp_rider  = st.selectbox("Rider", cp_riders, key="cp_rider")
+            df_c = df_c[df_c["rider"] == cp_rider]
+
+            with f3:
+                cp_sessions = sorted(df_c["session_type"].dropna().unique().tolist())
+                cp_session  = st.selectbox("Session", cp_sessions, key="cp_session")
+            df_c = df_c[df_c["session_type"] == cp_session]
+
+            cp_runs = sorted(df_c["run_no"].dropna().unique().tolist())
+            if cp_runs:
+                cp_run = st.selectbox("Run No", cp_runs,
+                                      index=len(cp_runs) - 1, key="cp_run")
+                df_c = df_c[df_c["run_no"] == cp_run]
+
+            if df_c.empty:
+                st.info("このセッションのコーナーフェーズデータがありません。")
+            else:
+                # ── FAST / SLOW 分類 ──────────────────────────────────
+                lap_times = df_c.groupby("lap_no")["lap_time_s"].first().dropna()
+                if len(lap_times) < 3:
+                    st.info(f"ラップ数が少なすぎます ({len(lap_times)} laps)。3ラップ以上必要です。")
+                else:
+                    n_group = max(1, len(lap_times) // 3)
+                    sorted_laps = lap_times.sort_values()
+                    fast_laps   = set(sorted_laps.head(n_group).index.tolist())
+                    slow_laps   = set(sorted_laps.tail(n_group).index.tolist())
+
+                    df_fast = df_c[df_c["lap_no"].isin(fast_laps)]
+                    df_slow = df_c[df_c["lap_no"].isin(slow_laps)]
+
+                    # KPI
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Total Laps", len(lap_times))
+                    k2.metric("FAST Laps (top 1/3)", len(fast_laps),
+                              f"avg {sorted_laps.head(n_group).mean():.3f}s")
+                    k3.metric("SLOW Laps (bot 1/3)", len(slow_laps),
+                              f"avg {sorted_laps.tail(n_group).mean():.3f}s")
+                    all_corners = sorted(df_c["corner_no"].dropna().unique().tolist())
+                    k4.metric("Corners detected", len(all_corners))
+
+                    st.divider()
+
+                    # ── SECTION A: FAST vs SLOW Δtime per corner ─────
+                    st.markdown('<p class="section-title">Section A — FAST vs SLOW Δtime per Corner (SLOW − FAST)</p>',
+                                unsafe_allow_html=True)
+
+                    _phase_cols = ["ph12_duration_ms", "ph3_duration_ms", "ph45_duration_ms"]
+                    _phase_labels = {"ph12_duration_ms": "PH1-2",
+                                     "ph3_duration_ms":  "PH3",
+                                     "ph45_duration_ms": "PH4-5"}
+                    _phase_colors = {"PH1-2": PH12_COLOR,
+                                     "PH3":   PH3_COLOR,
+                                     "PH4-5": PH45_COLOR}
+
+                    delta_rows = []
+                    for cn in all_corners:
+                        fast_cn = df_fast[df_fast["corner_no"] == cn]
+                        slow_cn = df_slow[df_slow["corner_no"] == cn]
+                        if fast_cn.empty or slow_cn.empty:
+                            continue
+                        for col in _phase_cols:
+                            f_avg = fast_cn[col].dropna().mean()
+                            s_avg = slow_cn[col].dropna().mean()
+                            if pd.notna(f_avg) and pd.notna(s_avg):
+                                delta_rows.append({
+                                    "Corner":   f"C{int(cn)}",
+                                    "Phase":    _phase_labels[col],
+                                    "Δ (ms)":  round(s_avg - f_avg, 1),
+                                })
+
+                    if delta_rows:
+                        df_delta = pd.DataFrame(delta_rows)
+                        corner_order = [f"C{int(c)}" for c in sorted(all_corners)]
+                        fig_delta = go.Figure()
+                        for phase, color in _phase_colors.items():
+                            dph = df_delta[df_delta["Phase"] == phase]
+                            if dph.empty:
+                                continue
+                            # align to corner_order
+                            dph_map = dict(zip(dph["Corner"], dph["Δ (ms)"]))
+                            vals    = [dph_map.get(c, 0) for c in corner_order]
+                            fig_delta.add_trace(go.Bar(
+                                name=phase,
+                                y=corner_order,
+                                x=vals,
+                                orientation="h",
+                                marker_color=color,
+                                text=[f"{v:+.0f}" for v in vals],
+                                textposition="outside",
+                                textfont=dict(size=9),
+                            ))
+                        fig_delta.add_vline(x=0, line_color="#333", line_width=1.5,
+                                            line_dash="dot")
+                        chart_layout(fig_delta, height=max(300, len(all_corners) * 28))
+                        fig_delta.update_layout(
+                            barmode="stack",
+                            xaxis_title="Δ time ms (SLOW − FAST)  [positive = slower]",
+                            yaxis_title="Corner",
+                            yaxis=dict(autorange="reversed"),
+                            legend=dict(orientation="h", y=1.04),
+                        )
+                        st.plotly_chart(fig_delta, use_container_width=True,
+                                        config={"displayModeBar": False})
+                    else:
+                        st.info("FAST/SLOW 比較データ不足。")
+
+                    st.divider()
+
+                    # ── SECTION B: APEX Speed Heatmap ────────────────
+                    st.markdown('<p class="section-title">Section B — APEX Speed Heatmap (ph3_speed_min km/h)</p>',
+                                unsafe_allow_html=True)
+
+                    lap_order = sorted(df_c["lap_no"].dropna().unique().tolist())
+                    hm_data = []
+                    for cn in all_corners:
+                        row_vals = []
+                        for ln in lap_order:
+                            val = df_c[(df_c["corner_no"] == cn) & (df_c["lap_no"] == ln)]["ph3_speed_min"]
+                            row_vals.append(float(val.iloc[0]) if len(val) > 0 and pd.notna(val.iloc[0]) else None)
+                        hm_data.append(row_vals)
+
+                    # fill None with np.nan for plotly
+                    import math as _math
+                    hm_z = [[v if v is not None else float("nan") for v in row] for row in hm_data]
+
+                    fig_hm = go.Figure(data=go.Heatmap(
+                        z=hm_z,
+                        x=[f"Lap {ln}" for ln in lap_order],
+                        y=[f"C{int(cn)}" for cn in all_corners],
+                        colorscale=[[0, "#D83B01"], [0.5, "#FFF2CC"], [1, "#0078D4"]],
+                        colorbar=dict(title="Speed (km/h)", tickfont=dict(size=10)),
+                        hovertemplate="Corner %{y}<br>%{x}<br>Speed: %{z:.1f} km/h<extra></extra>",
+                    ))
+                    chart_layout(fig_hm, height=max(300, len(all_corners) * 26))
+                    fig_hm.update_layout(
+                        xaxis_title="Lap",
+                        yaxis_title="Corner",
+                        yaxis=dict(autorange="reversed"),
+                    )
+                    st.plotly_chart(fig_hm, use_container_width=True,
+                                    config={"displayModeBar": False})
+
+                    st.divider()
+
+                    # ── SECTION C: Phase timing — 1ラップ=1行集計テーブル ──
+                    st.markdown('<p class="section-title">Phase Timing Summary — 1 row per Lap</p>',
+                                unsafe_allow_html=True)
+
+                    def _fmt_lt(sec):
+                        if sec is None or (isinstance(sec, float) and pd.isna(sec)):
+                            return "—"
+                        m = int(sec // 60); s = sec - m * 60
+                        return f"{m}:{s:05.2f}"
+
+                    lap_summary_rows = []
+                    for ln in sorted(df_c["lap_no"].dropna().unique()):
+                        df_ln = df_c[df_c["lap_no"] == ln]
+                        lt_s  = df_ln["lap_time_s"].iloc[0] if len(df_ln) > 0 else None
+                        lap_summary_rows.append({
+                            "LAP NO":        int(ln),
+                            "LAP TIME":      _fmt_lt(lt_s),
+                            "CORNERS":       len(df_ln),
+                            "PH12 AVG (ms)": round(df_ln["ph12_duration_ms"].mean(), 0)
+                                             if "ph12_duration_ms" in df_ln else None,
+                            "PH3 AVG (ms)":  round(df_ln["ph3_duration_ms"].mean(), 0)
+                                             if "ph3_duration_ms" in df_ln else None,
+                            "PH45 AVG (ms)": round(df_ln["ph45_duration_ms"].mean(), 0)
+                                             if "ph45_duration_ms" in df_ln else None,
+                            "PH3 SPD MIN":   round(df_ln["ph3_speed_min"].min(), 1)
+                                             if "ph3_speed_min" in df_ln and df_ln["ph3_speed_min"].notna().any() else None,
+                            "PH3 SUSF AVG":  round(df_ln["ph3_susf_avg"].mean(), 1)
+                                             if "ph3_susf_avg" in df_ln and df_ln["ph3_susf_avg"].notna().any() else None,
+                        })
+                    if lap_summary_rows:
+                        df_lap_sum = pd.DataFrame(lap_summary_rows)
+                        st.dataframe(df_lap_sum, use_container_width=True, height=380)
+
+        render_float_chat_component(
+            st.session_state.get("claude_api_key", ""),
+            st.session_state.get("race_memory", {}),
+            {"page": "Corner Phase", "circuit": sel_circuit, "rider": sel_rider},
+        )
 
     # ═══════════════════════════════════════════════════
     # PAGE 7 — Trend Analysis
