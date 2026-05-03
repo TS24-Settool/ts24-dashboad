@@ -1,6 +1,6 @@
 # CLAUDE.md — TS24 Project Team Shared Context
 **Project:** TS24 SET-UP TOOL / Puccetti Racing WorldSSP Suspension Management System
-**Last Updated:** 2026-05-01
+**Last Updated:** 2026-05-03
 **Read this file at the start of every session — Claude Code, Cowork Claude, and ChatGPT both.**
 
 ---
@@ -19,6 +19,19 @@
 **重要:** 各AIは直接通信できない。Tatsukiがハブとなり情報を橋渡しする。
 このファイル（CLAUDE.md）と `race_memory.json` が全AIの共有文脈として機能する。
 作業前に必ずこのファイルを読むこと。
+
+### 役割境界ルール（厳守）
+
+| 行為 | Cowork Claude | Claude Code |
+|-----|:---:|:---:|
+| ダッシュボードで分析・提案 | ✅ | ❌ |
+| race_memory.json に知見を追記 | ✅ | ✅ |
+| CLAUDE.md の設計・仕様を更新 | ✅ | ✅ |
+| dashboard.py / .py ファイルを実装 | ❌ | ✅ |
+| git add/commit/push | ❌ | ✅ |
+| データ処理スクリプトを実行 | ❌ | ✅ |
+
+**Cowork Claude はコードを直接書かない。** 設計・仕様・修正方針をCLAUDE.mdに記述し、Claude Codeに渡す。
 
 ### チーム通信フロー
 
@@ -76,7 +89,10 @@ Claude Code（コード修正・Git管理）
 │   ├── lap_times_data.json          ← ラップタイムデータ
 │   ├── race_memory.json             ← 【重要】AI分析知見の蓄積ファイル
 │   ├── git_push_fix.command         ← GitHubプッシュスクリプト（手動実行）
-│   └── run_full_analysis.command    ← 全データ再処理スクリプト
+│   ├── run_full_analysis.command    ← 全データ再処理スクリプト
+│   ├── ts24_workbench.py            ← 【NEW】PyQt6 Engineer Workbench（ローカルデスクトップアプリ）
+│   ├── create_workbench_tables.py   ← 【NEW】problem_log / setup_decision_log テーブル作成スクリプト
+│   └── requirements_workbench.txt  ← 【NEW】Workbench依存パッケージ（PyQt6, pyqtgraph, pandas）
 └── 04_MES/                          ← MES生データ（2Dロガー出力）
     └── [RIDER]/[DATE]/              ← ライダー別・日付別
 ```
@@ -127,11 +143,41 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 
 ### 4.4 データベース（SQLite）
 
+**ファイル:** `02_DATABASE/ts24_unified.db`（Streamlit/ローカル共用）
+
 ```sql
--- 主要テーブル
-sessions      -- セッション基本情報
-tags          -- 問題タグ（chattering_brake等）
-race_results  -- 公式レース結果
+-- 既存テーブル（Streamlit読み取り）
+sessions        -- セッション基本情報
+tags            -- 問題タグ（chattering_brake等）
+race_results    -- 公式レース結果
+laps            -- ラップタイム
+runs            -- ランデータ（session列 / perf_best_lap列 を使用）
+events          -- イベント情報
+lap_suspension  -- ラップサスペンション統計
+
+-- Workbench専用テーブル（2026-05-03 追加、create_workbench_tables.py で作成）
+problem_log     -- エンジニアが記録する問題ログ
+setup_decision_log  -- セットアップ変更の意思決定ログ
+```
+
+**重要な列名（runs テーブル）:**
+- `session` ← `session_type` ではない
+- `perf_best_lap` ← `best_lap_s` ではない
+
+**problem_log スキーマ:**
+```sql
+problem_id TEXT PRIMARY KEY, run_id TEXT, round TEXT, circuit TEXT, session TEXT,
+rider TEXT, run_no INTEGER, lap_no INTEGER, corner TEXT, phase TEXT,
+problem_tag TEXT, description TEXT, severity TEXT, source TEXT,
+created_at TEXT, updated_at TEXT
+```
+
+**setup_decision_log スキーマ:**
+```sql
+decision_id TEXT PRIMARY KEY, run_id_from TEXT, run_id_to TEXT, round TEXT,
+circuit TEXT, session TEXT, rider TEXT, change_type TEXT, component TEXT,
+from_value TEXT, to_value TEXT, rationale TEXT, expected_effect TEXT,
+actual_effect TEXT, result_eval TEXT, created_at TEXT, updated_at TEXT
 ```
 
 ### 4.4 Streamlit Cloud設定
@@ -172,7 +218,71 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 
 ---
 
-## 6. ダッシュボード（dashboard.py）構成
+## 6. PyQt6 Engineer Workbench（ts24_workbench.py）
+
+**目的:** ラップデータを見ながら Problem / Setup Decision をローカルDBに記録する作業台。
+**Streamlit Dashboard とは独立した別アプリ。** Streamlit Cloudに影響しない。
+
+### 起動方法
+```bash
+cd ~/Desktop/"Data TS24 Claude"/05_SCRIPTS
+python3 ts24_workbench.py
+# または
+./TS24_Workbench.command  # まだ未作成 → Claude Codeが作成すること
+```
+
+### 初回セットアップ（テーブル未作成の場合）
+```bash
+python3 create_workbench_tables.py
+```
+
+### UI構成
+```
+左パネル (QTreeWidget)              右パネル (QTabWidget)
+├── ASSEN                           ├── Tab1: Waveform View
+│   ├── FP                          │   └── Speed / Brake / Gas (pyqtgraph)
+│   │   ├── DA77                    │       Turn markers (DashLine)
+│   │   │   ├── R1                  ├── Tab2: Problem Log
+│   │   │   └── R2                  │   └── リスト表示 + 追加フォーム
+│   └── QP                          └── Tab3: Setup Decision Log
+│       └── ...                         └── リスト表示 + 追加フォーム
+```
+
+### データ読み取り構造
+```python
+# run_id 形式: {round}_{circuit}_{session}_{rider}_R{run_no}
+# 例: UNK_ASSEN_FP_DA77_R1
+
+# lap_overlay_data.json との紐付け（run_id フィールド不在のため）
+# → circuit + session_type + rider + run_no でマッチング
+# → rounds テーブルなし → round は "UNK" フォールバック
+
+# runs テーブルの正しい列名
+# session (not session_type), perf_best_lap (not best_lap_s)
+```
+
+### 現在の実装状態 (2026-05-03)
+- ✅ 左パネル: Circuit → Session → Rider → Run 階層表示
+- ✅ Tab1 Waveform: Speed/Brake/Gas pyqtgraph描画、Turn markers
+- ✅ Tab2 Problem Log: リスト + 追加フォーム → SQLite保存
+- ✅ Tab3 Setup Decision: リスト + 追加フォーム → SQLite保存
+- 🔄 **要確認**: Speed Y軸 0-255 km/h表示・X軸 0-1.0固定（修正済み、未テスト）
+- ⬜ TS24_Workbench.command ランチャーが未作成
+
+### Claude Code への引き継ぎ事項
+1. `python3 ts24_workbench.py` でWorkbenchを起動し、Speed Chartのスケールを確認する
+2. Speed Y軸が 0-1 のままなら以下を `draw()` メソッドに追加（既にあるはず）:
+   ```python
+   for p in (self._p_speed, self._p_brake, self._p_gas):
+       p.setXRange(0.0, 1.0, padding=0.01)
+       p.enableAutoRange(axis="y")
+   ```
+3. `turn_templates.json` のアクセスは `.get(circuit, {}).get("turns", [])` で行うこと（dictではなくlist）
+4. 問題なければ `TS24_Workbench.command` ランチャーを作成して push する
+
+---
+
+## 7. ダッシュボード（dashboard.py）構成
 
 ### ページ一覧と役割
 

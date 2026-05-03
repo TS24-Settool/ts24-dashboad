@@ -54,7 +54,8 @@
     "[全シーズン] line_loss_exit（8件）、nervousness（7件）、push_rear_exit（7件）、no_turn_in（6件）が主要慢性問題。",
     "[2026-05-03] §0原則確立：DashboardはAnalysis専用（read/visualize/analyze only）。権威ソース=ts24 DB+Excelレポートのみ。ΔTimeなど自動計算値は必ずEstimate/推定値ラベルを付ける。",
     "[2026-05-03] Lap Overlay設計原則：ΔTimeはSpeed-weighted Estimated（非線形、速度比ベース）。Turn定義はTemplate固定（ブレーキ検出ではない）。Focus Turn DetailはBrake-event aligned data（corner_phase_data.json）を使用すること。",
-    "[2026-05-03] ASSEN Turn Template：17ターン確定（110lap高信頼度）。CREMONA：GPS系再処理が必要（median 87corners/lapで現在POOR）。"
+    "[2026-05-03] ASSEN Turn Template：17ターン確定（110lap高信頼度）。CREMONA：GPS系再処理が必要（median 87corners/lapで現在POOR）。",
+    "[2026-05-03] チーム役割境界確立：Cowork Claude=分析/設計/仕様、Claude Code=実装/git/スクリプト実行。直接コード変更はClaude Codeの領域。CLAUDE.md §1に役割境界表を追加。"
   ],
   "setup_learnings": [
     {
@@ -145,6 +146,20 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "§0データソース原則をCLAUDE.mdに最高優先度セクションとして追加。権威ソース=ts24 original DB＋Excelレポートのみ。Dashboard=read/analyze/visualize専用（データ生成・入力フォームなし）。自動計算値はEstimate明記必須。データフロー一方向（権威ソース→Dashboard）。AI三者（Code/Cowork/ChatGPT）全員遵守。DashboardをAnalysis Appとして位置付け、Report BuilderはDB出力として分離予定。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "PyQt6 Workbench (ts24_workbench.py) MVP実装完了。左パネル階層表示・Waveform・ProblemLog・SetupDecisionLog全タブ動作確認。Waveform Speed Y軸/X軸修正適用済み（未テスト）。CLAUDE.mdにWorkbench仕様・役割境界ルールを追加。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "チームワークフロー再確認：Cowork Claude はコード実装・git pushを行わない。設計・仕様・修正方針をCLAUDE.mdに記述しClaude Codeに渡す。今セッションの越権行為を記録し、今後の境界ルールをCLAUDE.mdセクション1に明文化した。"
     }
   ]
 }
