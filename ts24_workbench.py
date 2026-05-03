@@ -199,6 +199,7 @@ class WaveformView(QWidget):
         self._overlay_data: list[dict] = []
         self._templates: dict = {}
         self._circuit: str = ""
+        self._csv_x_mode: str = "progress"  # "time" | "progress"
         self._setup_ui()
         self._load_static_data()
 
@@ -216,6 +217,14 @@ class WaveformView(QWidget):
         warn = QLabel("⚠️  Reference only — time-normalized data, not track-position aligned.")
         warn.setStyleSheet("color: #D83B01; font-style: italic; padding: 4px;")
         layout.addWidget(warn)
+
+        # X-axis mode indicator (updated by set_csv_laps / set_run)
+        self._lbl_xmode = QLabel("X axis: Lap Progress (0–1)")
+        self._lbl_xmode.setStyleSheet(
+            "color: #107C10; font-size: 10px; padding: 2px 4px;"
+            " background: #F0FFF0; border-radius: 3px;"
+        )
+        layout.addWidget(self._lbl_xmode)
 
         # Lap selectors
         sel_row = QHBoxLayout()
@@ -270,6 +279,11 @@ class WaveformView(QWidget):
 
     def set_run(self, run_id: str, circuit: str):
         self._circuit = circuit
+        self._csv_x_mode = "progress"
+        self._lbl_xmode.setText("X axis: Lap Progress (0–1)")
+        if self._has_pg:
+            for p in (self._p_speed, self._p_brake, self._p_gas):
+                p.setLabel("bottom", "Lap Progress")
         self._combo_a.clear()
         self._combo_b.clear()
         if not self._overlay_data:
@@ -289,6 +303,26 @@ class WaveformView(QWidget):
         """CSV インポートからのラップデータを波形に設定する（参考値）。"""
         self._laps_cache = csv_laps
         self._circuit = ""
+        self._csv_x_mode = csv_laps[0].get("x_mode", "progress") if csv_laps else "progress"
+        if self._has_pg:
+            if self._csv_x_mode == "time":
+                x_label = "Time (s)"
+                mode_text = "X axis: Time axis  [CSV]"
+                mode_style = (
+                    "color: #0078D4; font-size: 10px; padding: 2px 4px;"
+                    " background: #EFF6FF; border-radius: 3px;"
+                )
+            else:
+                x_label = "Lap Progress (0–1)  [fallback]"
+                mode_text = "X axis: Normalized Progress (0–1)  [CSV — Time column not found]"
+                mode_style = (
+                    "color: #797673; font-size: 10px; padding: 2px 4px;"
+                    " background: #FAF9F8; border-radius: 3px;"
+                )
+            for p in (self._p_speed, self._p_brake, self._p_gas):
+                p.setLabel("bottom", x_label)
+            self._lbl_xmode.setText(mode_text)
+            self._lbl_xmode.setStyleSheet(mode_style)
         self._combo_a.clear()
         self._combo_b.clear()
         labels = [
@@ -332,6 +366,8 @@ class WaveformView(QWidget):
             data = ch.get(channel) or lap.get(channel)
             return data
 
+        x_mode = self._csv_x_mode  # "time" | "progress"
+
         def _plot(lap, label, pen, channel, plot_obj):
             xs_raw = _get_channel(lap, "lap_progress")
             ys_raw = _get_channel(lap, channel)
@@ -339,7 +375,8 @@ class WaveformView(QWidget):
                 return
             if len(xs_raw) != len(ys_raw):
                 return
-            xs = _normalize_x(xs_raw)
+            # Time mode: xs_raw already holds elapsed seconds (no normalization)
+            xs = np.array(xs_raw, dtype=float) if x_mode == "time" else _normalize_x(xs_raw)
             ys = np.array(ys_raw, dtype=float)
             plot_obj.plot(x=xs, y=ys, pen=pen, name=label)
 
@@ -348,41 +385,43 @@ class WaveformView(QWidget):
             if lap_b:
                 _plot(lap_b, f"B Lap{lap_b.get('lap_no','')}", colors["b"], ch, p)
 
-        # Y auto-range を有効化してから X を 0–1 に固定
+        # Y auto-range; X range depends on mode
         for p in (self._p_speed, self._p_brake, self._p_gas):
             p.enableAutoRange(axis="y")
-            p.setXRange(0.0, 1.0, padding=0.02)
+            if x_mode == "time":
+                p.enableAutoRange(axis="x")  # let pyqtgraph fit actual time range
+            else:
+                p.setXRange(0.0, 1.0, padding=0.02)
 
-        # Turn markers — list 形式・dict 形式両対応
-        tmpl_raw = self._templates.get(self._circuit)
-        if tmpl_raw is None:
-            # 大文字小文字を無視して検索
-            for k, v in self._templates.items():
-                if k.upper() == self._circuit.upper():
-                    tmpl_raw = v
-                    break
-        if isinstance(tmpl_raw, dict):
-            # {"T1": {"progress": 0.05, ...}, ...} 形式
-            tmpl_turns = [{"name": k, **v} for k, v in tmpl_raw.items()
-                          if isinstance(v, dict)]
-        elif isinstance(tmpl_raw, list):
-            tmpl_turns = tmpl_raw
-        else:
-            tmpl_turns = []
+        # Turn markers use progress-based positions — skip in time mode
+        if x_mode != "time":
+            tmpl_raw = self._templates.get(self._circuit)
+            if tmpl_raw is None:
+                for k, v in self._templates.items():
+                    if k.upper() == self._circuit.upper():
+                        tmpl_raw = v
+                        break
+            if isinstance(tmpl_raw, dict):
+                tmpl_turns = [{"name": k, **v} for k, v in tmpl_raw.items()
+                              if isinstance(v, dict)]
+            elif isinstance(tmpl_raw, list):
+                tmpl_turns = tmpl_raw
+            else:
+                tmpl_turns = []
 
-        for turn in tmpl_turns:
-            prog = turn.get("progress")
-            if prog is None:
-                continue
-            for p in (self._p_speed, self._p_brake, self._p_gas):
-                line = pg.InfiniteLine(
-                    pos=float(prog), angle=90,
-                    pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
-                    label=str(turn.get("name", "")),
-                    labelOpts={"color": "#107C10", "position": 0.9,
-                               "rotateAxis": (1, 0)},
-                )
-                p.addItem(line)
+            for turn in tmpl_turns:
+                prog = turn.get("progress")
+                if prog is None:
+                    continue
+                for p in (self._p_speed, self._p_brake, self._p_gas):
+                    line = pg.InfiniteLine(
+                        pos=float(prog), angle=90,
+                        pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
+                        label=str(turn.get("name", "")),
+                        labelOpts={"color": "#107C10", "position": 0.9,
+                                   "rotateAxis": (1, 0)},
+                    )
+                    p.addItem(line)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -823,6 +862,20 @@ class CsvImportTab(QWidget):
         self._preview_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self._preview_table, stretch=1)
 
+        # X-axis mode note
+        note = QLabel(
+            "CSV data is shown on Time axis when available. "
+            "Progress axis is fallback only."
+        )
+        note.setStyleSheet("color: #605E5C; font-size: 10px; padding: 2px 0;")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        # Current axis mode (updated after send)
+        self._lbl_xmode_csv = QLabel("")
+        self._lbl_xmode_csv.setStyleSheet("color: #107C10; font-size: 10px; padding: 2px 0;")
+        layout.addWidget(self._lbl_xmode_csv)
+
         # Send button
         btn_row = QHBoxLayout()
         self._btn_send = QPushButton("📊  波形に送る")
@@ -924,13 +977,18 @@ class CsvImportTab(QWidget):
             if ch != "(ignore)":
                 channel_to_col[ch] = col
 
-        if "time" not in channel_to_col:
+        # Need at least one data channel
+        data_channels = {k for k in channel_to_col if k not in ("time", "lap")}
+        if not data_channels:
             QMessageBox.warning(
                 self, "マッピング不足",
-                "'time' チャンネルが割り当てられていません。\n"
-                "X 軸に使う時間カラムを 'time' にマッピングしてください。",
+                "speed / brake / gas などのデータチャンネルを\n"
+                "少なくとも1つ割り当ててください。",
             )
             return
+
+        has_time = "time" in channel_to_col
+        x_mode = "time" if has_time else "progress"
 
         df = self._df.copy()
 
@@ -941,22 +999,31 @@ class CsvImportTab(QWidget):
         else:
             laps_df_list = [df.reset_index(drop=True)]
 
-        import numpy as np
-
         csv_laps: list[dict] = []
         for lap_no, lap_df in enumerate(laps_df_list, start=1):
-            time_col = channel_to_col["time"]
-            try:
-                t_vals = lap_df[time_col].astype(float).values
-            except Exception:
+            n_rows = len(lap_df)
+            if n_rows == 0:
                 continue
-            t_min, t_max = float(t_vals.min()), float(t_vals.max())
-            if t_max > t_min:
-                progress = ((t_vals - t_min) / (t_max - t_min)).tolist()
-            else:
-                progress = [0.0] * len(t_vals)
 
-            channels: dict[str, list] = {"lap_progress": progress}
+            if has_time:
+                time_col = channel_to_col["time"]
+                try:
+                    t_vals = lap_df[time_col].astype(float).values
+                    t_start = float(t_vals[0])
+                    # X stored as elapsed seconds from lap start (start = 0)
+                    x_vals: list = (t_vals - t_start).tolist()
+                    lap_time_s: "float | None" = round(float(t_vals[-1]) - t_start, 3)
+                except Exception:
+                    # Degrade gracefully to index-based progress
+                    x_mode = "progress"
+                    x_vals = [i / max(n_rows - 1, 1) for i in range(n_rows)]
+                    lap_time_s = None
+            else:
+                # No time column: normalize row-index to 0.0–1.0
+                x_vals = [i / max(n_rows - 1, 1) for i in range(n_rows)]
+                lap_time_s = None
+
+            channels: dict[str, list] = {"lap_progress": x_vals}
             for ch_name, col_name in channel_to_col.items():
                 if ch_name in ("time", "lap"):
                     continue
@@ -969,7 +1036,8 @@ class CsvImportTab(QWidget):
 
             csv_laps.append({
                 "lap_no":     lap_no,
-                "lap_time_s": round(t_max - t_min, 3),
+                "lap_time_s": lap_time_s,
+                "x_mode":     x_mode,
                 "channels":   channels,
             })
 
@@ -978,9 +1046,17 @@ class CsvImportTab(QWidget):
             return
 
         self._waveform.set_csv_laps(csv_laps)
+
+        if x_mode == "time":
+            axis_desc = "Time axis (s)  ✅"
+        else:
+            axis_desc = "Progress axis (0–1)  ⚠ Time column not mapped"
+        self._lbl_xmode_csv.setText(f"送信済み: {axis_desc}")
+
         QMessageBox.information(
             self, "送信完了",
             f"{len(csv_laps)} ラップを波形ビューに送りました。\n"
+            f"X軸: {axis_desc}\n\n"
             "「📊 波形 (Reference)」タブに切り替えて確認してください。",
         )
 
