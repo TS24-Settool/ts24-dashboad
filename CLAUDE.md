@@ -360,11 +360,14 @@ X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
 | Waveform Tab（lap_overlay_data.json）| ✅ 動作確認済 | **→ CSV直読みに置き換え予定** |
 | Problem Log Tab | ✅ 動作確認済 | SQLite保存 |
 | Setup Decision Tab | ✅ 動作確認済 | SQLite保存 |
-| 2D CSV Import（CsvImportTab） | ✅ 実装済み・push済み | 06_CSV/デフォルト・UTF-8/Shift-JIS自動検出・列マッピングUI |
-| Time軸表示 | 🔄 **要修正** | CSV→WaveformViewがまだlap_progress 0-1のまま |
-| "Reference only"警告 | 🔄 **要修正** | CSV直読み時は非表示にすること |
-| Dist有効性チェック | ✅ 実装済み | Dist全行0なら時間軸固定 |
-| TS24_Workbench.command | ✅ 作成済み | macOSダブルクリック起動 |
+| 2D CSV Import（CsvImportTab） | ✅ 完了 | 06_CSV/デフォルト・UTF-8/Shift-JIS自動検出・列マッピングUI |
+| Time軸表示 | ✅ **完了** | `x_mode="time"` でX軸=経過秒数(0始まり)・`enableAutoRange(axis="x")` |
+| Progress軸フォールバック | ✅ 完了 | Timeカラム未マッピング時は `x_mode="progress"` で0-1正規化 |
+| X軸ラベル切替 | ✅ 完了 | `"Time (s)"` / `"Lap Progress (0–1) [fallback]"` |
+| "Reference only"警告 | ✅ 完了 | `x_mode="time"` 時はスキップ・`_lbl_xmode`で現在モード表示 |
+| Turn markers | ✅ 完了 | Time modeではスキップ（進捗位置基準のため無効） |
+| Dist有効性チェック | ✅ 完了 | Dist全行0なら時間軸固定 |
+| TS24_Workbench.command | ✅ 完了 | macOSダブルクリック起動 |
 
 ### Claude Code への実装指示（2026-05-03 確定）
 
@@ -387,32 +390,29 @@ X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
 - CSVを開いた状態で波形を見ながら「+ Problem追加」ができること
 - Problem追加時に現在のTime位置（秒）をフィールドに自動入力（オプション）
 
-**タスク4b: WaveformView を Time軸に対応させる（CsvImportTab実装後に必須）**
+**タスク4b: WaveformView Time軸対応 — ✅ 完了（2026-05-03 Claude Code）**
 
-現状のWaveformViewはX軸が `lap_progress`（0-1正規化）固定。CSV直読みではX軸をTime（秒）にすること。
-
+実装済みロジック：
 ```python
-# 修正方針
-# WaveformViewに表示モードを追加
-self._x_mode = "progress"  # "progress" | "time"
-
-# CSV から来たデータは time_s を X軸として使う
-# set_csv_laps(laps, x_mode="time") で呼ぶ
-
-# X軸ラベル
-if self._x_mode == "time":
-    for p in (self._p_speed, self._p_brake, self._p_gas, self._p_sus):
-        p.setLabel("bottom", "Time (s)")
-    # setXRange はデータの min/max から自動設定
+# x_mode の決定（CsvImportTab._send_to_waveform 内）
+if "time" チャンネルがマッピング済み:
+    x_mode = "time"   # X値 = ラップ開始からの経過秒数（0始まり）
 else:
-    # 従来通り 0-1
-    for p in (...):
-        p.setXRange(0.0, 1.0, padding=0.01)
-```
+    x_mode = "progress"  # X値 = 行インデックス正規化 0.0-1.0
 
-**"Reference only" 警告の修正:**
-- `x_mode="progress"` のとき → 警告表示（従来通り、time-normalized data）
-- `x_mode="time"` のとき（CSV直読み）→ **警告を非表示**（生データなので正確）
+# WaveformView._draw() での分岐
+if x_mode == "time":
+    _normalize_x() をスキップ → 生の秒値をそのままプロット
+    enableAutoRange(axis="x")  # 実際の時間範囲に自動フィット
+    Turn markers をスキップ（進捗位置基準のため無効）
+else:
+    従来通り 0-1 正規化 → setXRange(0,1)
+    Turn markers 表示
+
+# "Reference only" 警告
+x_mode == "time" → 非表示
+x_mode == "progress" → 表示
+```
 
 **タスク5（将来・最重要）: PH1〜PH5 自動分割ロジック**
 - SPEED + BRAKE_FRONT + GAS の組み合わせでコーナーフェーズを自動検出

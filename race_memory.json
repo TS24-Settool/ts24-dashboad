@@ -58,7 +58,8 @@
     "[2026-05-03] チーム役割境界確立：Cowork Claude=分析/設計/仕様、Claude Code=実装/git/スクリプト実行。直接コード変更はClaude Codeの領域。CLAUDE.md §1に役割境界表を追加。",
     "[2026-05-03] lap_overlay_data.jsonのlap_progressはラン全体連続値（Lap1:0→1、Lap2:1→2）。Workbench/分析コードでは必ず各ラップを独立して0-1正規化すること。",
     "[2026-05-03] Workbench設計原則確定: 単一Run/Lapの正確な波形表示が最優先。2D CSVはセミコロン区切り・カンマ小数点・400Hz。Dist=0なら時間軸のみ。lap_overlay_data.jsonはWorkbenchでは使用しない。",
-    "[2026-05-03] Workbench分析チャンネル確定: SPEED+BRAKE_FRONT+GAS=フェーズ判断、SUSP_FRONT+SUSP_REAR=問題定義の根幹。データ量増加=精度向上ではない。PH1-PH5自動分割が次の最重要開発目標。"
+    "[2026-05-03] Workbench分析チャンネル確定: SPEED+BRAKE_FRONT+GAS=フェーズ判断、SUSP_FRONT+SUSP_REAR=問題定義の根幹。データ量増加=精度向上ではない。PH1-PH5自動分割が次の最重要開発目標。",
+    "[2026-05-03] Workbench v0.1 MVP完成: 2D CSV直読み（Time軸）+ Problem Log + Setup Decision Log。PH1-PH5自動分割が次期最重要開発。チャンネル確定: Time/SPEED/BRAKE_FRONT/GAS/SUSP_FRONT/SUSP_REAR(+LEAN_ANGLE推奨)。"
   ],
   "setup_learnings": [
     {
@@ -191,6 +192,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "CsvImportTab実装済み（Claude Code push済み）。仕様ずれ検出: WaveformViewがまだlap_progress 0-1固定のため、CSV Time軸が機能していない。修正指示をCLAUDE.md タスク4bに追記。Reference only警告もCSV直読み時は非表示にすること。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Workbench Time軸対応完全実装（Claude Code）: x_mode=time/progressの切替。CSV→Time(s)軸・enableAutoRange・Turn markers skip・Reference only警告非表示。Timeカラム未マッピング時はprogress軸フォールバック。Workbench v0.1 MVP完成。"
     }
   ]
 }
