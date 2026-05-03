@@ -361,11 +361,15 @@ X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
 | Problem Log Tab | ✅ 動作確認済 | SQLite保存 |
 | Setup Decision Tab | ✅ 動作確認済 | SQLite保存 |
 | 2D CSV Import（CsvImportTab） | ✅ 完了 | 06_CSV/デフォルト・UTF-8/Shift-JIS自動検出・列マッピングUI |
-| Time軸表示 | ✅ **完了** | `x_mode="time"` でX軸=経過秒数(0始まり)・`enableAutoRange(axis="x")` |
+| Time軸表示 | ✅ 完了 | `x_mode="time"` でX軸=経過秒数・`enableAutoRange(axis="x")` |
 | Progress軸フォールバック | ✅ 完了 | Timeカラム未マッピング時は `x_mode="progress"` で0-1正規化 |
 | X軸ラベル切替 | ✅ 完了 | `"Time (s)"` / `"Lap Progress (0–1) [fallback]"` |
-| "Reference only"警告 | ✅ 完了 | `x_mode="time"` 時はスキップ・`_lbl_xmode`で現在モード表示 |
+| "Reference only"警告 | ✅ 完了 | `x_mode="time"` 時はスキップ・青背景インジケーター表示 |
 | Turn markers | ✅ 完了 | Time modeではスキップ（進捗位置基準のため無効） |
+| **WaveformView 5パネル** | ✅ **完了** | Speed→Brake→Gas→**SUSP_FRONT**→**SUSP_REAR** (`_all_plots`で一括管理) |
+| 自動チャンネルマッピング | ✅ 完了 | GAS_SMOOTH→gas / SUSP_FRONT→susp_front / SUSP_REAR→susp_rear 全て自動 |
+| Problem Log DB保存 | ✅ 完了 | INSERT/SELECT/DELETE 正常動作確認済み |
+| Setup Decision Log DB保存 | ✅ 完了 | INSERT/SELECT/UPDATE 正常動作確認済み |
 | Dist有効性チェック | ✅ 完了 | Dist全行0なら時間軸固定 |
 | TS24_Workbench.command | ✅ 完了 | macOSダブルクリック起動 |
 
