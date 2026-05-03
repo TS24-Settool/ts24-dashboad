@@ -51,7 +51,10 @@
     "[2026-04-19] DA77のSCX効果はSC0と大差なし → ライディングスタイルとの相性要因の可能性（信頼度:中）",
     "[2026-04-19] DA77のPH4-5問題の根本はバンク角不足の可能性（Fへの荷重過多がバンク倒し込みを妨げる）（信頼度:中）",
     "[全シーズン] chattering_brakeが最多問題タグ（11件）。両ライダー共通、F側が主因。",
-    "[全シーズン] line_loss_exit（8件）、nervousness（7件）、push_rear_exit（7件）、no_turn_in（6件）が主要慢性問題。"
+    "[全シーズン] line_loss_exit（8件）、nervousness（7件）、push_rear_exit（7件）、no_turn_in（6件）が主要慢性問題。",
+    "[2026-05-03] §0原則確立：DashboardはAnalysis専用（read/visualize/analyze only）。権威ソース=ts24 DB+Excelレポートのみ。ΔTimeなど自動計算値は必ずEstimate/推定値ラベルを付ける。",
+    "[2026-05-03] Lap Overlay設計原則：ΔTimeはSpeed-weighted Estimated（非線形、速度比ベース）。Turn定義はTemplate固定（ブレーキ検出ではない）。Focus Turn DetailはBrake-event aligned data（corner_phase_data.json）を使用すること。",
+    "[2026-05-03] ASSEN Turn Template：17ターン確定（110lap高信頼度）。CREMONA：GPS系再処理が必要（median 87corners/lapで現在POOR）。"
   ],
   "setup_learnings": [
     {
@@ -128,6 +131,20 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "旧APEX列(BOFF_*/THRON_*)を完全削除。Excel/JSON/SQLite/dashboardをAPEX_*単一定義に統一。列数34→26に整理。lap_suspension_stats.py・dashboard.py・CLAUDE.md更新・全844ラップ再処理・lap_suspension_data.json再生成・push完了"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "lap_overlay",
+      "rider": "ALL",
+      "circuit": "ASSEN",
+      "summary": "Lap Overlayページ完全実装。Speed-weighted Estimated ΔTime導入（dt_incr=(lt_a/N)*(1-v_a/v_b)、累積sum）。Turn Templateシステム構築（circuits/turn_templates.json、manual_validated:false）。ASSEN:17ターン✅(110lap高信頼度)、CREMONA:84ターン🔴POOR(median 87corners/lapで検出失敗)。Problem Summary UI（Top3 Loss Turns・Loss Zone・Main Diff）実装。Turn-by-Turn Loss/Gain表示（Loss Scoreとして相対評価）。SusF Row3デュアル軸バグ修正（make_subplots specs対応）。background_gradient→カスタム_color_lg()に変更（Cloud環境対応）。Focus Turn Channel Detailは現在time-normalized（修正pending→corner_phase_data.json使用へ）。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "§0データソース原則をCLAUDE.mdに最高優先度セクションとして追加。権威ソース=ts24 original DB＋Excelレポートのみ。Dashboard=read/analyze/visualize専用（データ生成・入力フォームなし）。自動計算値はEstimate明記必須。データフロー一方向（権威ソース→Dashboard）。AI三者（Code/Cowork/ChatGPT）全員遵守。DashboardをAnalysis Appとして位置付け、Report BuilderはDB出力として分離予定。"
     }
   ]
 }
