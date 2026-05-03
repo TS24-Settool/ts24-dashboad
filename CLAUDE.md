@@ -220,72 +220,139 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 
 ## 6. PyQt6 Engineer Workbench（ts24_workbench.py）
 
-**目的:** ラップデータを見ながら Problem / Setup Decision をローカルDBに記録する作業台。
-**Streamlit Dashboard とは独立した別アプリ。** Streamlit Cloudに影響しない。
+**目的:** 2D CSVデータを正確に表示しながら、Problem / Setup Decision をローカルDBに記録する作業台。
+**Workbench = "2D CSV Viewer + DB記録ツール"（2026-05-03 Tatsuki確定）**
+**Streamlit Dashboard とは独立した別アプリ。Streamlit Cloudに影響しない。**
+
+### 設計原則（確定）
+
+| 原則 | 内容 |
+|------|------|
+| **最優先** | 単一Run / 単一Lapの波形を正確に表示 |
+| **X軸** | **Time（秒）** — 時間軸が基本 |
+| **データソース** | **2D CSVを直接読む**（lap_overlay_data.jsonは使用しない） |
+| **Overlay** | MVPでは非優先（将来拡張） |
+| **Dist軸** | Distが全行0または異常値なら使用しない。有効な場合のみ距離軸切替を提供 |
+
+### 禁止事項
+- `lap_overlay_data.json` をWorkbenchのデータソースとして使用すること
+- time-normalized overlay（0-1正規化）を正確な分析として扱うこと
+- 不正確なTurn同期（lap_progressベース）を前提にした分析
+
+### 2D CSV フォーマット仕様
+
+```
+区切り文字: セミコロン (;)
+小数点: カンマ (,) ← Europeanフォーマット
+行1: ヘッダー（チャンネル名）
+行2: 単位
+行3以降: データ
+サンプルレート: 400 Hz（0.0025秒間隔）
+
+標準チャンネル（最低限）:
+  Time[s], Dist[m], GAS[%], SUSP_REAR[mm], SPEED_FRONT[km/h], BRAKE_REAR[Bar], BRAKE_FRONT[Bar]
+
+将来追加されうるチャンネル:
+  SUSP_FRONT[mm], BRAKE_REAR[Bar], GPS系チャンネル等
+```
+
+### CSVパース要件（Claude Code実装）
+
+```python
+# 正しいパース方法
+import pandas as pd
+
+def load_2d_csv(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path, sep=';', decimal=',', skiprows=[1])
+    # skiprows=[1] で単位行をスキップ、ヘッダー行は自動取得
+    # 列名例: Time, Dist, GAS, SUSP_REAR, SPEED_FRONT, BRAKE_REAR, BRAKE_FRONT
+    return df
+
+# Dist有効性チェック
+def dist_is_valid(df: pd.DataFrame) -> bool:
+    if 'Dist' not in df.columns:
+        return False
+    return df['Dist'].max() > 10  # 10m以上の変化があれば有効とみなす
+```
+
+### 表示チャンネル優先順位
+
+| 優先度 | チャンネル | Y軸単位 | 表示色 |
+|--------|-----------|---------|--------|
+| 1位 | SPEED_FRONT | km/h | 青 |
+| 2位 | BRAKE_FRONT | Bar | 赤 |
+| 3位 | GAS | % | 緑 |
+| 4位 | SUSP_REAR | mm | オレンジ |
+| 5位（あれば）| SUSP_FRONT | mm | 紫 |
+
+### 目標UI構成（次期実装）
+
+```
+左パネル                        右パネル
+[CSV Importボタン]              ┌─ 波形タブ ──────────────────────┐
+                                │ [X軸: Time / Dist 切替]          │
+Circuit: [ASSEN▼]              │                                    │
+Session: [FP▼]                 │ Speed (km/h) ──────────────────── │
+Rider:   [JA52▼]               │ Brake (Bar)  ──────────────────── │
+Run:     [R1▼]                 │ Gas   (%)    ──────────────────── │
+                                │ SusR  (mm)   ──────────────────── │
+[Load CSV]                      └────────────────────────────────────┘
+                                ┌─ Problem Log ─┐ ┌─ Setup Decision ─┐
+[読み込み済み: X_R1-JA52-01]    │ 記録リスト     │ │  記録リスト       │
+                                │ [+ 追加]      │ │  [+ 追加]        │
+                                └───────────────┘ └──────────────────┘
+```
+
+### CSVファイル命名パターン（現在把握済み）
+
+```
+X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
+```
+命名規則はTatsukiから都度確認すること。
+
+### 現在の実装状態 (2026-05-03)
+
+| 機能 | 状態 | 備考 |
+|------|------|------|
+| 左パネル階層表示（DB連携） | ✅ 完了 | ts24_unified.db から |
+| Waveform Tab（lap_overlay_data.json）| ✅ 動作確認済 | **→ CSV直読みに置き換え予定** |
+| Problem Log Tab | ✅ 動作確認済 | SQLite保存 |
+| Setup Decision Tab | ✅ 動作確認済 | SQLite保存 |
+| 2D CSV Import | ⬜ **未実装（最優先タスク）** | |
+| Time軸表示 | ⬜ 未実装 | CSV読込後に実装 |
+| Dist有効性チェック | ⬜ 未実装 | |
+
+### Claude Code への実装指示（2026-05-03 確定）
+
+**タスク1: 2D CSV Import 機能を追加**
+- ツールバーまたは左パネルに「CSVを開く」ボタンを追加
+- `QFileDialog.getOpenFileName()` でCSVを選択
+- `load_2d_csv()` でパース（セミコロン区切り・カンマ小数点）
+- Dist有効性をチェックし、無効なら「X軸: Time固定」を表示
+
+**タスク2: Time軸でWaveform表示**
+- X軸: `Time`列の値（秒）をそのまま使用
+- Y軸: SPEED_FRONT / BRAKE_FRONT / GAS / SUSP_REAR を個別パネルで表示
+- `enableAutoRange(axis="y")` を先に呼んでから X軸範囲設定（pyqtgraph順序ルール）
+
+**タスク3: lap_overlay_data.json 依存を除去**
+- WaveformViewクラスのデータソースをCSVに切り替える
+- 既存の左パネル（DB由来の Run選択）は残す（Problem Log との紐付けに使用）
+
+**タスク4: Problem Log との連携**
+- CSVを開いた状態で波形を見ながら「+ Problem追加」ができること
+- Problem追加時に現在のTime位置（秒）をフィールドに自動入力（オプション）
+
+### 解決済みバグ（2026-05-03 Claude Code 修正・確認済み）
+- ✅ X軸正規化: `_normalize_x()` で各ラップ独立0-1正規化
+- ✅ Speed Y軸: `enableAutoRange(axis="y")` → `setXRange()` の順序
+- ✅ turn_templates: `isinstance()` でlist/dict両対応 + circuit名正規化
 
 ### 起動方法
 ```bash
 cd ~/Desktop/"Data TS24 Claude"/05_SCRIPTS
 python3 ts24_workbench.py
-# または
-./TS24_Workbench.command  # まだ未作成 → Claude Codeが作成すること
 ```
-
-### 初回セットアップ（テーブル未作成の場合）
-```bash
-python3 create_workbench_tables.py
-```
-
-### UI構成
-```
-左パネル (QTreeWidget)              右パネル (QTabWidget)
-├── ASSEN                           ├── Tab1: Waveform View
-│   ├── FP                          │   └── Speed / Brake / Gas (pyqtgraph)
-│   │   ├── DA77                    │       Turn markers (DashLine)
-│   │   │   ├── R1                  ├── Tab2: Problem Log
-│   │   │   └── R2                  │   └── リスト表示 + 追加フォーム
-│   └── QP                          └── Tab3: Setup Decision Log
-│       └── ...                         └── リスト表示 + 追加フォーム
-```
-
-### データ読み取り構造
-```python
-# run_id 形式: {round}_{circuit}_{session}_{rider}_R{run_no}
-# 例: UNK_ASSEN_FP_DA77_R1
-
-# lap_overlay_data.json との紐付け（run_id フィールド不在のため）
-# → circuit + session_type + rider + run_no でマッチング
-# → rounds テーブルなし → round は "UNK" フォールバック
-
-# runs テーブルの正しい列名
-# session (not session_type), perf_best_lap (not best_lap_s)
-```
-
-### 現在の実装状態 (2026-05-03)
-- ✅ 左パネル: Circuit → Session → Rider → Run 階層表示
-- ✅ Tab1 Waveform: Speed/Brake/Gas pyqtgraph描画、Turn markers
-- ✅ Tab2 Problem Log: リスト + 追加フォーム → SQLite保存
-- ✅ Tab3 Setup Decision: リスト + 追加フォーム → SQLite保存
-- 🔄 **要確認**: Speed Y軸 0-255 km/h表示・X軸 0-1.0固定（修正済み、未テスト）
-- ⬜ TS24_Workbench.command ランチャーが未作成
-
-### 解決済みバグ（2026-05-03 Claude Code修正・push済み）
-
-**バグ①: X軸1.8問題**
-- 原因: `lap_overlay_data.json` の `lap_progress` はラン全体の連続値（Lap1: 0→1、Lap2: 1→2...）のため、2ラップが重なりではなく連結された
-- 修正: `_normalize_x()` でLap A・Lap Bそれぞれを独立して 0.0–1.0 に正規化
-
-**バグ②: Speed Y軸0-1問題**
-- 原因: `setXRange(0,1)` がpyqtgraphの内部でY軸のauto-rangeも無効化する（バージョン依存挙動）
-- 修正: `enableAutoRange(axis="y")` を先に呼んでからX軸固定に変更（順序が重要）
-
-**バグ③: turn_templates構造クラッシュ**
-- 原因: `{"T1": {"progress": 0.05}, ...}` のdict形式をiterateすると文字列キーが返り `.get("progress")` が失敗
-- 修正: `isinstance()` でlist/dict両方に対応 + サーキット名の大文字小文字を正規化して検索
-
-### 今後のタスク（Claude Code）
-- `TS24_Workbench.command` ランチャーを作成して push する
-- Waveform表示確認後、Problem Log / Setup Decision Log の保存動作もテストする
 
 ---
 
