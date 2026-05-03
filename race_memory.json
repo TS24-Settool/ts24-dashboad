@@ -184,6 +184,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "Workbenchチャンネル構成確定（Tatsuki）: 必須=Time/SPEED/BRAKE_FRONT/GAS/SUSP_FRONT/SUSP_REAR (+LEAN_ANGLE推奨)。GPS/Dist/BRAKE_REARは現段階不使用。設計思想=「問題を定義できること」。次フェーズ=PH1-PH5自動分割ロジック（最重要武器）。06_CSV/フォルダ運用開始。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "CsvImportTab実装済み（Claude Code push済み）。仕様ずれ検出: WaveformViewがまだlap_progress 0-1固定のため、CSV Time軸が機能していない。修正指示をCLAUDE.md タスク4bに追記。Reference only警告もCSV直読み時は非表示にすること。"
     }
   ]
 }
