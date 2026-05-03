@@ -4669,6 +4669,47 @@ with _content_col:
                         fig_tf = chart_layout(fig_tf, height=280)
                         st.plotly_chart(fig_tf, use_container_width=True)
 
+        # ── Workbench Problem Log (read-only) ──────────────────────
+        st.divider()
+        st.markdown('<p class="section-title">🔬 Workbench Problem Log (read-only)</p>',
+                    unsafe_allow_html=True)
+        st.caption("Source: ts24_unified.db / problem_log table — written by TS24 Engineer Workbench")
+        _wb_db_path = SCRIPT_DIR.parent / "02_DATABASE" / "ts24_unified.db"
+        if _wb_db_path.exists():
+            try:
+                import sqlite3 as _sl3
+                _wconn = _sl3.connect(str(_wb_db_path))
+                _df_pl = pd.read_sql(
+                    "SELECT problem_id, circuit, session, rider, run_no, lap_no, "
+                    "       corner, phase, problem_tag, severity, description, created_at "
+                    "FROM problem_log ORDER BY created_at DESC LIMIT 100",
+                    _wconn,
+                )
+                _wconn.close()
+                if _df_pl.empty:
+                    st.caption("problem_log にデータがありません。Workbench で記録を追加してください。")
+                else:
+                    _pl_circ = ["All"] + sorted(_df_pl["circuit"].dropna().unique().tolist())
+                    _pl_rider = ["All", "DA77", "JA52"]
+                    wf1, wf2 = st.columns(2)
+                    with wf1:
+                        _pl_c = st.selectbox("Circuit", _pl_circ, key="wb_pl_circ")
+                    with wf2:
+                        _pl_r = st.selectbox("Rider", _pl_rider, key="wb_pl_rider")
+                    _df_pl_f = _df_pl.copy()
+                    if _pl_c != "All":
+                        _df_pl_f = _df_pl_f[_df_pl_f["circuit"] == _pl_c]
+                    if _pl_r != "All":
+                        _df_pl_f = _df_pl_f[_df_pl_f["rider"] == _pl_r]
+                    st.dataframe(_df_pl_f, use_container_width=True, height=320)
+            except Exception as _wb_e:
+                st.caption(
+                    f"problem_log テーブルが未作成です。"
+                    f"`python create_workbench_tables.py` を実行してください。({_wb_e})"
+                )
+        else:
+            st.caption("ts24_unified.db が見つかりません（ローカル環境のみ利用可能）。")
+
     # ═══════════════════════════════════════════════════
     # PAGE 14 — Comprehensive Performance Analysis
     # ═══════════════════════════════════════════════════
