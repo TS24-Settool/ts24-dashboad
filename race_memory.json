@@ -60,7 +60,16 @@
     "[2026-05-03] Workbench設計原則確定: 単一Run/Lapの正確な波形表示が最優先。2D CSVはセミコロン区切り・カンマ小数点・400Hz。Dist=0なら時間軸のみ。lap_overlay_data.jsonはWorkbenchでは使用しない。",
     "[2026-05-03] Workbench分析チャンネル確定: SPEED+BRAKE_FRONT+GAS=フェーズ判断、SUSP_FRONT+SUSP_REAR=問題定義の根幹。データ量増加=精度向上ではない。PH1-PH5自動分割が次の最重要開発目標。",
     "[2026-05-03] Workbench v0.1 MVP完成: 2D CSV直読み（Time軸）+ Problem Log + Setup Decision Log。PH1-PH5自動分割が次期最重要開発。チャンネル確定: Time/SPEED/BRAKE_FRONT/GAS/SUSP_FRONT/SUSP_REAR(+LEAN_ANGLE推奨)。",
-    "[2026-05-03] Workbench v0.1 動作確認完了: Time軸CSV直読み・5パネル波形(Speed/Brake/Gas/SUSP_F/SUSP_R)・Problem Log/Setup Decision Log SQLite保存。テスト済みCSVフォーマット: X_F1-#77-03.csv (セミコロン区切り・カンマ小数点・400Hz)。"
+    "[2026-05-03] Workbench v0.1 動作確認完了: Time軸CSV直読み・5パネル波形(Speed/Brake/Gas/SUSP_F/SUSP_R)・Problem Log/Setup Decision Log SQLite保存。テスト済みCSVフォーマット: X_F1-#77-03.csv (セミコロン区切り・カンマ小数点・400Hz)。",
+    "Dist列（2D CSV）は累積値のためLap境界でリセットしない。Lap分割後に dist-dist[start] で0始まりに変換する",
+    "Workbench Phase 2の中核: pyqtgraph LinearRegionItemで波形上の区間選択→Problem Logへdist/time自動入力",
+    "Workbench ≠ 2Dの代替。Deep Analysisで見つけた問題をDB化するツール。役割は完全に別",
+    "Assen回路長 = 4555m/周（X_F1-#77-03_DISTANCE.csvで確認: 13665/3=4555, 27329/6=4555 完全一致）",
+    "Workbenchの時間ギャップ分割はセグメント単位（複数周まとめて1Lap扱い）。個別周回検出は将来phase: dist % circuit_length ≈ 0 を利用予定",
+    "Lap分割の正しい優先順位: 1=Lap列 > 2=DBのlapsテーブル駆動 > 3=固定距離近似（⚠ズレ累積）> 4=時間ギャップ（セッション境界のみ）",
+    "固定距離Lap分割は周回ごとに実走ライン誤差が累積するためfallback扱い。公式記録には2DからLap列付きCSVをExportする",
+    "[2026-05-03] DB駆動Lap分割アルゴリズム確立: ts24_unified.db/lapsテーブルのlap_time_sを使いCSVを回路ラップに分割。gap lap検出（CSVギャップ秒数↔DBタイムをGAP_TOLERANCE=2sで照合）→ np.searchsorted で正確なCSV行番号変換。ROUND3_ASSEN_FP_DA77_R1で検証: 9ラップ×0→4554m、最大誤差0.02s ✅",
+    "[2026-05-03] Workbench DB駆動分割実装完了（Claude Code commit 8bc5973）: WorkbenchDB.get_laps() / CsvImportTab(db=...) / set_run(run_id) / MainWindowのset_run()通知。左パネルでRunを選択してCSVを送ると ✅DBラップで正確分割 が自動適用される"
   ],
   "setup_learnings": [
     {
@@ -207,6 +216,41 @@
       "rider": "DA77",
       "circuit": "ASSEN",
       "summary": "Workbench v0.1 全動作確認完了（Claude Code）。WaveformView 5パネル化(SUSP_FRONT追加)。自動マッピング全列OK。Problem Log/Setup Decision Log DB保存テスト通過。テストCSV: X_F1-#77-03.csv (DA77/FP/R3, 400Hz, 16.7min, 全チャンネル揃い)。"
+    },
+    {
+      "date": "2026-05-03",
+      "session": "セッション継続2（コンテキスト圧縮後）",
+      "summary": "DB駆動Lap分割アルゴリズム確立・実装完了。X_F1-#77-03_DISTANCE.csv + ROUND3_ASSEN_FP_DA77_R1でアルゴリズム検証: CSVの時間ギャップ(105.09s)をDB Lap4(105.08s)に照合→gap lap除外→9有効ラップを np.searchsorted で正確分割。最大誤差0.02s。Cowork CloudeがINSTRUCTION_distance_lap_split.md v2を作成しClaude CodeがPush完了(commit 8bc5973)。分割優先順位: Lap列>DB駆動(✅)>固定距離(⚠)>時間ギャップ(⚠)確定。",
+      "key_decisions": [
+        "DB駆動Lap分割を優先2に昇格（lapsテーブル使用）",
+        "gap lap検出: CSVギャップ秒数とDBタイムをGAP_TOLERANCE=2sで照合",
+        "CsvImportTabにdb参数とset_run()を追加しMainWindowから連携",
+        "左パネルでRun選択→CSV送信で自動的に✅DBラップで正確分割が有効化"
+      ],
+      "files_modified": [
+        "05_SCRIPTS/INSTRUCTION_distance_lap_split.md（v2 全面改訂）",
+        "05_SCRIPTS/race_memory.json",
+        "05_SCRIPTS/ts24_workbench.py（commit 8bc5973）"
+      ]
+    },
+    {
+      "date": "2026-05-03",
+      "session": "セッション継続（コンテキスト圧縮後）",
+      "summary": "Workbench方針を大幅刷新。ChatGPT提言を受けて「2D CSV Viewer」から「Deep Analysis専用ツール」へ目的を再定義。Distance X軸を優先軸に昇格（Distance > Time > Progress）。Dist列は累積値（リセットなし）のため、Lap内で dist-dist[lap_start] で0始まり変換することを確認。X_F1-#77-03_DISTANCE.csvを分析: 13ch, 400Hz, 時間ギャップt=427.33s→532.42s(105s)で2セグメント、Seg1:0→13665m/300.6s, Seg2:0→27329m/594.4s, 平均速度一致(163-165km/h)。Problem Logスキーマを6列拡張(distance_start_m, distance_end_m, time_start_s, time_end_s, data_source_file, analysis_note)。CLAUDE.mdに新方針・役割分担・Dist仕様・Phase 1-5ロードマップを反映。Claude Code指示書2本作成: (1)format_laptime+Lap分割 (2)Distance軸+DB Schema拡張。",
+      "key_decisions": [
+        "Workbench = Deep Analysis専用ツール（グラフビューアではなく知見DB化ツール）",
+        "X軸優先順位: Distance(m) > Time(s) > Progress(fallback)",
+        "Dist列は累積値。Lap内リセット: dist - dist[lap_start]",
+        "Lap分割: time-gap >5s（Distリセットなし確認）",
+        "Phase 2: 波形範囲選択→Problem Log自動入力（LinearRegionItem）",
+        "Problem Logスキーマ6列拡張（distance_start_m等）",
+        "2D Analyzerとの役割分担明確化（Workbenchは置き換えない）"
+      ],
+      "files_modified": [
+        "05_SCRIPTS/CLAUDE.md",
+        "05_SCRIPTS/INSTRUCTION_laptime_and_lapsplit.md",
+        "05_SCRIPTS/INSTRUCTION_distance_axis_and_db_schema.md"
+      ]
     }
   ]
 }

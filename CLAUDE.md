@@ -171,7 +171,24 @@ setup_decision_log  -- セットアップ変更の意思決定ログ
 problem_id TEXT PRIMARY KEY, run_id TEXT, round TEXT, circuit TEXT, session TEXT,
 rider TEXT, run_no INTEGER, lap_no INTEGER, corner TEXT, phase TEXT,
 problem_tag TEXT, description TEXT, severity TEXT, source TEXT,
-created_at TEXT, updated_at TEXT
+created_at TEXT, updated_at TEXT,
+-- Phase 2拡張列（Workbench範囲選択→自動入力）
+distance_start_m REAL,      -- 問題区間の開始距離 (m)
+distance_end_m REAL,        -- 問題区間の終了距離 (m)
+time_start_s REAL,          -- 問題区間の開始時間 (s)
+time_end_s REAL,            -- 問題区間の終了時間 (s)
+data_source_file TEXT,      -- 元CSVファイル名
+analysis_note TEXT          -- 分析メモ（フリーテキスト）
+```
+
+**Phase 2 DB拡張 — ALTER TABLE 手順:**
+```sql
+ALTER TABLE problem_log ADD COLUMN distance_start_m REAL;
+ALTER TABLE problem_log ADD COLUMN distance_end_m REAL;
+ALTER TABLE problem_log ADD COLUMN time_start_s REAL;
+ALTER TABLE problem_log ADD COLUMN time_end_s REAL;
+ALTER TABLE problem_log ADD COLUMN data_source_file TEXT;
+ALTER TABLE problem_log ADD COLUMN analysis_note TEXT;
 ```
 
 **setup_decision_log スキーマ:**
@@ -222,19 +239,40 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 
 ## 6. PyQt6 Engineer Workbench（ts24_workbench.py）
 
-**目的:** 2D CSVデータを正確に表示しながら、Problem / Setup Decision をローカルDBに記録する作業台。
-**Workbench = "2D CSV Viewer + DB記録ツール"（2026-05-03 Tatsuki確定）**
+**目的:** Deep Analysis専用ツール。2D CSVを読み込み、問題箇所をDBに直接記録し、次Roundの判断に使える知見を蓄積する。
+**Workbench = "Deep Analysis記録ツール"（2026-05-03 方針確定）**
 **Streamlit Dashboard とは独立した別アプリ。Streamlit Cloudに影響しない。**
+
+### ワークフロー（確定）
+
+```
+2D Analyzer（正式分析・詳細確認）
+    ↓  CSVをWorkbenchに読み込み
+Workbench（Distance軸で問題箇所を確認）
+    ↓  問題・仮説・判断をDBに直接記録
+Problem Log / Setup Decision Log（SQLite）
+    ↓  知見として蓄積・再利用
+次Round判断への入力
+```
+
+### 役割分担（確定）
+
+| ツール | 役割 |
+|--------|------|
+| 2D Analyzer | 正式な波形分析・詳細確認 |
+| **Workbench** | **Deep Analysis整理・問題定義・DB記録** |
+| Excel / SQLite DB | 正式な記録・知見蓄積 |
+| Streamlit | 軽い確認・共有・AI Chat入口 |
 
 ### 設計原則（確定）
 
 | 原則 | 内容 |
 |------|------|
-| **最優先** | 単一Run / 単一Lapの波形を正確に表示 |
-| **X軸** | **Time（秒）** — 時間軸が基本 |
+| **目的** | グラフを見るツールではなく、Deep Analysisの知見をDBに保存するツール |
+| **X軸優先順位** | **Distance（m）> Time（秒）> Progress（fallback）** |
 | **データソース** | **2D CSVを直接読む**（lap_overlay_data.jsonは使用しない） |
-| **Overlay** | MVPでは非優先（将来拡張） |
-| **Dist軸** | Distが全行0または異常値なら使用しない。有効な場合のみ距離軸切替を提供 |
+| **Dist仕様** | 累積値（セッション通算・リセットなし）→ Lap内で `dist - dist[lap_start]` で0始まりに変換 |
+| **禁止** | Workbenchでセットアップ提案を自動確定しない。2D Analyzerの完全再現を目指さない |
 
 ### 禁止事項
 - `lap_overlay_data.json` をWorkbenchのデータソースとして使用すること
@@ -254,9 +292,17 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 | **必須** | SUSP_FRONT | mm | コア領域・問題定義の根幹 | ✅ |
 | **必須** | SUSP_REAR | mm | コア領域・問題定義の根幹 | ✅ |
 | 推奨 | LEAN_ANGLE | deg | 「曲がらない」の正体を見抜く | あれば追加 |
+| **Distance軸** | Dist | m | X軸（Distance mode時）累積値→Lap内リセット | ✅ 有効確認 |
 | 後回し | GEAR / RPM | - | ライダー操作vs車体挙動切り分け | 将来 |
-| **不使用** | GPS / Dist（壊れている場合） | m | Workbench目的外 | ❌ |
 | **不使用** | BRAKE_REAR / 細かいダンパー速度 | - | 現段階ではノイズ | ❌ |
+
+**Dist列の仕様（2026-05-03 X_F1-#77-03_DISTANCE.csv で確認）:**
+```
+- 累積値：セッション開始からの積算距離（例: 4356m → 49905m）
+- Lap境界ではリセットしない → Lap分割後、dist - dist[lap_start] で0始まり変換
+- Dist有効判定: dist.max() > 10m
+- X軸表示単位: m（Distance mode）
+```
 
 **分析ロジック（このチャンネルで成立する）:**
 ```
@@ -276,8 +322,9 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 サンプルレート: 400 Hz（0.0025秒間隔）
 
 確定エクスポートチャンネル（Tatsukiが2Dからこの設定でExport）:
-  Time[s], SPEED[km/h], BRAKE_FRONT[Bar], GAS[%], SUSP_FRONT[mm], SUSP_REAR[mm]
+  Time[s], Dist[m], SPEED[km/h], BRAKE_FRONT[Bar], GAS[%], SUSP_FRONT[mm], SUSP_REAR[mm]
   + LEAN_ANGLE[deg] （あれば）
+  + MAP[mBar], V_GPS[km/h] （CSVによる）
 ```
 
 ### CSVファイル保存場所（運用ルール）
@@ -372,6 +419,9 @@ X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
 | Setup Decision Log DB保存 | ✅ 完了 | INSERT/SELECT/UPDATE 正常動作確認済み |
 | Dist有効性チェック | ✅ 完了 | Dist全行0なら時間軸固定 |
 | TS24_Workbench.command | ✅ 完了 | macOSダブルクリック起動 |
+| **Distance軸表示** | 🔜 次期実装 | `x_mode="distance"` — Dist累積→Lap内0始まり変換 |
+| **波形範囲選択** | 🔜 Phase 2 | 選択範囲のdist_start/dist_end/time_start/time_endを取得 |
+| **選択→Problem Log** | 🔜 Phase 2 | 範囲選択からProblem Logへ自動入力（circuit/session/dist等） |
 
 ### Claude Code への実装指示（2026-05-03 確定）
 
@@ -425,6 +475,33 @@ x_mode == "progress" → 表示
 - Problem Log記録時にフェーズを自動提案
 - **これが最強の武器になる（corner_phase_data.jsonとの統合も視野）**
 
+### Workbench フェーズ・ロードマップ（2026-05-03 確定）
+
+| Phase | 機能 | 優先 |
+|-------|------|------|
+| **Phase 1** | Distance CSV Import / Distance X軸 / DB駆動Lap分割 / `format_laptime()` | ✅ 完了 |
+| **Phase 2** | 波形上での区間範囲選択 → Problem Logへ自動入力（dist/time/circuit等） | 🔜 |
+| **Phase 3** | Setup Decision Logとの接続・紐付け | 🔜 |
+| **Phase 4** | Knowledge Casesへの昇格（繰り返し問題→知見化） | 将来 |
+| **Phase 5** | PH1-PH5自動フェーズ検出 → Problem Log提案（最重要武器） | 将来 |
+
+**Phase 2 技術メモ（範囲選択）:**
+```python
+# pyqtgraph での範囲選択：LinearRegionItem を使用
+from pyqtgraph import LinearRegionItem
+
+region = LinearRegionItem([x_start, x_end], movable=True)
+region.sigRegionChanged.connect(self._on_region_changed)
+plot_obj.addItem(region)
+
+def _on_region_changed(self):
+    x0, x1 = region.getRegion()
+    # x_mode == "distance" → dist_start_m, dist_end_m
+    # x_mode == "time"     → time_start_s, time_end_s
+    # 対応するtime/distを逆引きして両方取得
+    self._selection = {"dist_start": x0, "dist_end": x1, ...}
+```
+
 ### 解決済みバグ（2026-05-03 Claude Code 修正・確認済み）
 - ✅ X軸正規化: `_normalize_x()` で各ラップ独立0-1正規化
 - ✅ Speed Y軸: `enableAutoRange(axis="y")` → `setXRange()` の順序
@@ -434,6 +511,50 @@ x_mode == "progress" → 表示
 ```bash
 cd ~/Desktop/"Data TS24 Claude"/05_SCRIPTS
 python3 ts24_workbench.py
+```
+
+### サーキット情報（Workbench Distance軸 設計用）
+
+| サーキット | 1周距離 | 確認方法 |
+|-----------|---------|---------|
+| **ASSEN** | **4555m** | X_F1-#77-03_DISTANCE.csv で確認（13665/3=4555, 27329/6=4555 完全一致） |
+| その他 | 未確認 | 走行データから都度計算 |
+
+**Assenセッション構造の確認例（X_F1-#77-03_DISTANCE.csv）:**
+```
+時間ギャップ法で2セグメントに分割:
+  Segment 1 (CSV Lap 1): 3周 × 4555m = 13665m / 300.6s → 平均 1:40,21
+  Gap: 105s（ピットストップ）
+  Segment 2 (CSV Lap 2): 6周 × 4555m = 27329m / 594.4s → 平均 1:39,07
+  合計: 9周
+```
+
+**重要設計メモ:**
+**Lap分割の優先順位（2026-05-03 v2確定 / commit 8bc5973）:**
+```
+優先1: CSV内の Lap / LapNo / LapCounter / LapTrigger 列 → ✅ 最も正確（2D側でExportする）
+優先2: DB の laps テーブル駆動分割                        → ✅ sub-0.02s精度（最重要手法）
+優先3: 固定距離近似分割（dist >= circuit_len_m）          → ⚠ Approximate表示（ズレ累積あり）
+優先4: 時間ギャップ > 5s                                  → セッション境界のみ（最終fallback）
+```
+
+**DB駆動分割アルゴリズム（ROUND3_ASSEN_FP_DA77_R1で検証済み）:**
+1. CSVの時間ギャップ(>5s)を検出 → セグメント境界とgap_dur（ピット等）を記録
+2. DBのlapsテーブルからis_outlap≠1のラップを取得
+3. CSVギャップ秒数とDBラップタイムをGAP_TOLERANCE=2sで照合 → gap lapを除外
+4. 有効ラップのlap_time_sを累積し np.searchsorted でCSV行番号を特定
+- 結果: 9ラップ × 0→4554m、最大誤差 0.02s ✅
+
+**CsvImportTabとDB連携の仕組み（v2以降）:**
+- `CsvImportTab(wave_view=..., db=self._db)` — dbパラメータ追加
+- `_on_run_selected` → `self._tab_csv.set_run(run_id)` で選択Runを通知
+- `WorkbenchDB.get_laps(run_id)` → `SELECT lap_no, lap_time_s, is_outlap FROM laps WHERE run_id=?`
+- 左パネルでRun未選択時は優先3（固定距離）または優先4（時間ギャップ）にfallback
+
+**固定距離分割の限界（参考）:**
+```python
+circuit_len_m = 4555  # Assen確定値（4555mで9ラップ完全検出）
+min_span = circuit_len_m * 0.5  # 50%未満はピットアーティファクトとして除外
 ```
 
 ---
