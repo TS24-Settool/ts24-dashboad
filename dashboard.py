@@ -3323,7 +3323,15 @@ with _content_col:
                             cum_ms += (row.get("total_corner_ms") or 0)
                         return marks
 
-                    corner_marks_a = _corner_progresses(cp_a, lt_a) if not cp_a.empty else []
+                    # Turn Templateがあれば固定位置を使う（Confidence正常化・設計原則：コーナーはDetectedではなくDefined）
+                    if _tmpl_turns:
+                        corner_marks_a = [
+                            (t["progress"], t["cid_src"], t.get("confidence", "中"))
+                            for t in _tmpl_turns
+                        ]
+                    else:
+                        # テンプレートなし → corner_phase_dataの検出コーナーをフォールバック
+                        corner_marks_a = _corner_progresses(cp_a, lt_a) if not cp_a.empty else []
 
                     # ── Task3: Focus Turn セレクトボックス + ズームスライダー ──
                     st.divider()
@@ -3366,75 +3374,92 @@ with _content_col:
                     x_lo = max(0.0, zoom_center - zoom_window / 2)
                     x_hi = min(1.0, zoom_center + zoom_window / 2)
 
-                    # ── Task2: Focus Turn チャンネル詳細パネル ───────────
-                    _N_pts = len(x_a)
-                    if _focus_turn != "（全体表示）" and _focus_prog is not None:
-                        # Focus Turn の entry progress を取得
-                        _ft_entry_prog = 0.0
-                        for _j, (_mp, _mt, _mc) in enumerate(corner_marks_a):
-                            if _cid_to_turn(_mt) == _focus_turn and _j > 0:
-                                _ft_entry_prog = corner_marks_a[_j - 1][0]
+                    # ── Task2: Focus Turn チャンネル詳細パネル（corner_phase_data版）──
+                    if _focus_turn != "（全体表示）" and not cp_a.empty and not cp_b.empty:
+                        # cid_src を turn_templates から逆引き（例: "T6" → "C06"）
+                        _ft_cid = None
+                        for _t in _tmpl_turns:
+                            if _cid_to_turn(_t["cid_src"]) == _focus_turn:
+                                _ft_cid = _t["cid_src"]
                                 break
-                        _ft_ei = int(np.clip(_ft_entry_prog * (_N_pts - 1), 0, _N_pts - 1))
-                        _ft_xi = int(np.clip(_focus_prog   * (_N_pts - 1), 0, _N_pts - 1))
-                        _ft_sl = slice(min(_ft_ei, _ft_xi), max(_ft_ei, _ft_xi) + 1)
 
-                        _v_a_z  = np.array(ch_a["speed"][_ft_sl])
-                        _v_b_z  = np.array(ch_b["speed"][_ft_sl])
-                        _br_a_z = np.array(ch_a["brake"][_ft_sl])
-                        _br_b_z = np.array(ch_b["brake"][_ft_sl])
-                        _ga_a_z = np.array(ch_a["gas"][_ft_sl])
-                        _ga_b_z = np.array(ch_b["gas"][_ft_sl])
-                        _sf_a_z = np.array(ch_a["sus_f"][_ft_sl])
-                        _sf_b_z = np.array(ch_b["sus_f"][_ft_sl])
+                        if _ft_cid is not None:
+                            _ft_corner_no = int(_ft_cid[1:])  # "C06" → 6
+                            _row_a = cp_a[cp_a["corner_no"] == _ft_corner_no]
+                            _row_b = cp_b[cp_b["corner_no"] == _ft_corner_no]
 
-                        if len(_v_a_z) > 0 and len(_v_b_z) > 0:
-                            st.markdown(
-                                f"#### 🔬 {_focus_turn} — Channel Detail (A vs B)"
-                            )
-                            # キャプション: データソースによって信頼度を明示
-                            if not cp_a.empty:
+                            if not _row_a.empty and not _row_b.empty:
+                                _ra = _row_a.iloc[0]
+                                _rb = _row_b.iloc[0]
+
+                                st.markdown(f"#### 🔬 {_focus_turn} — Corner Phase Detail (A vs B)")
                                 st.caption(
                                     "📌 Source: corner_phase_data.json  |  "
                                     "Alignment: brake-event based  |  "
                                     "Reliability: higher than time-normalized overlay"
                                 )
-                            else:
-                                st.caption(
-                                    "⚠️ Reference only — time-normalized data, not track-position aligned.  "
-                                    "同じprogress位置 ≠ 同じトラック位置。絶対値は参考にしないこと。"
+
+                                _ph_cols = st.columns(5)
+                                # PH1-2 (ブレーキング区間)
+                                _ph12_a = float(_ra.get("ph12_duration_ms") or 0.0)
+                                _ph12_b = float(_rb.get("ph12_duration_ms") or 0.0)
+                                _ph_cols[0].metric(
+                                    "PH1-2 Braking (ms)",
+                                    f"A:{_ph12_a:.0f} / B:{_ph12_b:.0f}",
+                                    f"{_ph12_a - _ph12_b:+.0f} ms",
+                                    delta_color="inverse",
                                 )
-                            cd1, cd2, cd3, cd4, cd5 = st.columns(5)
-                            cd1.metric(
-                                "Speed avg",
-                                f"A:{np.mean(_v_a_z):.1f} / B:{np.mean(_v_b_z):.1f}",
-                                f"{np.mean(_v_a_z) - np.mean(_v_b_z):+.1f} km/h",
-                                delta_color="normal",
-                            )
-                            cd2.metric(
-                                "Brake max",
-                                f"A:{np.max(_br_a_z):.2f} / B:{np.max(_br_b_z):.2f}",
-                                f"{np.max(_br_a_z) - np.max(_br_b_z):+.2f} bar",
-                                delta_color="off",
-                            )
-                            cd3.metric(
-                                "Gas avg",
-                                f"A:{np.mean(_ga_a_z):.1f} / B:{np.mean(_ga_b_z):.1f}",
-                                f"{np.mean(_ga_a_z) - np.mean(_ga_b_z):+.1f} %",
-                                delta_color="normal",
-                            )
-                            cd4.metric(
-                                "SusF avg",
-                                f"A:{np.mean(_sf_a_z):.1f} / B:{np.mean(_sf_b_z):.1f}",
-                                f"{np.mean(_sf_a_z) - np.mean(_sf_b_z):+.1f} mm",
-                                delta_color="off",
-                            )
-                            cd5.metric(
-                                "Speed peak",
-                                f"A:{np.max(_v_a_z):.1f} / B:{np.max(_v_b_z):.1f}",
-                                f"{np.max(_v_a_z) - np.max(_v_b_z):+.1f} km/h",
-                                delta_color="normal",
-                            )
+                                # PH3 (APEX区間)
+                                _ph3_a = float(_ra.get("ph3_duration_ms") or 0.0)
+                                _ph3_b = float(_rb.get("ph3_duration_ms") or 0.0)
+                                _ph_cols[1].metric(
+                                    "PH3 Apex (ms)",
+                                    f"A:{_ph3_a:.0f} / B:{_ph3_b:.0f}",
+                                    f"{_ph3_a - _ph3_b:+.0f} ms",
+                                    delta_color="inverse",
+                                )
+                                # PH4-5 (加速区間)
+                                _ph45_a = float(_ra.get("ph45_duration_ms") or 0.0)
+                                _ph45_b = float(_rb.get("ph45_duration_ms") or 0.0)
+                                _ph_cols[2].metric(
+                                    "PH4-5 Accel (ms)",
+                                    f"A:{_ph45_a:.0f} / B:{_ph45_b:.0f}",
+                                    f"{_ph45_a - _ph45_b:+.0f} ms",
+                                    delta_color="inverse",
+                                )
+                                # Total Corner
+                                _tot_a = float(_ra.get("total_corner_ms") or (_ph12_a + _ph3_a + _ph45_a))
+                                _tot_b = float(_rb.get("total_corner_ms") or (_ph12_b + _ph3_b + _ph45_b))
+                                _ph_cols[3].metric(
+                                    "Total Corner (ms)",
+                                    f"A:{_tot_a:.0f} / B:{_tot_b:.0f}",
+                                    f"{_tot_a - _tot_b:+.0f} ms",
+                                    delta_color="inverse",
+                                )
+                                # APEX Speed (ph3_speed_min)
+                                _spd_a = _ra.get("ph3_speed_min")
+                                _spd_b = _rb.get("ph3_speed_min")
+                                if _spd_a is not None and _spd_b is not None:
+                                    _ph_cols[4].metric(
+                                        "APEX Speed (km/h)",
+                                        f"A:{float(_spd_a):.1f} / B:{float(_spd_b):.1f}",
+                                        f"{float(_spd_a) - float(_spd_b):+.1f} km/h",
+                                        delta_color="normal",
+                                    )
+                                else:
+                                    _ph_cols[4].metric("APEX Speed (km/h)", "N/A", "")
+
+                            elif not _row_a.empty or not _row_b.empty:
+                                st.caption(
+                                    f"⚠️ {_focus_turn}: Lap A または Lap B のコーナーデータが見つかりません。"
+                                    " corner_phase_analysis.py を再実行してください。"
+                                )
+
+                    elif _focus_turn != "（全体表示）" and (cp_a.empty or cp_b.empty):
+                        st.caption(
+                            "⚠️ Reference only — corner_phase_data.json が見つかりません。"
+                            " `corner_phase_analysis.py` を実行してください。"
+                        )
 
                     # ── Plotly 4行サブプロット（バグ2修正: specs でRow2をdual-Y）──
                     fig_ov = _make_subplots(
