@@ -57,7 +57,8 @@
     "[2026-05-03] ASSEN Turn Template：17ターン確定（110lap高信頼度）。CREMONA：GPS系再処理が必要（median 87corners/lapで現在POOR）。",
     "[2026-05-03] チーム役割境界確立：Cowork Claude=分析/設計/仕様、Claude Code=実装/git/スクリプト実行。直接コード変更はClaude Codeの領域。CLAUDE.md §1に役割境界表を追加。",
     "[2026-05-03] lap_overlay_data.jsonのlap_progressはラン全体連続値（Lap1:0→1、Lap2:1→2）。Workbench/分析コードでは必ず各ラップを独立して0-1正規化すること。",
-    "[2026-05-03] Workbench設計原則確定: 単一Run/Lapの正確な波形表示が最優先。2D CSVはセミコロン区切り・カンマ小数点・400Hz。Dist=0なら時間軸のみ。lap_overlay_data.jsonはWorkbenchでは使用しない。"
+    "[2026-05-03] Workbench設計原則確定: 単一Run/Lapの正確な波形表示が最優先。2D CSVはセミコロン区切り・カンマ小数点・400Hz。Dist=0なら時間軸のみ。lap_overlay_data.jsonはWorkbenchでは使用しない。",
+    "[2026-05-03] Workbench分析チャンネル確定: SPEED+BRAKE_FRONT+GAS=フェーズ判断、SUSP_FRONT+SUSP_REAR=問題定義の根幹。データ量増加=精度向上ではない。PH1-PH5自動分割が次の最重要開発目標。"
   ],
   "setup_learnings": [
     {
@@ -176,6 +177,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "Workbench方針確定（Tatsuki）: \"2D CSV Viewer + DB記録ツール\"に特化。X軸=Time(秒)、データソース=2D CSV直読み（lap_overlay_data.json不使用）。Overlay比較はMVP非優先。CLAUDE.md §6を完全書き直し。Claude Code次タスク: CSV Import機能実装。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Workbenchチャンネル構成確定（Tatsuki）: 必須=Time/SPEED/BRAKE_FRONT/GAS/SUSP_FRONT/SUSP_REAR (+LEAN_ANGLE推奨)。GPS/Dist/BRAKE_REARは現段階不使用。設計思想=「問題を定義できること」。次フェーズ=PH1-PH5自動分割ロジック（最重要武器）。06_CSV/フォルダ運用開始。"
     }
   ]
 }

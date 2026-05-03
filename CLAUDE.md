@@ -93,8 +93,10 @@ Claude Code（コード修正・Git管理）
 │   ├── ts24_workbench.py            ← 【NEW】PyQt6 Engineer Workbench（ローカルデスクトップアプリ）
 │   ├── create_workbench_tables.py   ← 【NEW】problem_log / setup_decision_log テーブル作成スクリプト
 │   └── requirements_workbench.txt  ← 【NEW】Workbench依存パッケージ（PyQt6, pyqtgraph, pandas）
-└── 04_MES/                          ← MES生データ（2Dロガー出力）
-    └── [RIDER]/[DATE]/              ← ライダー別・日付別
+├── 04_MES/                          ← MES生データ（2Dロガー出力）
+│   └── [RIDER]/[DATE]/              ← ライダー別・日付別
+└── 06_CSV/                          ← 【NEW】2D CSV Export専用（Workbench用）
+    └── [CIRCUIT]/[SESSION]/         ← 例: ASSEN/FP/JA52_R1.csv
 ```
 
 ---
@@ -239,6 +241,30 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 - time-normalized overlay（0-1正規化）を正確な分析として扱うこと
 - 不正確なTurn同期（lap_progressベース）を前提にした分析
 
+### ✅ 確定チャンネル構成（2026-05-03 Tatsuki確定）
+
+**設計思想: 「問題を定義できること」が目的。データ量≠精度。**
+
+| 優先度 | チャンネル名 | 単位 | 役割 | 状態 |
+|--------|------------|------|------|------|
+| **必須** | Time | s | X軸基準 | ✅ |
+| **必須** | SPEED（またはSPEED_FRONT） | km/h | Entry/Apex/Exit判断の全基準 | ✅ |
+| **必須** | BRAKE_FRONT | Bar | PH1/PH2判断・リリース問題検出 | ✅ |
+| **必須** | GAS | % | PH4/PH5・立ち上がり問題 | ✅ |
+| **必須** | SUSP_FRONT | mm | コア領域・問題定義の根幹 | ✅ |
+| **必須** | SUSP_REAR | mm | コア領域・問題定義の根幹 | ✅ |
+| 推奨 | LEAN_ANGLE | deg | 「曲がらない」の正体を見抜く | あれば追加 |
+| 後回し | GEAR / RPM | - | ライダー操作vs車体挙動切り分け | 将来 |
+| **不使用** | GPS / Dist（壊れている場合） | m | Workbench目的外 | ❌ |
+| **不使用** | BRAKE_REAR / 細かいダンパー速度 | - | 現段階ではノイズ | ❌ |
+
+**分析ロジック（このチャンネルで成立する）:**
+```
+どこで遅いか → SPEED
+なぜ遅いか   → BRAKE_FRONT / GAS
+車体状態     → SUSP_FRONT / SUSP_REAR
+```
+
 ### 2D CSV フォーマット仕様
 
 ```
@@ -249,12 +275,28 @@ APEX Area = BRAKE_FRONT -0.6~0.3Bar ∩ GAS 0~6% ∩ dTPS_A -10~100 ∩ SUSP_F 2
 行3以降: データ
 サンプルレート: 400 Hz（0.0025秒間隔）
 
-標準チャンネル（最低限）:
-  Time[s], Dist[m], GAS[%], SUSP_REAR[mm], SPEED_FRONT[km/h], BRAKE_REAR[Bar], BRAKE_FRONT[Bar]
-
-将来追加されうるチャンネル:
-  SUSP_FRONT[mm], BRAKE_REAR[Bar], GPS系チャンネル等
+確定エクスポートチャンネル（Tatsukiが2Dからこの設定でExport）:
+  Time[s], SPEED[km/h], BRAKE_FRONT[Bar], GAS[%], SUSP_FRONT[mm], SUSP_REAR[mm]
+  + LEAN_ANGLE[deg] （あれば）
 ```
+
+### CSVファイル保存場所（運用ルール）
+
+```
+~/Desktop/Data TS24 Claude/
+└── 06_CSV/                    ← 2D CSV Export専用フォルダ（新設）
+    ├── ASSEN/
+    │   ├── FP/
+    │   │   ├── JA52_R1.csv
+    │   │   ├── JA52_R2.csv
+    │   │   └── DA77_R1.csv
+    │   └── QP/
+    └── CREMONA/
+        └── ...
+```
+
+**命名規則（提案）:** `{RIDER}_R{run_no}.csv`
+現在の2DのExport名と異なる場合はTatsukiが都度確認する。
 
 ### CSVパース要件（Claude Code実装）
 
@@ -342,6 +384,13 @@ X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
 **タスク4: Problem Log との連携**
 - CSVを開いた状態で波形を見ながら「+ Problem追加」ができること
 - Problem追加時に現在のTime位置（秒）をフィールドに自動入力（オプション）
+
+**タスク5（将来・最重要）: PH1〜PH5 自動分割ロジック**
+- SPEED + BRAKE_FRONT + GAS の組み合わせでコーナーフェーズを自動検出
+- PH1（ブレーキング開始）、PH2（ブレーキングピーク）、PH3（アペックス）、PH4（スロットルオン）、PH5（フル加速）
+- 波形上にフェーズ境界をオーバーレイ表示
+- Problem Log記録時にフェーズを自動提案
+- **これが最強の武器になる（corner_phase_data.jsonとの統合も視野）**
 
 ### 解決済みバグ（2026-05-03 Claude Code 修正・確認済み）
 - ✅ X軸正規化: `_normalize_x()` で各ラップ独立0-1正規化
