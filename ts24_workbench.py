@@ -23,11 +23,11 @@ import pandas as pd
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QHBoxLayout, QLabel,
+    QApplication, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
     QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-    QLineEdit, QFrame,
+    QLineEdit, QFrame, QScrollArea,
 )
 
 # ── パス設定 ──────────────────────────────────────────────────────────
@@ -81,13 +81,13 @@ class WorkbenchDB:
         with self._conn() as conn:
             if circuit:
                 cur = conn.execute(
-                    """SELECT run_id, circuit, session, rider, run_no, perf_best_lap
+                    """SELECT run_id, circuit, session, rider, run_no, best_lap_s
                        FROM runs WHERE circuit = ? ORDER BY session, rider, run_no""",
                     (circuit,),
                 )
             else:
                 cur = conn.execute(
-                    """SELECT run_id, circuit, session, rider, run_no, perf_best_lap
+                    """SELECT run_id, circuit, session, rider, run_no, best_lap_s
                        FROM runs ORDER BY circuit, session, rider, run_no"""
                 )
             return [dict(r) for r in cur.fetchall()]
@@ -199,6 +199,8 @@ class WaveformView(QWidget):
         self._overlay_data: list[dict] = []
         self._templates: dict = {}
         self._circuit: str = ""
+        self._csv_x_mode: str = "progress"   # "time" | "progress"
+        self._laps_cache: list[dict] = []
         self._setup_ui()
         self._load_static_data()
 
@@ -212,10 +214,20 @@ class WaveformView(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # Reference warning
-        warn = QLabel("⚠️  Reference only — time-normalized data, not track-position aligned.")
-        warn.setStyleSheet("color: #D83B01; font-style: italic; padding: 4px;")
-        layout.addWidget(warn)
+        # Reference warning (hidden in time mode, visible in progress mode)
+        self._lbl_warn = QLabel(
+            "⚠️  Reference only — time-normalized data, not track-position aligned."
+        )
+        self._lbl_warn.setStyleSheet("color: #D83B01; font-style: italic; padding: 4px;")
+        layout.addWidget(self._lbl_warn)
+
+        # X-axis mode indicator
+        self._lbl_xmode = QLabel("X axis: Lap Progress (0–1)")
+        self._lbl_xmode.setStyleSheet(
+            "color: #107C10; font-size: 10px; padding: 2px 4px;"
+            " background: #F0FFF0; border-radius: 3px;"
+        )
+        layout.addWidget(self._lbl_xmode)
 
         # Lap selectors
         sel_row = QHBoxLayout()
@@ -239,16 +251,22 @@ class WaveformView(QWidget):
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
             self._plot_widget = pg.GraphicsLayoutWidget()
-            self._p_speed = self._plot_widget.addPlot(row=0, col=0, title="Speed (km/h)")
-            self._p_brake = self._plot_widget.addPlot(row=1, col=0, title="Brake (bar)")
-            self._p_gas   = self._plot_widget.addPlot(row=2, col=0, title="Gas (%)")
-            for p in (self._p_speed, self._p_brake, self._p_gas):
+            self._p_speed  = self._plot_widget.addPlot(row=0, col=0, title="Speed (km/h)")
+            self._p_brake  = self._plot_widget.addPlot(row=1, col=0, title="Brake (bar)")
+            self._p_gas    = self._plot_widget.addPlot(row=2, col=0, title="Gas (%)")
+            self._p_suspf  = self._plot_widget.addPlot(row=3, col=0, title="SUSP_FRONT (mm)")
+            self._p_suspr  = self._plot_widget.addPlot(row=4, col=0, title="SUSP_REAR (mm)")
+            self._all_plots = (
+                self._p_speed, self._p_brake, self._p_gas,
+                self._p_suspf, self._p_suspr,
+            )
+            for p in self._all_plots:
                 p.setLabel("bottom", "Lap Progress")
                 p.showGrid(x=True, y=True, alpha=0.3)
                 p.setXRange(0, 1)
-            # Link X axes
-            self._p_brake.setXLink(self._p_speed)
-            self._p_gas.setXLink(self._p_speed)
+            # Link all X axes to Speed panel
+            for p in (self._p_brake, self._p_gas, self._p_suspf, self._p_suspr):
+                p.setXLink(self._p_speed)
             layout.addWidget(self._plot_widget)
         else:
             layout.addWidget(QLabel(
@@ -270,38 +288,21 @@ class WaveformView(QWidget):
 
     def set_run(self, run_id: str, circuit: str):
         self._circuit = circuit
+        self._csv_x_mode = "progress"
+        self._lbl_warn.setVisible(True)
+        self._lbl_xmode.setText("X axis: Lap Progress (0–1)")
+        self._lbl_xmode.setStyleSheet(
+            "color: #107C10; font-size: 10px; padding: 2px 4px;"
+            " background: #F0FFF0; border-radius: 3px;"
+        )
+        if self._has_pg:
+            for p in self._all_plots:
+                p.setLabel("bottom", "Lap Progress")
         self._combo_a.clear()
         self._combo_b.clear()
         if not self._overlay_data:
             return
-        # lap_overlay_data.json には run_id がないため circuit+session_type+rider+run_no でマッチ
-        # run_id フォーマット: {round}_{circuit}_{session}_{rider}_R{run_no}
-        # 例: UNK_ASSEN_QP_DA77_R2 → circuit=ASSEN, session=QP, rider=DA77, run_no=2
-        laps = []
-        try:
-            parts = run_id.split("_")
-            # R{n} を探す
-            run_no_str = next((p for p in reversed(parts) if p.startswith("R") and p[1:].isdigit()), None)
-            run_no = int(run_no_str[1:]) if run_no_str else None
-            rider = parts[-2] if run_no_str else None
-            # session と circuit は run_id の中間部分
-            # format: ROUND_CIRCUIT_SESSION_RIDER_Rn  ただしROUNDがUNKや複数部構成の場合あり
-            # circuit は known circuits から照合
-            known_circuits = {"ASSEN", "CREMONA", "JEREZ", "PORTIMAO", "PHILLIP ISLAND", "PI"}
-            circ_idx = next((i for i, p in enumerate(parts) if p in known_circuits), None)
-            circ = parts[circ_idx] if circ_idx is not None else circuit
-            sess_idx = circ_idx + 1 if circ_idx is not None else None
-            sess = parts[sess_idx] if sess_idx is not None else None
-
-            laps = [
-                r for r in self._overlay_data
-                if r.get("circuit", "").upper() == (circ or circuit).upper()
-                and str(r.get("rider", "")) == str(rider or "")
-                and str(r.get("run_no", "")) == str(run_no or "")
-                and (sess is None or r.get("session_type", "").upper() == sess.upper())
-            ]
-        except Exception:
-            pass
+        laps = [r for r in self._overlay_data if r.get("run_id") == run_id]
         labels = [
             f"Lap {r.get('lap_no','?')}  {r.get('lap_time_s','?')}s"
             for r in laps
@@ -312,58 +313,131 @@ class WaveformView(QWidget):
             self._combo_b.setCurrentIndex(1)
         self._laps_cache = laps
 
+    def set_csv_laps(self, laps: list[dict]):
+        """CSV インポートからのラップデータを波形に設定する（§0 参考値）。
+
+        laps 要素の形式:
+          {"x": [...], "speed": [...], "brake": [...],
+           "gas": [...], "susp_front": [...], "susp_rear": [...],
+           "x_mode": "time" | "progress", "lap_no": int, "lap_time_s": float}
+        """
+        self._laps_cache = laps
+        self._circuit = ""
+        self._csv_x_mode = laps[0].get("x_mode", "progress") if laps else "progress"
+        if self._has_pg:
+            if self._csv_x_mode == "time":
+                x_label   = "Time (s)"
+                mode_text  = "X axis: Time (s)  [CSV]"
+                mode_style = (
+                    "color: #0078D4; font-size: 10px; padding: 2px 4px;"
+                    " background: #EFF6FF; border-radius: 3px;"
+                )
+                self._lbl_warn.setVisible(False)
+            else:
+                x_label   = "Lap Progress (0–1)  [fallback]"
+                mode_text  = "X axis: Normalized Progress (0–1)  [CSV — Time column not found]"
+                mode_style = (
+                    "color: #797673; font-size: 10px; padding: 2px 4px;"
+                    " background: #FAF9F8; border-radius: 3px;"
+                )
+                self._lbl_warn.setVisible(True)
+            for p in self._all_plots:
+                p.setLabel("bottom", x_label)
+            self._lbl_xmode.setText(mode_text)
+            self._lbl_xmode.setStyleSheet(mode_style)
+        self._combo_a.clear()
+        self._combo_b.clear()
+        labels = [
+            f"CSV Lap {r.get('lap_no', i + 1)}  ({r.get('lap_time_s', '?')}s)"
+            for i, r in enumerate(laps)
+        ]
+        self._combo_a.addItems(labels)
+        self._combo_b.addItems(labels)
+        if len(labels) > 1:
+            self._combo_b.setCurrentIndex(1)
+
     def _draw(self):
-        if not self._has_pg or not hasattr(self, "_laps_cache") or not self._laps_cache:
+        if not self._has_pg or not self._laps_cache:
             return
         pg = self._pg
+        import numpy as np
+
         ia = self._combo_a.currentIndex()
         ib = self._combo_b.currentIndex()
-        if ia < 0 or ib < 0 or ia >= len(self._laps_cache):
+        if ia < 0 or ia >= len(self._laps_cache):
             return
         lap_a = self._laps_cache[ia]
-        lap_b = self._laps_cache[ib] if ib < len(self._laps_cache) else None
+        lap_b = self._laps_cache[ib] if (0 <= ib < len(self._laps_cache)) else None
 
         colors = {"a": pg.mkPen("#0078D4", width=2), "b": pg.mkPen("#E74C3C", width=1.5)}
+        x_mode = self._csv_x_mode
 
-        for p in (self._p_speed, self._p_brake, self._p_gas):
+        for p in self._all_plots:
             p.clear()
 
-        def _plot(lap, label, pen, channel, plot_obj):
+        def _get_x(lap):
             ch = lap.get("channels", {})
-            xs = ch.get("lap_progress") or lap.get("lap_progress")
-            ys = ch.get(channel) or lap.get(channel)
-            if xs and ys and len(xs) == len(ys):
-                import numpy as np
-                plot_obj.plot(
-                    x=list(xs), y=list(ys),
-                    pen=pen, name=label,
-                )
+            # CSV laps use "x" key; overlay laps use "lap_progress"
+            return (ch.get("x") or lap.get("x")
+                    or ch.get("lap_progress") or lap.get("lap_progress"))
 
-        for ch, p in [("speed", self._p_speed), ("brake", self._p_brake), ("gas", self._p_gas)]:
-            _plot(lap_a, f"A Lap{lap_a.get('lap_no','')}", colors["a"], ch, p)
+        def _get_y(lap, channel):
+            ch = lap.get("channels", {})
+            return ch.get(channel) or lap.get(channel)
+
+        def _normalize(xs_raw):
+            arr = np.array(xs_raw, dtype=float)
+            lo, hi = arr.min(), arr.max()
+            return (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
+
+        def _plot(lap, label, pen, channel, plot_obj):
+            xs_raw = _get_x(lap)
+            ys_raw = _get_y(lap, channel)
+            if not xs_raw or not ys_raw or len(xs_raw) != len(ys_raw):
+                return
+            xs = np.array(xs_raw, dtype=float) if x_mode == "time" else _normalize(xs_raw)
+            ys = np.array(ys_raw, dtype=float)
+            plot_obj.plot(x=xs, y=ys, pen=pen, name=label)
+
+        _CHAN_PANELS = [
+            ("speed",      self._p_speed),
+            ("brake",      self._p_brake),
+            ("gas",        self._p_gas),
+            ("susp_front", self._p_suspf),
+            ("susp_rear",  self._p_suspr),
+        ]
+        for ch, p in _CHAN_PANELS:
+            _plot(lap_a, f"A Lap{lap_a.get('lap_no', '')}", colors["a"], ch, p)
             if lap_b:
-                _plot(lap_b, f"B Lap{lap_b.get('lap_no','')}", colors["b"], ch, p)
+                _plot(lap_b, f"B Lap{lap_b.get('lap_no', '')}", colors["b"], ch, p)
 
-        # X軸を 0-1 に固定（両ラップとも同じ progress 軸）
-        for p in (self._p_speed, self._p_brake, self._p_gas):
-            p.setXRange(0.0, 1.0, padding=0.01)
+        # Y auto-range; X range depends on mode
+        for p in self._all_plots:
             p.enableAutoRange(axis="y")
+            if x_mode == "time":
+                p.enableAutoRange(axis="x")
+            else:
+                p.setXRange(0.0, 1.0, padding=0.01)
 
-        # Turn markers（turn_templates.json は {circuit: {turns: [...], ...}} 構造）
-        tmpl_turns = self._templates.get(self._circuit, {}).get("turns", [])
-        for turn in tmpl_turns:
-            prog = turn.get("progress")
-            if prog is None:
-                continue
-            turn_label = turn.get("turn", "")
-            for p in (self._p_speed, self._p_brake, self._p_gas):
-                line = pg.InfiniteLine(
-                    pos=prog, angle=90,
-                    pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
-                    label=turn_label,
-                    labelOpts={"color": "#107C10", "position": 0.9, "rotateAxis": (1, 0)},
-                )
-                p.addItem(line)
+        # Turn markers — progress mode only (time-axis positions not known)
+        if x_mode != "time":
+            tmpl_raw = self._templates.get(self._circuit, [])
+            if isinstance(tmpl_raw, dict):
+                tmpl_raw = [{"name": k, **v} for k, v in tmpl_raw.items()
+                             if isinstance(v, dict)]
+            for turn in tmpl_raw:
+                prog = turn.get("progress")
+                if prog is None:
+                    continue
+                for p in self._all_plots:
+                    line = pg.InfiniteLine(
+                        pos=prog, angle=90,
+                        pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
+                        label=turn.get("name", ""),
+                        labelOpts={"color": "#107C10", "position": 0.9,
+                                   "rotateAxis": (1, 0)},
+                    )
+                    p.addItem(line)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -711,6 +785,276 @@ class SetupDecisionTab(QWidget):
 
 
 # ════════════════════════════════════════════════════════════════════
+# 2D CSV Import タブ
+# ════════════════════════════════════════════════════════════════════
+
+class CsvImportTab(QWidget):
+    """2Dロガー CSV インポートタブ（§0 データソース原則: 参考値のみ）。
+
+    対応フォーマット:
+      - セミコロン区切り・カンマ小数点（2Dデータロガー標準）
+      - 1行目=ヘッダー、2行目=単位（自動スキップ）
+      - UTF-8 / Shift-JIS 自動判定
+    """
+
+    CHANNEL_MAP: dict[str, list[str]] = {
+        "time":       ["time", "time2d"],
+        "speed":      ["speed_front", "speed"],
+        "brake":      ["brake_front"],
+        "gas":        ["gas", "gas_smooth", "tps"],
+        "susp_front": ["susp_front"],
+        "susp_rear":  ["susp_rear"],
+        "lean_angle": ["bike_angle", "lean_angle"],
+    }
+
+    _TARGETS = [
+        "(ignore)", "time", "speed", "brake", "gas",
+        "susp_front", "susp_rear", "lean_angle",
+    ]
+
+    def __init__(self, wave_view: "WaveformView", parent=None):
+        super().__init__(parent)
+        self._wave = wave_view
+        self._df: "pd.DataFrame | None" = None
+        self._col_combos: dict[str, QComboBox] = {}
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # §0 reference warning
+        warn = QLabel(
+            "⚠️  Reference only（§0 データソース原則）"
+            " — CSV データは参考値です。権威源ではありません。"
+        )
+        warn.setStyleSheet("color: #D83B01; font-style: italic; padding: 4px;")
+        warn.setWordWrap(True)
+        layout.addWidget(warn)
+
+        note = QLabel(
+            "CSV data is shown on Time axis when available. "
+            "Progress axis is fallback only."
+        )
+        note.setStyleSheet("color: #605E5C; font-size: 10px; padding: 2px 0;")
+        layout.addWidget(note)
+
+        # File select
+        file_row = QHBoxLayout()
+        btn_browse = QPushButton("📂  CSV を開く")
+        btn_browse.clicked.connect(self._browse)
+        self._lbl_file = QLabel("ファイル未選択")
+        self._lbl_file.setStyleSheet("color: #444;")
+        file_row.addWidget(btn_browse)
+        file_row.addWidget(self._lbl_file, stretch=1)
+        layout.addLayout(file_row)
+
+        self._lbl_info = QLabel("")
+        self._lbl_info.setStyleSheet("color: #0078D4; font-size: 10px;")
+        layout.addWidget(self._lbl_info)
+
+        # Distance validity warning
+        self._lbl_dist = QLabel("Distance invalid: Time axis only")
+        self._lbl_dist.setStyleSheet(
+            "color: #D83B01; font-size: 10px; padding: 2px 4px;"
+            " background: #FFF4CE; border-radius: 3px;"
+        )
+        self._lbl_dist.setVisible(False)
+        layout.addWidget(self._lbl_dist)
+
+        # Channel mapping (scrollable)
+        map_lbl = QLabel("▼ チャンネルマッピング（自動検出・手動修正可）")
+        map_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        layout.addWidget(map_lbl)
+
+        self._map_inner = QWidget()
+        self._map_layout = QFormLayout(self._map_inner)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._map_inner)
+        scroll.setMaximumHeight(180)
+        layout.addWidget(scroll)
+
+        # Preview table
+        prev_lbl = QLabel("▼ データプレビュー（先頭 50 行）")
+        prev_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        layout.addWidget(prev_lbl)
+        self._preview = QTableWidget(0, 0)
+        self._preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        layout.addWidget(self._preview, stretch=1)
+
+        # Send button
+        btn_row = QHBoxLayout()
+        self._btn_send = QPushButton("📊  波形に送る")
+        self._btn_send.setEnabled(False)
+        self._btn_send.clicked.connect(self._send)
+        self._btn_send.setStyleSheet(
+            "QPushButton { background: #0078D4; color: white; padding: 6px 16px;"
+            " border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #106EBE; }"
+            "QPushButton:disabled { background: #ccc; color: #888; }"
+        )
+        btn_row.addWidget(self._btn_send)
+        self._lbl_sent = QLabel("")
+        self._lbl_sent.setStyleSheet("color: #107C10; font-size: 10px; padding: 0 8px;")
+        btn_row.addWidget(self._lbl_sent)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+    # ── CSV 読み込み ─────────────────────────────────────────────────
+
+    def _browse(self):
+        default = Path.home() / "Desktop" / "Data TS24 Claude" / "06_CSV"
+        if not default.exists():
+            default = SCRIPT_DIR.parent
+        path, _ = QFileDialog.getOpenFileName(
+            self, "CSV ファイルを選択", str(default),
+            "CSV Files (*.csv);;All Files (*.*)",
+        )
+        if not path:
+            return
+        self._lbl_file.setText(Path(path).name)
+        self._load_csv(Path(path))
+
+    def _load_csv(self, path: Path):
+        df = None
+        for enc in ("utf-8-sig", "shift_jis"):
+            for sep in (";", ","):
+                try:
+                    candidate = pd.read_csv(
+                        path, encoding=enc, sep=sep,
+                        decimal="," if sep == ";" else ".",
+                        skiprows=[1], header=0,
+                    )
+                    # Accept if we get more than 1 column
+                    if len(candidate.columns) > 1:
+                        df = candidate
+                        break
+                except Exception:
+                    pass
+            if df is not None:
+                break
+        if df is None:
+            QMessageBox.critical(self, "CSV 読み込みエラー", f"読み込めませんでした: {path.name}")
+            return
+
+        df.columns = [str(c).strip() for c in df.columns]
+        self._df = df
+        n_rows, n_cols = df.shape
+        self._lbl_info.setText(f"{n_rows} 行 × {n_cols} 列 を読み込みました。")
+
+        # Dist column validity check
+        dist_col = next(
+            (c for c in df.columns if c.lower().strip() in ("dist", "distance")), None
+        )
+        if dist_col:
+            try:
+                vals = pd.to_numeric(df[dist_col], errors="coerce").fillna(0).values
+                self._lbl_dist.setVisible(float(vals.max()) < 10.0)
+            except Exception:
+                self._lbl_dist.setVisible(False)
+        else:
+            self._lbl_dist.setVisible(False)
+
+        # Rebuild channel mapping
+        while self._map_layout.rowCount():
+            self._map_layout.removeRow(0)
+        self._col_combos.clear()
+
+        for col in df.columns:
+            combo = QComboBox()
+            combo.addItems(self._TARGETS)
+            combo.setCurrentText(self._auto_detect(col))
+            self._col_combos[col] = combo
+            self._map_layout.addRow(f"{col}:", combo)
+
+        # Preview
+        preview = df.head(50)
+        self._preview.setColumnCount(len(preview.columns))
+        self._preview.setHorizontalHeaderLabels(list(preview.columns))
+        self._preview.setRowCount(len(preview))
+        for ri, row_data in enumerate(preview.itertuples(index=False)):
+            for ci, val in enumerate(row_data):
+                self._preview.setItem(ri, ci, QTableWidgetItem(str(val)))
+        self._preview.resizeColumnsToContents()
+        self._btn_send.setEnabled(True)
+
+    def _auto_detect(self, col_name: str) -> str:
+        lower = col_name.lower().strip()
+        for target, aliases in self.CHANNEL_MAP.items():
+            for alias in aliases:
+                if alias in lower or lower in alias:
+                    return target
+        return "(ignore)"
+
+    # ── 波形に送る ────────────────────────────────────────────────────
+
+    def _send(self):
+        if self._df is None:
+            return
+
+        channel_to_col: dict[str, str] = {}
+        for col, combo in self._col_combos.items():
+            ch = combo.currentText()
+            if ch != "(ignore)":
+                channel_to_col[ch] = col
+
+        data_chs = {k for k in channel_to_col if k != "time"}
+        if not data_chs:
+            QMessageBox.warning(
+                self, "マッピング不足",
+                "speed / brake などのデータチャンネルを1つ以上割り当ててください。",
+            )
+            return
+
+        has_time = "time" in channel_to_col
+        x_mode = "time" if has_time else "progress"
+        df = self._df.copy()
+        n = len(df)
+        if n == 0:
+            QMessageBox.warning(self, "データなし", "CSV にデータ行がありません。")
+            return
+
+        # Build X
+        if has_time:
+            try:
+                t = pd.to_numeric(df[channel_to_col["time"]], errors="coerce").fillna(0).values
+                x_vals: list = (t - float(t[0])).tolist()
+                lap_time_s: "float | None" = round(float(t[-1]) - float(t[0]), 3)
+            except Exception:
+                x_mode = "progress"
+                x_vals = [i / max(n - 1, 1) for i in range(n)]
+                lap_time_s = None
+        else:
+            x_vals = [i / max(n - 1, 1) for i in range(n)]
+            lap_time_s = None
+
+        lap: dict = {"x": x_vals, "x_mode": x_mode, "lap_no": 1}
+        if lap_time_s is not None:
+            lap["lap_time_s"] = lap_time_s
+
+        for ch_name, col_name in channel_to_col.items():
+            if ch_name == "time" or col_name not in df.columns:
+                continue
+            try:
+                lap[ch_name] = pd.to_numeric(
+                    df[col_name], errors="coerce"
+                ).fillna(0).tolist()
+            except Exception:
+                pass
+
+        self._wave.set_csv_laps([lap])
+
+        axis_str = "Time axis (s) ✅" if x_mode == "time" else "Progress axis (0–1) ⚠"
+        self._lbl_sent.setText(f"送信: {axis_str}")
+        QMessageBox.information(
+            self, "送信完了",
+            f"CSV データを波形ビューに送りました。\n"
+            f"X軸: {axis_str}\n\n"
+            "「📊 波形 (Reference)」タブに切り替えて確認してください。",
+        )
+
+
+# ════════════════════════════════════════════════════════════════════
 # メインウィンドウ
 # ════════════════════════════════════════════════════════════════════
 
@@ -759,9 +1103,11 @@ class MainWindow(QMainWindow):
         self._tab_wave    = WaveformView()
         self._tab_problem = ProblemLogTab(db=self._db)
         self._tab_setup   = SetupDecisionTab(db=self._db)
+        self._tab_csv     = CsvImportTab(wave_view=self._tab_wave)
         self._tabs.addTab(self._tab_wave,    "📊 波形 (Reference)")
         self._tabs.addTab(self._tab_problem, "⚠️  Problem Log")
         self._tabs.addTab(self._tab_setup,   "🔧 Setup Decision")
+        self._tabs.addTab(self._tab_csv,     "📂 2D CSV")
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
@@ -802,7 +1148,7 @@ class MainWindow(QMainWindow):
             sess_item = QTreeWidgetItem([session])
             sess_item.setFont(0, QFont("Arial", 10, QFont.Weight.Bold))
             for r in run_list:
-                best = r.get("perf_best_lap")
+                best = r.get("best_lap_s")
                 best_str = f"{best:.3f}s" if best else "—"
                 label = f"{r.get('rider','')}  R{r.get('run_no','')}  [{best_str}]"
                 run_item = QTreeWidgetItem([label])
