@@ -232,6 +232,20 @@ class WorkbenchDB:
             )
             conn.commit()
 
+    def get_laps(self, run_id: str) -> list[dict]:
+        """laps テーブルから指定 run_id の全ラップを返す。"""
+        try:
+            with self._conn() as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """SELECT lap_no, lap_time_s, is_outlap
+                       FROM laps WHERE run_id = ? ORDER BY lap_no""",
+                    (run_id,),
+                ).fetchall()
+                return [dict(r) for r in rows]
+        except Exception:
+            return []
+
 
 # ════════════════════════════════════════════════════════════════════
 # 波形ビュー (Speed / Brake / Gas — Reference only)
@@ -859,6 +873,8 @@ class CsvImportTab(QWidget):
     CHANNEL_MAP: dict[str, list[str]] = {
         "time":       ["time", "time2d"],
         "distance":   ["dist", "distance"],
+        "lap_no":     ["lap", "lapno", "lap_no", "lapcounter", "lap_counter",
+                       "laptrigger", "lap_trigger", "lapmarker", "lap_marker"],
         "speed":      ["speed_front", "speed"],
         "brake":      ["brake_front"],
         "gas":        ["gas", "gas_smooth", "tps"],
@@ -868,16 +884,30 @@ class CsvImportTab(QWidget):
     }
 
     _TARGETS = [
-        "(ignore)", "time", "distance", "speed", "brake", "gas",
+        "(ignore)", "time", "distance", "lap_no", "speed", "brake", "gas",
         "susp_front", "susp_rear", "lean_angle",
     ]
 
-    def __init__(self, wave_view: "WaveformView", parent=None):
+    def __init__(self, wave_view: "WaveformView", db: "WorkbenchDB", parent=None):
         super().__init__(parent)
-        self._wave = wave_view
+        self._wave   = wave_view
+        self._db     = db
+        self._run_id: str = ""
         self._df: "pd.DataFrame | None" = None
         self._col_combos: dict[str, QComboBox] = {}
         self._setup_ui()
+
+    def set_run(self, run_id: str):
+        """左パネルで Run が選択されたときに呼ばれる。"""
+        self._run_id = run_id
+        lbl = f"DB Run: {run_id}" if run_id else "DB Run: 未選択"
+        if hasattr(self, "_lbl_split_mode"):
+            current = self._lbl_split_mode.text()
+            if not current or current.startswith("DB Run:"):
+                self._lbl_split_mode.setText(lbl)
+                self._lbl_split_mode.setStyleSheet(
+                    "color: #0078D4; font-size: 10px;"
+                )
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -920,6 +950,27 @@ class CsvImportTab(QWidget):
         )
         self._lbl_dist.setVisible(False)
         layout.addWidget(self._lbl_dist)
+
+        # ── Lap分割設定（DB優先・fallback用距離入力）────────────────
+        lap_len_row = QHBoxLayout()
+        lap_len_row.addWidget(QLabel("1周距離 (m):"))
+        self._spin_circuit_len = QSpinBox()
+        self._spin_circuit_len.setRange(0, 20000)
+        self._spin_circuit_len.setValue(4555)
+        self._spin_circuit_len.setSingleStep(100)
+        self._spin_circuit_len.setSpecialValueText("0 = 時間ギャップ法")
+        self._spin_circuit_len.setToolTip(
+            "DBにLapデータがない場合の近似分割基準距離（fallback）。\n"
+            "左パネルでRunを選択するとDBから自動分割します。\n"
+            "Assen = 4555m / 0 = 時間ギャップ法（>5s）"
+        )
+        self._spin_circuit_len.setFixedWidth(90)
+        lap_len_row.addWidget(self._spin_circuit_len)
+        self._lbl_split_mode = QLabel("DB Run: 未選択")
+        self._lbl_split_mode.setStyleSheet("color: #0078D4; font-size: 10px;")
+        lap_len_row.addWidget(self._lbl_split_mode)
+        lap_len_row.addStretch()
+        layout.addLayout(lap_len_row)
 
         # Channel mapping (scrollable)
         map_lbl = QLabel("▼ チャンネルマッピング（自動検出・手動修正可）")
@@ -1114,22 +1165,143 @@ class CsvImportTab(QWidget):
         if t_raw is None and x_mode == "time":
             x_mode = "progress"
 
-        # ── 時間ギャップでLap分割 ─────────────────────────────────────
+        # ── Lap分割（優先順位制御）────────────────────────────────────
         import numpy as np
 
-        if x_mode in ("time", "distance") and t_raw is not None:
-            # time[i] - time[i-1] > 5 秒の箇所でLap境界を検出
-            lap_indices: list[list[int]] = []
-            current: list[int] = [0]
+        circuit_len_m = self._spin_circuit_len.value() if hasattr(self, "_spin_circuit_len") else 0
+        split_mode = "unknown"
+
+        # ─ Step A: CSV時間ギャップでセグメント境界を検出（全優先度で共通）
+        segments: list[tuple[int, int]] = []
+        csv_gap_durations: list[float] = []
+        if t_raw is not None:
+            seg_start = 0
             for i in range(1, len(t_raw)):
                 if (t_raw[i] - t_raw[i - 1]) > 5.0:
-                    lap_indices.append(current)
-                    current = [i]
-                else:
-                    current.append(i)
-            lap_indices.append(current)
+                    segments.append((seg_start, i - 1))
+                    csv_gap_durations.append(float(t_raw[i] - t_raw[i - 1]))
+                    seg_start = i
+            segments.append((seg_start, len(t_raw) - 1))
         else:
-            lap_indices = [list(range(n))]
+            segments = [(0, n - 1)]
+
+        lap_indices: list[list[int]] = []
+
+        # ─ 優先1: CSV内のLap列で分割 ─────────────────────────────────
+        has_lap_col = "lap_no" in channel_to_col
+        if has_lap_col:
+            try:
+                lap_col = pd.to_numeric(
+                    df[channel_to_col["lap_no"]], errors="coerce"
+                ).fillna(0).values.astype(int)
+                cur_lap = lap_col[0]
+                cur: list[int] = [0]
+                for i in range(1, len(lap_col)):
+                    if lap_col[i] != cur_lap:
+                        lap_indices.append(cur)
+                        cur = [i]
+                        cur_lap = lap_col[i]
+                    else:
+                        cur.append(i)
+                lap_indices.append(cur)
+                lap_indices = [seg for seg in lap_indices if len(seg) >= 2]
+                split_mode = "lap_col"
+            except Exception:
+                has_lap_col = False
+                lap_indices = []
+
+        # ─ 優先2: DBのlapsテーブルを使った精確分割 ─────────────────
+        if not lap_indices and self._run_id and t_raw is not None:
+            try:
+                db_laps = self._db.get_laps(self._run_id)
+                timed_laps = [
+                    (r["lap_no"], float(r["lap_time_s"]))
+                    for r in db_laps
+                    if not r.get("is_outlap") and r.get("lap_time_s")
+                ]
+                if timed_laps:
+                    GAP_TOLERANCE = 2.0
+                    gap_lap_nos: set[int] = set()
+                    for gap_dur in csv_gap_durations:
+                        for lap_no_db, lt in timed_laps:
+                            if abs(lt - gap_dur) < GAP_TOLERANCE:
+                                gap_lap_nos.add(lap_no_db)
+                                break
+                    valid_laps = [
+                        (lap_no_db, lt)
+                        for lap_no_db, lt in timed_laps
+                        if lap_no_db not in gap_lap_nos
+                    ]
+                    if valid_laps:
+                        result: list[list[int]] = []
+                        lap_cursor = 0
+                        for s_start, s_end in segments:
+                            t_cursor = float(t_raw[s_start])
+                            s_dur = float(t_raw[s_end]) - t_cursor
+                            accumulated = 0.0
+                            while lap_cursor < len(valid_laps):
+                                _, lt = valid_laps[lap_cursor]
+                                if accumulated + lt > s_dur + 1.0:
+                                    break
+                                accumulated += lt
+                                lap_cursor += 1
+                                t_lap_end = t_cursor + lt
+                                start_i = int(np.searchsorted(t_raw, t_cursor, side="left"))
+                                end_i = int(np.searchsorted(t_raw, t_lap_end, side="right")) - 1
+                                end_i = min(end_i, s_end)
+                                if end_i > start_i:
+                                    result.append(list(range(start_i, end_i + 1)))
+                                t_cursor = float(t_raw[end_i + 1]) if end_i + 1 <= s_end else t_lap_end
+                        if result:
+                            lap_indices = result
+                            split_mode = "db_driven"
+            except Exception:
+                lap_indices = []
+
+        # ─ 優先3: 固定距離での近似分割 ───────────────────────────────
+        if not lap_indices and d_raw is not None and circuit_len_m > 0:
+            all_segs: list[list[int]] = []
+            start_dist_val = float(d_raw[0])
+            cur_d: list[int] = [0]
+            for i in range(1, len(d_raw)):
+                if (d_raw[i] - start_dist_val) >= circuit_len_m:
+                    all_segs.append(cur_d)
+                    cur_d = [i]
+                    start_dist_val = float(d_raw[i])
+                else:
+                    cur_d.append(i)
+            all_segs.append(cur_d)
+            min_span = circuit_len_m * 0.5
+            lap_indices = [
+                seg for seg in all_segs
+                if len(seg) >= 2 and (d_raw[seg[-1]] - d_raw[seg[0]]) >= min_span
+            ]
+            split_mode = "distance_approx"
+
+        # ─ 優先4: 時間ギャップ法（最終fallback）────────────────────
+        if not lap_indices:
+            if t_raw is not None:
+                for s_start, s_end in segments:
+                    seg = list(range(s_start, s_end + 1))
+                    if len(seg) >= 10:
+                        lap_indices.append(seg)
+                split_mode = "time_gap"
+            else:
+                lap_indices = [list(range(n))]
+                split_mode = "full"
+
+        # ─ split_mode の UI表示 ────────────────────────────────────
+        mode_labels = {
+            "lap_col":         ("✅ Lap列で正確分割",              "#107C10"),
+            "db_driven":       ("✅ DBラップで正確分割",            "#107C10"),
+            "distance_approx": ("⚠ 距離で近似分割（Approximate）", "#D83B01"),
+            "time_gap":        ("⚠ 時間ギャップ分割",              "#797673"),
+            "full":            ("— セッション全体",                "#797673"),
+        }
+        if hasattr(self, "_lbl_split_mode"):
+            mode_txt, mode_clr = mode_labels.get(split_mode, ("", "#000"))
+            self._lbl_split_mode.setText(mode_txt)
+            self._lbl_split_mode.setStyleSheet(f"color: {mode_clr}; font-size: 10px;")
 
         # ── 各Lap dict を構築 ─────────────────────────────────────────
         laps: list[dict] = []
@@ -1156,11 +1328,12 @@ class CsvImportTab(QWidget):
                 dist_span_m = 0.0
 
             lap: dict = {
-                "x":          x_vals,
-                "x_mode":     x_mode,
-                "lap_no":     lap_no,
-                "lap_time_s": lap_time_s,
+                "x":           x_vals,
+                "x_mode":      x_mode,
+                "lap_no":      lap_no,
+                "lap_time_s":  lap_time_s,
                 "dist_span_m": dist_span_m,
+                "split_mode":  split_mode,
             }
             # distance modeの場合、time配列もraw保存（Problem Log記録用）
             if x_mode == "distance" and t_raw is not None:
@@ -1252,7 +1425,7 @@ class MainWindow(QMainWindow):
         self._tab_wave    = WaveformView()
         self._tab_problem = ProblemLogTab(db=self._db)
         self._tab_setup   = SetupDecisionTab(db=self._db)
-        self._tab_csv     = CsvImportTab(wave_view=self._tab_wave)
+        self._tab_csv     = CsvImportTab(wave_view=self._tab_wave, db=self._db)
         self._tabs.addTab(self._tab_wave,    "📊 波形 (Reference)")
         self._tabs.addTab(self._tab_problem, "⚠️  Problem Log")
         self._tabs.addTab(self._tab_setup,   "🔧 Setup Decision")
@@ -1317,6 +1490,7 @@ class MainWindow(QMainWindow):
         self._tab_wave.set_run(run_id, circuit)
         self._tab_problem.set_run(run_id, meta)
         self._tab_setup.set_run(run_id, meta)
+        self._tab_csv.set_run(run_id)
 
 
 # ════════════════════════════════════════════════════════════════════
