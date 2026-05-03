@@ -81,13 +81,13 @@ class WorkbenchDB:
         with self._conn() as conn:
             if circuit:
                 cur = conn.execute(
-                    """SELECT run_id, circuit, session, rider, run_no, best_lap_s
+                    """SELECT run_id, circuit, session, rider, run_no, perf_best_lap
                        FROM runs WHERE circuit = ? ORDER BY session, rider, run_no""",
                     (circuit,),
                 )
             else:
                 cur = conn.execute(
-                    """SELECT run_id, circuit, session, rider, run_no, best_lap_s
+                    """SELECT run_id, circuit, session, rider, run_no, perf_best_lap
                        FROM runs ORDER BY circuit, session, rider, run_no"""
                 )
             return [dict(r) for r in cur.fetchall()]
@@ -274,9 +274,33 @@ class WaveformView(QWidget):
         self._combo_b.clear()
         if not self._overlay_data:
             return
-        laps = [r for r in self._overlay_data if r.get("run_id") == run_id]
-        if not laps:
-            # fallback: match by circuit+rider+run_no from run_id
+        # lap_overlay_data.json には run_id がないため circuit+session_type+rider+run_no でマッチ
+        # run_id フォーマット: {round}_{circuit}_{session}_{rider}_R{run_no}
+        # 例: UNK_ASSEN_QP_DA77_R2 → circuit=ASSEN, session=QP, rider=DA77, run_no=2
+        laps = []
+        try:
+            parts = run_id.split("_")
+            # R{n} を探す
+            run_no_str = next((p for p in reversed(parts) if p.startswith("R") and p[1:].isdigit()), None)
+            run_no = int(run_no_str[1:]) if run_no_str else None
+            rider = parts[-2] if run_no_str else None
+            # session と circuit は run_id の中間部分
+            # format: ROUND_CIRCUIT_SESSION_RIDER_Rn  ただしROUNDがUNKや複数部構成の場合あり
+            # circuit は known circuits から照合
+            known_circuits = {"ASSEN", "CREMONA", "JEREZ", "PORTIMAO", "PHILLIP ISLAND", "PI"}
+            circ_idx = next((i for i, p in enumerate(parts) if p in known_circuits), None)
+            circ = parts[circ_idx] if circ_idx is not None else circuit
+            sess_idx = circ_idx + 1 if circ_idx is not None else None
+            sess = parts[sess_idx] if sess_idx is not None else None
+
+            laps = [
+                r for r in self._overlay_data
+                if r.get("circuit", "").upper() == (circ or circuit).upper()
+                and str(r.get("rider", "")) == str(rider or "")
+                and str(r.get("run_no", "")) == str(run_no or "")
+                and (sess is None or r.get("session_type", "").upper() == sess.upper())
+            ]
+        except Exception:
             pass
         labels = [
             f"Lap {r.get('lap_no','?')}  {r.get('lap_time_s','?')}s"
@@ -320,17 +344,23 @@ class WaveformView(QWidget):
             if lap_b:
                 _plot(lap_b, f"B Lap{lap_b.get('lap_no','')}", colors["b"], ch, p)
 
-        # Turn markers
-        tmpl_circuit = self._templates.get(self._circuit, [])
-        for turn in tmpl_circuit:
+        # X軸を 0-1 に固定（両ラップとも同じ progress 軸）
+        for p in (self._p_speed, self._p_brake, self._p_gas):
+            p.setXRange(0.0, 1.0, padding=0.01)
+            p.enableAutoRange(axis="y")
+
+        # Turn markers（turn_templates.json は {circuit: {turns: [...], ...}} 構造）
+        tmpl_turns = self._templates.get(self._circuit, {}).get("turns", [])
+        for turn in tmpl_turns:
             prog = turn.get("progress")
             if prog is None:
                 continue
+            turn_label = turn.get("turn", "")
             for p in (self._p_speed, self._p_brake, self._p_gas):
                 line = pg.InfiniteLine(
                     pos=prog, angle=90,
                     pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
-                    label=turn.get("name", ""),
+                    label=turn_label,
                     labelOpts={"color": "#107C10", "position": 0.9, "rotateAxis": (1, 0)},
                 )
                 p.addItem(line)
@@ -772,7 +802,7 @@ class MainWindow(QMainWindow):
             sess_item = QTreeWidgetItem([session])
             sess_item.setFont(0, QFont("Arial", 10, QFont.Weight.Bold))
             for r in run_list:
-                best = r.get("best_lap_s")
+                best = r.get("perf_best_lap")
                 best_str = f"{best:.3f}s" if best else "—"
                 label = f"{r.get('rider','')}  R{r.get('run_no','')}  [{best_str}]"
                 run_item = QTreeWidgetItem([label])
