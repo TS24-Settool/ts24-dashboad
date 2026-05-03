@@ -248,16 +248,22 @@ class WaveformView(QWidget):
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
             self._plot_widget = pg.GraphicsLayoutWidget()
-            self._p_speed = self._plot_widget.addPlot(row=0, col=0, title="Speed (km/h)")
-            self._p_brake = self._plot_widget.addPlot(row=1, col=0, title="Brake (bar)")
-            self._p_gas   = self._plot_widget.addPlot(row=2, col=0, title="Gas (%)")
-            for p in (self._p_speed, self._p_brake, self._p_gas):
+            self._p_speed  = self._plot_widget.addPlot(row=0, col=0, title="Speed (km/h)")
+            self._p_brake  = self._plot_widget.addPlot(row=1, col=0, title="Brake (bar)")
+            self._p_gas    = self._plot_widget.addPlot(row=2, col=0, title="Gas (%)")
+            self._p_suspf  = self._plot_widget.addPlot(row=3, col=0, title="SUSP_FRONT (mm)")
+            self._p_suspr  = self._plot_widget.addPlot(row=4, col=0, title="SUSP_REAR (mm)")
+            self._all_plots = (
+                self._p_speed, self._p_brake, self._p_gas,
+                self._p_suspf, self._p_suspr,
+            )
+            for p in self._all_plots:
                 p.setLabel("bottom", "Lap Progress")
                 p.showGrid(x=True, y=True, alpha=0.3)
                 p.setXRange(0, 1)
-            # Link X axes
-            self._p_brake.setXLink(self._p_speed)
-            self._p_gas.setXLink(self._p_speed)
+            # Link all X axes to Speed panel
+            for p in (self._p_brake, self._p_gas, self._p_suspf, self._p_suspr):
+                p.setXLink(self._p_speed)
             layout.addWidget(self._plot_widget)
         else:
             layout.addWidget(QLabel(
@@ -282,7 +288,7 @@ class WaveformView(QWidget):
         self._csv_x_mode = "progress"
         self._lbl_xmode.setText("X axis: Lap Progress (0–1)")
         if self._has_pg:
-            for p in (self._p_speed, self._p_brake, self._p_gas):
+            for p in self._all_plots:
                 p.setLabel("bottom", "Lap Progress")
         self._combo_a.clear()
         self._combo_b.clear()
@@ -319,7 +325,7 @@ class WaveformView(QWidget):
                     "color: #797673; font-size: 10px; padding: 2px 4px;"
                     " background: #FAF9F8; border-radius: 3px;"
                 )
-            for p in (self._p_speed, self._p_brake, self._p_gas):
+            for p in self._all_plots:
                 p.setLabel("bottom", x_label)
             self._lbl_xmode.setText(mode_text)
             self._lbl_xmode.setStyleSheet(mode_style)
@@ -349,7 +355,7 @@ class WaveformView(QWidget):
 
         colors = {"a": pg.mkPen("#0078D4", width=2), "b": pg.mkPen("#E74C3C", width=1.5)}
 
-        for p in (self._p_speed, self._p_brake, self._p_gas):
+        for p in self._all_plots:
             p.clear()
 
         def _normalize_x(xs_raw):
@@ -380,16 +386,23 @@ class WaveformView(QWidget):
             ys = np.array(ys_raw, dtype=float)
             plot_obj.plot(x=xs, y=ys, pen=pen, name=label)
 
-        for ch, p in [("speed", self._p_speed), ("brake", self._p_brake), ("gas", self._p_gas)]:
+        _CHAN_PANELS = [
+            ("speed",      self._p_speed),
+            ("brake",      self._p_brake),
+            ("gas",        self._p_gas),
+            ("susp_front", self._p_suspf),
+            ("susp_rear",  self._p_suspr),
+        ]
+        for ch, p in _CHAN_PANELS:
             _plot(lap_a, f"A Lap{lap_a.get('lap_no','')}", colors["a"], ch, p)
             if lap_b:
                 _plot(lap_b, f"B Lap{lap_b.get('lap_no','')}", colors["b"], ch, p)
 
         # Y auto-range; X range depends on mode
-        for p in (self._p_speed, self._p_brake, self._p_gas):
+        for p in self._all_plots:
             p.enableAutoRange(axis="y")
             if x_mode == "time":
-                p.enableAutoRange(axis="x")  # let pyqtgraph fit actual time range
+                p.enableAutoRange(axis="x")
             else:
                 p.setXRange(0.0, 1.0, padding=0.02)
 
@@ -413,7 +426,7 @@ class WaveformView(QWidget):
                 prog = turn.get("progress")
                 if prog is None:
                     continue
-                for p in (self._p_speed, self._p_brake, self._p_gas):
+                for p in self._all_plots:
                     line = pg.InfiniteLine(
                         pos=float(prog), angle=90,
                         pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
