@@ -23,11 +23,11 @@ import pandas as pd
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QHBoxLayout, QLabel,
+    QApplication, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
     QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-    QLineEdit, QFrame,
+    QLineEdit, QFrame, QScrollArea,
 )
 
 # ── パス設定 ──────────────────────────────────────────────────────────
@@ -275,9 +275,6 @@ class WaveformView(QWidget):
         if not self._overlay_data:
             return
         laps = [r for r in self._overlay_data if r.get("run_id") == run_id]
-        if not laps:
-            # fallback: match by circuit+rider+run_no from run_id
-            pass
         labels = [
             f"Lap {r.get('lap_no','?')}  {r.get('lap_time_s','?')}s"
             for r in laps
@@ -287,6 +284,21 @@ class WaveformView(QWidget):
         if len(labels) > 1:
             self._combo_b.setCurrentIndex(1)
         self._laps_cache = laps
+
+    def set_csv_laps(self, csv_laps: list[dict]):
+        """CSV インポートからのラップデータを波形に設定する（参考値）。"""
+        self._laps_cache = csv_laps
+        self._circuit = ""
+        self._combo_a.clear()
+        self._combo_b.clear()
+        labels = [
+            f"CSV Lap {r.get('lap_no', i + 1)}  ({r.get('lap_time_s', '?')}s)"
+            for i, r in enumerate(csv_laps)
+        ]
+        self._combo_a.addItems(labels)
+        self._combo_b.addItems(labels)
+        if len(labels) > 1:
+            self._combo_b.setCurrentIndex(1)
 
     def _draw(self):
         if not self._has_pg or not hasattr(self, "_laps_cache") or not self._laps_cache:
@@ -718,6 +730,262 @@ class SetupDecisionTab(QWidget):
 
 
 # ════════════════════════════════════════════════════════════════════
+# 2D CSV Import タブ
+# ════════════════════════════════════════════════════════════════════
+
+class CsvImportTab(QWidget):
+    """2Dロガー CSVデータ インポートタブ。
+
+    06_CSV/ フォルダからCSVを読み込み、チャンネルをマッピングして
+    WaveformView に送る（§0 データソース原則: 参考値扱い、権威源ではない）。
+
+    確定チャンネル (CLAUDE.md §5):
+      BRAKE_FRONT (-0.6~0.3 Bar), GAS (0~6%), dTPS_A (-10~100),
+      SUSP_FRONT (20~140mm), SUSP_REAR (5~50mm), Speed (km/h)
+    """
+
+    _AUTO_DETECT: list[tuple[list[str], str]] = [
+        (["time", "timestamp", "elapsed", "t_lap", "sec"],       "time"),
+        (["lap_no", "lap_num", "lap_marker", "lapno", "lap"],    "lap"),
+        (["speed", "gps_speed", "velocity", "v_gps", "spd"],    "speed"),
+        (["brake_front", "brakefront", "brake_f", "bf", "brake"], "brake"),
+        (["gas", "throttle", "tps", "thr"],                      "gas"),
+        (["dtps_a", "dtps"],                                      "dTPS_A"),
+        (["susp_front", "suspf", "susp_f", "front_susp", "fork"], "susp_front"),
+        (["susp_rear",  "suspr", "susp_r", "rear_susp",  "shock"], "susp_rear"),
+    ]
+
+    _CHANNEL_OPTIONS = [
+        "(ignore)", "time", "lap", "speed", "brake", "gas",
+        "dTPS_A", "susp_front", "susp_rear",
+    ]
+
+    def __init__(self, waveform_view: "WaveformView", parent=None):
+        super().__init__(parent)
+        self._waveform = waveform_view
+        self._df: "pd.DataFrame | None" = None
+        self._col_combos: dict[str, QComboBox] = {}
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # §0 reference warning
+        warn = QLabel(
+            "⚠️  Reference only（§0 データソース原則）"
+            " — CSV データは参考値です。権威源（ts24 original database / Excel Report）ではありません。"
+        )
+        warn.setStyleSheet("color: #D83B01; font-style: italic; padding: 4px;")
+        warn.setWordWrap(True)
+        layout.addWidget(warn)
+
+        # File select
+        file_row = QHBoxLayout()
+        btn_browse = QPushButton("📁  CSV を開く")
+        btn_browse.clicked.connect(self._browse_csv)
+        self._lbl_file = QLabel("ファイル未選択")
+        self._lbl_file.setStyleSheet("color: #444;")
+        file_row.addWidget(btn_browse)
+        file_row.addWidget(self._lbl_file, stretch=1)
+        layout.addLayout(file_row)
+
+        self._lbl_info = QLabel("")
+        self._lbl_info.setStyleSheet("color: #0078D4; font-size: 10px;")
+        layout.addWidget(self._lbl_info)
+
+        # Channel mapping (scrollable)
+        map_label = QLabel("▼ チャンネルマッピング（自動検出・手動修正可）")
+        map_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        layout.addWidget(map_label)
+
+        self._map_inner = QWidget()
+        self._map_layout = QFormLayout(self._map_inner)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._map_inner)
+        scroll.setMaximumHeight(180)
+        layout.addWidget(scroll)
+
+        # Lap segmentation
+        seg_row = QHBoxLayout()
+        seg_row.addWidget(QLabel("ラップ分割:"))
+        self._combo_seg = QComboBox()
+        self._combo_seg.addItem("全体を1ラップとして扱う", userData=None)
+        seg_row.addWidget(self._combo_seg, stretch=1)
+        layout.addLayout(seg_row)
+
+        # Preview
+        prev_label = QLabel("▼ データプレビュー（先頭 100 行）")
+        prev_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        layout.addWidget(prev_label)
+
+        self._preview_table = QTableWidget(0, 0)
+        self._preview_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        layout.addWidget(self._preview_table, stretch=1)
+
+        # Send button
+        btn_row = QHBoxLayout()
+        self._btn_send = QPushButton("📊  波形に送る")
+        self._btn_send.setEnabled(False)
+        self._btn_send.clicked.connect(self._send_to_waveform)
+        self._btn_send.setStyleSheet(
+            "QPushButton { background: #0078D4; color: white; padding: 6px 16px;"
+            " border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #106EBE; }"
+            "QPushButton:disabled { background: #ccc; color: #888; }"
+        )
+        btn_row.addWidget(self._btn_send)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+    # ── CSV 読み込み ─────────────────────────────────────────────────
+
+    def _browse_csv(self):
+        csv_dir = SCRIPT_DIR.parent / "06_CSV"
+        if not csv_dir.exists():
+            csv_dir = SCRIPT_DIR.parent
+        path, _ = QFileDialog.getOpenFileName(
+            self, "CSV ファイルを選択", str(csv_dir),
+            "CSV Files (*.csv);;All Files (*.*)",
+        )
+        if not path:
+            return
+        self._lbl_file.setText(Path(path).name)
+        self._load_csv(Path(path))
+
+    def _load_csv(self, path: Path):
+        try:
+            df = pd.read_csv(path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                df = pd.read_csv(path, encoding="shift_jis")
+            except Exception as e:
+                QMessageBox.critical(self, "CSV 読み込みエラー", str(e))
+                return
+        except Exception as e:
+            QMessageBox.critical(self, "CSV 読み込みエラー", str(e))
+            return
+
+        self._df = df
+        n_rows, n_cols = df.shape
+        self._lbl_info.setText(f"{n_rows} 行 × {n_cols} 列 を読み込みました。")
+
+        # Rebuild channel mapping UI
+        while self._map_layout.rowCount():
+            self._map_layout.removeRow(0)
+        self._col_combos.clear()
+
+        for col in df.columns:
+            combo = QComboBox()
+            combo.addItems(self._CHANNEL_OPTIONS)
+            auto = self._auto_detect(col)
+            if auto in self._CHANNEL_OPTIONS:
+                combo.setCurrentText(auto)
+            self._col_combos[col] = combo
+            self._map_layout.addRow(f"{col}:", combo)
+
+        # Rebuild lap segmentation combo
+        lap_cols = [c for c in df.columns if self._auto_detect(c) == "lap"]
+        self._combo_seg.clear()
+        for c in lap_cols:
+            self._combo_seg.addItem(f"'{c}' カラムで分割", userData=c)
+        self._combo_seg.addItem("全体を1ラップとして扱う", userData=None)
+
+        # Preview
+        preview = df.head(100)
+        self._preview_table.setColumnCount(len(preview.columns))
+        self._preview_table.setHorizontalHeaderLabels(list(preview.columns))
+        self._preview_table.setRowCount(len(preview))
+        for ri, row_data in enumerate(preview.itertuples(index=False)):
+            for ci, val in enumerate(row_data):
+                self._preview_table.setItem(ri, ci, QTableWidgetItem(str(val)))
+        self._preview_table.resizeColumnsToContents()
+
+        self._btn_send.setEnabled(True)
+
+    def _auto_detect(self, col_name: str) -> str:
+        lower = col_name.lower().replace(" ", "_")
+        for keywords, target in self._AUTO_DETECT:
+            for kw in keywords:
+                if kw in lower:
+                    return target
+        return "(ignore)"
+
+    # ── 波形に送る ────────────────────────────────────────────────────
+
+    def _send_to_waveform(self):
+        if self._df is None:
+            return
+
+        # Build channel → col mapping (last assignment wins if duplicate)
+        channel_to_col: dict[str, str] = {}
+        for col, combo in self._col_combos.items():
+            ch = combo.currentText()
+            if ch != "(ignore)":
+                channel_to_col[ch] = col
+
+        if "time" not in channel_to_col:
+            QMessageBox.warning(
+                self, "マッピング不足",
+                "'time' チャンネルが割り当てられていません。\n"
+                "X 軸に使う時間カラムを 'time' にマッピングしてください。",
+            )
+            return
+
+        df = self._df.copy()
+
+        # Lap segmentation
+        seg_col = self._combo_seg.currentData()
+        if seg_col and seg_col in df.columns:
+            laps_df_list = [grp.reset_index(drop=True) for _, grp in df.groupby(df[seg_col])]
+        else:
+            laps_df_list = [df.reset_index(drop=True)]
+
+        import numpy as np
+
+        csv_laps: list[dict] = []
+        for lap_no, lap_df in enumerate(laps_df_list, start=1):
+            time_col = channel_to_col["time"]
+            try:
+                t_vals = lap_df[time_col].astype(float).values
+            except Exception:
+                continue
+            t_min, t_max = float(t_vals.min()), float(t_vals.max())
+            if t_max > t_min:
+                progress = ((t_vals - t_min) / (t_max - t_min)).tolist()
+            else:
+                progress = [0.0] * len(t_vals)
+
+            channels: dict[str, list] = {"lap_progress": progress}
+            for ch_name, col_name in channel_to_col.items():
+                if ch_name in ("time", "lap"):
+                    continue
+                if col_name not in lap_df.columns:
+                    continue
+                try:
+                    channels[ch_name] = lap_df[col_name].astype(float).tolist()
+                except Exception:
+                    channels[ch_name] = [str(v) for v in lap_df[col_name]]
+
+            csv_laps.append({
+                "lap_no":     lap_no,
+                "lap_time_s": round(t_max - t_min, 3),
+                "channels":   channels,
+            })
+
+        if not csv_laps:
+            QMessageBox.warning(self, "データなし", "ラップデータが生成できませんでした。")
+            return
+
+        self._waveform.set_csv_laps(csv_laps)
+        QMessageBox.information(
+            self, "送信完了",
+            f"{len(csv_laps)} ラップを波形ビューに送りました。\n"
+            "「📊 波形 (Reference)」タブに切り替えて確認してください。",
+        )
+
+
+# ════════════════════════════════════════════════════════════════════
 # メインウィンドウ
 # ════════════════════════════════════════════════════════════════════
 
@@ -766,9 +1034,11 @@ class MainWindow(QMainWindow):
         self._tab_wave    = WaveformView()
         self._tab_problem = ProblemLogTab(db=self._db)
         self._tab_setup   = SetupDecisionTab(db=self._db)
+        self._tab_csv     = CsvImportTab(waveform_view=self._tab_wave)
         self._tabs.addTab(self._tab_wave,    "📊 波形 (Reference)")
         self._tabs.addTab(self._tab_problem, "⚠️  Problem Log")
         self._tabs.addTab(self._tab_setup,   "🔧 Setup Decision")
+        self._tabs.addTab(self._tab_csv,     "📥 2D CSV Import")
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
