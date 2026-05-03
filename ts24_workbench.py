@@ -292,46 +292,83 @@ class WaveformView(QWidget):
         if not self._has_pg or not hasattr(self, "_laps_cache") or not self._laps_cache:
             return
         pg = self._pg
+        import numpy as np
+
         ia = self._combo_a.currentIndex()
         ib = self._combo_b.currentIndex()
-        if ia < 0 or ib < 0 or ia >= len(self._laps_cache):
+        if ia < 0 or ia >= len(self._laps_cache):
             return
         lap_a = self._laps_cache[ia]
-        lap_b = self._laps_cache[ib] if ib < len(self._laps_cache) else None
+        lap_b = self._laps_cache[ib] if (ib >= 0 and ib < len(self._laps_cache)) else None
 
         colors = {"a": pg.mkPen("#0078D4", width=2), "b": pg.mkPen("#E74C3C", width=1.5)}
 
         for p in (self._p_speed, self._p_brake, self._p_gas):
             p.clear()
 
+        def _normalize_x(xs_raw):
+            """ラン全体の連続progress → ラップ内 0.0–1.0 に正規化する。"""
+            arr = np.array(xs_raw, dtype=float)
+            x_min, x_max = arr.min(), arr.max()
+            if x_max > x_min:
+                return (arr - x_min) / (x_max - x_min)
+            return np.zeros_like(arr)
+
+        def _get_channel(lap, channel):
+            """チャンネルデータを取得。channels dict 内とフラット両方に対応。"""
+            ch = lap.get("channels") or {}
+            data = ch.get(channel) or lap.get(channel)
+            return data
+
         def _plot(lap, label, pen, channel, plot_obj):
-            ch = lap.get("channels", {})
-            xs = ch.get("lap_progress") or lap.get("lap_progress")
-            ys = ch.get(channel) or lap.get(channel)
-            if xs and ys and len(xs) == len(ys):
-                import numpy as np
-                plot_obj.plot(
-                    x=list(xs), y=list(ys),
-                    pen=pen, name=label,
-                )
+            xs_raw = _get_channel(lap, "lap_progress")
+            ys_raw = _get_channel(lap, channel)
+            if not xs_raw or not ys_raw:
+                return
+            if len(xs_raw) != len(ys_raw):
+                return
+            xs = _normalize_x(xs_raw)
+            ys = np.array(ys_raw, dtype=float)
+            plot_obj.plot(x=xs, y=ys, pen=pen, name=label)
 
         for ch, p in [("speed", self._p_speed), ("brake", self._p_brake), ("gas", self._p_gas)]:
             _plot(lap_a, f"A Lap{lap_a.get('lap_no','')}", colors["a"], ch, p)
             if lap_b:
                 _plot(lap_b, f"B Lap{lap_b.get('lap_no','')}", colors["b"], ch, p)
 
-        # Turn markers
-        tmpl_circuit = self._templates.get(self._circuit, [])
-        for turn in tmpl_circuit:
+        # Y auto-range を有効化してから X を 0–1 に固定
+        for p in (self._p_speed, self._p_brake, self._p_gas):
+            p.enableAutoRange(axis="y")
+            p.setXRange(0.0, 1.0, padding=0.02)
+
+        # Turn markers — list 形式・dict 形式両対応
+        tmpl_raw = self._templates.get(self._circuit)
+        if tmpl_raw is None:
+            # 大文字小文字を無視して検索
+            for k, v in self._templates.items():
+                if k.upper() == self._circuit.upper():
+                    tmpl_raw = v
+                    break
+        if isinstance(tmpl_raw, dict):
+            # {"T1": {"progress": 0.05, ...}, ...} 形式
+            tmpl_turns = [{"name": k, **v} for k, v in tmpl_raw.items()
+                          if isinstance(v, dict)]
+        elif isinstance(tmpl_raw, list):
+            tmpl_turns = tmpl_raw
+        else:
+            tmpl_turns = []
+
+        for turn in tmpl_turns:
             prog = turn.get("progress")
             if prog is None:
                 continue
             for p in (self._p_speed, self._p_brake, self._p_gas):
                 line = pg.InfiniteLine(
-                    pos=prog, angle=90,
+                    pos=float(prog), angle=90,
                     pen=pg.mkPen("#107C10", width=1, style=Qt.PenStyle.DashLine),
-                    label=turn.get("name", ""),
-                    labelOpts={"color": "#107C10", "position": 0.9, "rotateAxis": (1, 0)},
+                    label=str(turn.get("name", "")),
+                    labelOpts={"color": "#107C10", "position": 0.9,
+                               "rotateAxis": (1, 0)},
                 )
                 p.addItem(line)
 

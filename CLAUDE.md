@@ -242,6 +242,33 @@ _dyn_norm_circuit()  # WORKSHOP/AUSTRALIA → PHILLIP ISLAND など
 
 ---
 
+### Workbench 引き継ぎ事項（2026-05-03）
+
+TS24 Engineer Workbench v0.1 を新規追加。
+
+| ファイル | 役割 |
+|---------|------|
+| `ts24_workbench.py` | PyQt6デスクトップアプリ本体 |
+| `create_workbench_tables.py` | `problem_log` / `setup_decision_log` テーブル作成（べき等） |
+| `requirements_workbench.txt` | PyQt6 / pyqtgraph / pandas |
+| `TS24_Workbench.command` | macOS起動スクリプト |
+
+**起動手順（初回）:**
+```bash
+pip install PyQt6 pyqtgraph
+python create_workbench_tables.py
+python ts24_workbench.py
+```
+
+**波形ビューの既知事項:**
+- `lap_overlay_data.json` の `lap_progress` がラン全体の連続値の場合、`_draw()` 内で自動正規化して 0.0–1.0 に変換する（X軸が 1.8 に伸びるバグを修正済み）
+- Y軸は `enableAutoRange(axis="y")` で自動スケール（Speed: 0–255 km/h 正常表示）
+- turn_templates.json の list / dict 両構造に対応
+
+**書き込み先:** `ts24_unified.db` の `problem_log` / `setup_decision_log` のみ。既存テーブル変更なし。
+
+---
+
 ## 7. race_memory.json — 知見蓄積ファイル
 
 **このファイルはCoworkとClaude Codeの共有記憶。**
