@@ -1,7 +1,45 @@
 # CLAUDE.md — TS24 Project Team Shared Context
 **Project:** TS24 SET-UP TOOL / Puccetti Racing WorldSSP Suspension Management System
-**Last Updated:** 2026-05-01
+**Last Updated:** 2026-05-03
 **Read this file at the start of every session — Claude Code, Cowork Claude, and ChatGPT both.**
+
+---
+
+## 0. ⚠️ データソース原則 — 最重要・全AIが必ず遵守すること
+
+### 権威源（Source of Truth）
+
+全てのデータの権威源は以下の **2つのみ**:
+
+| # | 権威源 | 管理者 | 内容 |
+|---|-------|-------|------|
+| 1 | **ts24 original database**（TS24 DB Master.xlsx / ts24_setup.db） | Tatsuki（手入力） | セッション情報・セットアップ値・レース結果・問題タグ |
+| 2 | **イベントごとのExcel Report**（01_REPORTS/DA77・JA52） | Tatsuki（現場記録） | ラップタイム・コンディション・セットアップ変更履歴 |
+
+### Dashboardの役割
+
+```
+[権威源1] ts24 original database  ─┐
+                                    ├─→ Dashboard（読込・分析・可視化のみ）
+[権威源2] Excel Report             ─┘
+```
+
+- ✅ Dashboard は権威源からデータを **読み込み・分析・可視化** する
+- ✅ MES処理スクリプト（parse_2d_channels.py等）は権威源を **補完する計測データ** を提供する
+- ❌ Dashboard が新しいデータの **生成元・権威源** になってはならない
+- ❌ 自動計算値（推定値）で権威源の値を **上書き・置換** してはならない
+
+### 自動計算値の扱い
+
+lap_overlay、クラスタリング結果（pseudo_corner_id）、APEX検出値などの自動計算値は:
+- 必ず **「推定値」「参考値」** として扱う
+- UIに表示する際は推定値であることを明示する（例: "estimated", "参考"）
+- ts24 original database に記録された実測値・手入力値を **絶対に上書きしない**
+
+### Claude Code・Cowork Claude・ChatGPT への指示
+
+> **この原則はいかなる実装上の理由があっても変更・例外を設けてはならない。**
+> データの流れは常に「権威源 → Dashboard」の一方向。逆方向（Dashboard → 権威源）は禁止。
 
 ---
 
