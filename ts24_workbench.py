@@ -58,12 +58,56 @@ RESULT_EVALS = ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"]
 
 
 # ════════════════════════════════════════════════════════════════════
+# ユーティリティ
+# ════════════════════════════════════════════════════════════════════
+
+def format_laptime(sec: float) -> str:
+    """秒数を 分:秒,00 形式に変換する（表示専用）。
+
+    例: 97.45  → "1:37,45"
+        300.63 → "5:00,63"
+        65.0   → "1:05,00"
+    """
+    m = int(sec // 60)
+    s = sec % 60
+    return f"{m}:{s:05.2f}".replace(".", ",")
+
+
+# ════════════════════════════════════════════════════════════════════
 # DB アクセス層
 # ════════════════════════════════════════════════════════════════════
 
 class WorkbenchDB:
     def __init__(self, db_path: Path):
         self.db_path = str(db_path)
+        try:
+            with self._conn() as conn:
+                self._migrate_problem_log(conn)
+        except Exception:
+            pass
+
+    def _migrate_problem_log(self, conn: sqlite3.Connection):
+        """problem_log テーブルに Phase 2 拡張列を追加（既存DBへの後方互換対応）。"""
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        if "problem_log" not in tables:
+            return
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(problem_log)")}
+        new_columns = [
+            ("distance_start_m", "REAL"),
+            ("distance_end_m",   "REAL"),
+            ("time_start_s",     "REAL"),
+            ("time_end_s",       "REAL"),
+            ("data_source_file", "TEXT"),
+            ("analysis_note",    "TEXT"),
+        ]
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(
+                    f"ALTER TABLE problem_log ADD COLUMN {col_name} {col_type}"
+                )
+        conn.commit()
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -81,13 +125,13 @@ class WorkbenchDB:
         with self._conn() as conn:
             if circuit:
                 cur = conn.execute(
-                    """SELECT run_id, circuit, session, rider, run_no, best_lap_s
+                    """SELECT run_id, circuit, session, rider, run_no, perf_best_lap
                        FROM runs WHERE circuit = ? ORDER BY session, rider, run_no""",
                     (circuit,),
                 )
             else:
                 cur = conn.execute(
-                    """SELECT run_id, circuit, session, rider, run_no, best_lap_s
+                    """SELECT run_id, circuit, session, rider, run_no, perf_best_lap
                        FROM runs ORDER BY circuit, session, rider, run_no"""
                 )
             return [dict(r) for r in cur.fetchall()]
@@ -325,8 +369,16 @@ class WaveformView(QWidget):
         self._circuit = ""
         self._csv_x_mode = laps[0].get("x_mode", "progress") if laps else "progress"
         if self._has_pg:
-            if self._csv_x_mode == "time":
-                x_label   = "Time (s)"
+            if self._csv_x_mode == "distance":
+                x_label    = "Distance (m)"
+                mode_text  = "X axis: Distance (m)  [CSV]"
+                mode_style = (
+                    "color: #107C10; font-size: 10px; padding: 2px 4px;"
+                    " background: #F0FFF0; border-radius: 3px;"
+                )
+                self._lbl_warn.setVisible(False)
+            elif self._csv_x_mode == "time":
+                x_label    = "Time (s)"
                 mode_text  = "X axis: Time (s)  [CSV]"
                 mode_style = (
                     "color: #0078D4; font-size: 10px; padding: 2px 4px;"
@@ -334,8 +386,8 @@ class WaveformView(QWidget):
                 )
                 self._lbl_warn.setVisible(False)
             else:
-                x_label   = "Lap Progress (0–1)  [fallback]"
-                mode_text  = "X axis: Normalized Progress (0–1)  [CSV — Time column not found]"
+                x_label    = "Lap Progress (0–1)  [fallback]"
+                mode_text  = "X axis: Normalized Progress (0–1)  [CSV — Dist/Time not found]"
                 mode_style = (
                     "color: #797673; font-size: 10px; padding: 2px 4px;"
                     " background: #FAF9F8; border-radius: 3px;"
@@ -347,10 +399,17 @@ class WaveformView(QWidget):
             self._lbl_xmode.setStyleSheet(mode_style)
         self._combo_a.clear()
         self._combo_b.clear()
-        labels = [
-            f"CSV Lap {r.get('lap_no', i + 1)}  ({r.get('lap_time_s', '?')}s)"
-            for i, r in enumerate(laps)
-        ]
+        labels = []
+        for i, r in enumerate(laps):
+            lap_no = r.get("lap_no", i + 1)
+            lt = r.get("lap_time_s")
+            lt_str = format_laptime(float(lt)) if lt else "?:??,-"
+            x_mode_r = r.get("x_mode", "progress")
+            if x_mode_r == "distance":
+                dist_m = r.get("dist_span_m", 0.0)
+                labels.append(f"CSV Lap {lap_no}  {dist_m:.0f}m  ({lt_str})")
+            else:
+                labels.append(f"CSV Lap {lap_no}  {lt_str}")
         self._combo_a.addItems(labels)
         self._combo_b.addItems(labels)
         if len(labels) > 1:
@@ -395,7 +454,7 @@ class WaveformView(QWidget):
             ys_raw = _get_y(lap, channel)
             if not xs_raw or not ys_raw or len(xs_raw) != len(ys_raw):
                 return
-            xs = np.array(xs_raw, dtype=float) if x_mode == "time" else _normalize(xs_raw)
+            xs = np.array(xs_raw, dtype=float) if x_mode in ("time", "distance") else _normalize(xs_raw)
             ys = np.array(ys_raw, dtype=float)
             plot_obj.plot(x=xs, y=ys, pen=pen, name=label)
 
@@ -414,13 +473,13 @@ class WaveformView(QWidget):
         # Y auto-range; X range depends on mode
         for p in self._all_plots:
             p.enableAutoRange(axis="y")
-            if x_mode == "time":
+            if x_mode in ("time", "distance"):
                 p.enableAutoRange(axis="x")
             else:
                 p.setXRange(0.0, 1.0, padding=0.01)
 
-        # Turn markers — progress mode only (time-axis positions not known)
-        if x_mode != "time":
+        # Turn markers — progress mode only
+        if x_mode not in ("time", "distance"):
             tmpl_raw = self._templates.get(self._circuit, [])
             if isinstance(tmpl_raw, dict):
                 tmpl_raw = [{"name": k, **v} for k, v in tmpl_raw.items()
@@ -799,6 +858,7 @@ class CsvImportTab(QWidget):
 
     CHANNEL_MAP: dict[str, list[str]] = {
         "time":       ["time", "time2d"],
+        "distance":   ["dist", "distance"],
         "speed":      ["speed_front", "speed"],
         "brake":      ["brake_front"],
         "gas":        ["gas", "gas_smooth", "tps"],
@@ -808,7 +868,7 @@ class CsvImportTab(QWidget):
     }
 
     _TARGETS = [
-        "(ignore)", "time", "speed", "brake", "gas",
+        "(ignore)", "time", "distance", "speed", "brake", "gas",
         "susp_front", "susp_rear", "lean_angle",
     ]
 
@@ -1007,48 +1067,137 @@ class CsvImportTab(QWidget):
             return
 
         has_time = "time" in channel_to_col
-        x_mode = "time" if has_time else "progress"
+        has_dist = "distance" in channel_to_col
+
         df = self._df.copy()
         n = len(df)
         if n == 0:
             QMessageBox.warning(self, "データなし", "CSV にデータ行がありません。")
             return
 
-        # Build X
+        # x_mode 決定（優先順位: distance > time > progress）
+        x_mode = "progress"
         if has_time:
+            x_mode = "time"
+        if has_dist:
             try:
-                t = pd.to_numeric(df[channel_to_col["time"]], errors="coerce").fillna(0).values
-                x_vals: list = (t - float(t[0])).tolist()
-                lap_time_s: "float | None" = round(float(t[-1]) - float(t[0]), 3)
-            except Exception:
-                x_mode = "progress"
-                x_vals = [i / max(n - 1, 1) for i in range(n)]
-                lap_time_s = None
-        else:
-            x_vals = [i / max(n - 1, 1) for i in range(n)]
-            lap_time_s = None
-
-        lap: dict = {"x": x_vals, "x_mode": x_mode, "lap_no": 1}
-        if lap_time_s is not None:
-            lap["lap_time_s"] = lap_time_s
-
-        for ch_name, col_name in channel_to_col.items():
-            if ch_name == "time" or col_name not in df.columns:
-                continue
-            try:
-                lap[ch_name] = pd.to_numeric(
-                    df[col_name], errors="coerce"
-                ).fillna(0).tolist()
+                d_check = pd.to_numeric(
+                    df[channel_to_col["distance"]], errors="coerce"
+                ).fillna(0).values
+                if float(d_check.max()) > 10.0:
+                    x_mode = "distance"
             except Exception:
                 pass
 
-        self._wave.set_csv_laps([lap])
+        # ── 時間配列の取得 ────────────────────────────────────────────
+        if has_time:
+            try:
+                t_raw = pd.to_numeric(
+                    df[channel_to_col["time"]], errors="coerce"
+                ).fillna(0).values
+            except Exception:
+                t_raw = None
+        else:
+            t_raw = None
 
-        axis_str = "Time axis (s) ✅" if x_mode == "time" else "Progress axis (0–1) ⚠"
-        self._lbl_sent.setText(f"送信: {axis_str}")
+        # ── 距離配列の取得 ────────────────────────────────────────────
+        d_raw = None
+        if x_mode == "distance":
+            try:
+                d_raw = pd.to_numeric(
+                    df[channel_to_col["distance"]], errors="coerce"
+                ).fillna(0).values
+            except Exception:
+                d_raw = None
+                x_mode = "time" if t_raw is not None else "progress"
+
+        if t_raw is None and x_mode == "time":
+            x_mode = "progress"
+
+        # ── 時間ギャップでLap分割 ─────────────────────────────────────
+        import numpy as np
+
+        if x_mode in ("time", "distance") and t_raw is not None:
+            # time[i] - time[i-1] > 5 秒の箇所でLap境界を検出
+            lap_indices: list[list[int]] = []
+            current: list[int] = [0]
+            for i in range(1, len(t_raw)):
+                if (t_raw[i] - t_raw[i - 1]) > 5.0:
+                    lap_indices.append(current)
+                    current = [i]
+                else:
+                    current.append(i)
+            lap_indices.append(current)
+        else:
+            lap_indices = [list(range(n))]
+
+        # ── 各Lap dict を構築 ─────────────────────────────────────────
+        laps: list[dict] = []
+        for lap_no, idx in enumerate(lap_indices, start=1):
+            if len(idx) < 2:
+                continue
+
+            if x_mode == "distance" and d_raw is not None:
+                d_lap = d_raw[idx]
+                x_vals = (d_lap - float(d_lap[0])).tolist()   # Lap内0始まりにリセット
+                dist_span_m = round(float(d_lap[-1]) - float(d_lap[0]), 1)
+                lap_time_s: float = (
+                    round(float(t_raw[idx][-1]) - float(t_raw[idx][0]), 3)
+                    if t_raw is not None else 0.0
+                )
+            elif x_mode == "time" and t_raw is not None:
+                t_lap = t_raw[idx]
+                x_vals = (t_lap - float(t_lap[0])).tolist()
+                lap_time_s = round(float(t_lap[-1]) - float(t_lap[0]), 3)
+                dist_span_m = 0.0
+            else:
+                x_vals = [i / max(len(idx) - 1, 1) for i in range(len(idx))]
+                lap_time_s = 0.0
+                dist_span_m = 0.0
+
+            lap: dict = {
+                "x":          x_vals,
+                "x_mode":     x_mode,
+                "lap_no":     lap_no,
+                "lap_time_s": lap_time_s,
+                "dist_span_m": dist_span_m,
+            }
+            # distance modeの場合、time配列もraw保存（Problem Log記録用）
+            if x_mode == "distance" and t_raw is not None:
+                t_lap_arr = t_raw[idx]
+                lap["time_raw"] = (t_lap_arr - float(t_lap_arr[0])).tolist()
+
+            for ch_name, col_name in channel_to_col.items():
+                if ch_name in ("time", "distance") or col_name not in df.columns:
+                    continue
+                try:
+                    vals = pd.to_numeric(
+                        df[col_name], errors="coerce"
+                    ).fillna(0).values
+                    lap[ch_name] = vals[idx].tolist()
+                except Exception:
+                    pass
+
+            laps.append(lap)
+
+        if not laps:
+            QMessageBox.warning(self, "データなし", "有効なLapデータが見つかりません。")
+            return
+
+        self._wave.set_csv_laps(laps)
+
+        n_laps = len(laps)
+        if x_mode == "distance":
+            axis_str = "Distance axis (m) ✅"
+        elif x_mode == "time":
+            axis_str = "Time axis (s) ✅"
+        else:
+            axis_str = "Progress axis (0–1) ⚠"
+        self._lbl_sent.setText(f"送信: {n_laps} Lap / {axis_str}")
         QMessageBox.information(
             self, "送信完了",
             f"CSV データを波形ビューに送りました。\n"
+            f"検出Lap数: {n_laps}\n"
             f"X軸: {axis_str}\n\n"
             "「📊 波形 (Reference)」タブに切り替えて確認してください。",
         )
@@ -1148,8 +1297,8 @@ class MainWindow(QMainWindow):
             sess_item = QTreeWidgetItem([session])
             sess_item.setFont(0, QFont("Arial", 10, QFont.Weight.Bold))
             for r in run_list:
-                best = r.get("best_lap_s")
-                best_str = f"{best:.3f}s" if best else "—"
+                best = r.get("perf_best_lap")
+                best_str = format_laptime(float(best)) if best else "—"
                 label = f"{r.get('rider','')}  R{r.get('run_no','')}  [{best_str}]"
                 run_item = QTreeWidgetItem([label])
                 run_item.setData(0, Qt.ItemDataRole.UserRole, r)
