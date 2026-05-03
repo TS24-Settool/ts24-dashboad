@@ -55,7 +55,8 @@
     "[2026-05-03] §0原則確立：DashboardはAnalysis専用（read/visualize/analyze only）。権威ソース=ts24 DB+Excelレポートのみ。ΔTimeなど自動計算値は必ずEstimate/推定値ラベルを付ける。",
     "[2026-05-03] Lap Overlay設計原則：ΔTimeはSpeed-weighted Estimated（非線形、速度比ベース）。Turn定義はTemplate固定（ブレーキ検出ではない）。Focus Turn DetailはBrake-event aligned data（corner_phase_data.json）を使用すること。",
     "[2026-05-03] ASSEN Turn Template：17ターン確定（110lap高信頼度）。CREMONA：GPS系再処理が必要（median 87corners/lapで現在POOR）。",
-    "[2026-05-03] チーム役割境界確立：Cowork Claude=分析/設計/仕様、Claude Code=実装/git/スクリプト実行。直接コード変更はClaude Codeの領域。CLAUDE.md §1に役割境界表を追加。"
+    "[2026-05-03] チーム役割境界確立：Cowork Claude=分析/設計/仕様、Claude Code=実装/git/スクリプト実行。直接コード変更はClaude Codeの領域。CLAUDE.md §1に役割境界表を追加。",
+    "[2026-05-03] lap_overlay_data.jsonのlap_progressはラン全体連続値（Lap1:0→1、Lap2:1→2）。Workbench/分析コードでは必ず各ラップを独立して0-1正規化すること。"
   ],
   "setup_learnings": [
     {
@@ -160,6 +161,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "チームワークフロー再確認：Cowork Claude はコード実装・git pushを行わない。設計・仕様・修正方針をCLAUDE.mdに記述しClaude Codeに渡す。今セッションの越権行為を記録し、今後の境界ルールをCLAUDE.mdセクション1に明文化した。"
+    },
+    {
+      "date": "2026-05-03",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code: Workbench 3バグ修正push完了。①X軸1.8→_normalize_x()でlap独立正規化。②Speed Y軸0-1→enableAutoRange先行後にsetXRange。③turn_templates dict/list両対応+circuit名正規化。Cowork役割越権も修正済み。"
     }
   ]
 }

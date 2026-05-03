@@ -269,16 +269,23 @@ python3 create_workbench_tables.py
 - 🔄 **要確認**: Speed Y軸 0-255 km/h表示・X軸 0-1.0固定（修正済み、未テスト）
 - ⬜ TS24_Workbench.command ランチャーが未作成
 
-### Claude Code への引き継ぎ事項
-1. `python3 ts24_workbench.py` でWorkbenchを起動し、Speed Chartのスケールを確認する
-2. Speed Y軸が 0-1 のままなら以下を `draw()` メソッドに追加（既にあるはず）:
-   ```python
-   for p in (self._p_speed, self._p_brake, self._p_gas):
-       p.setXRange(0.0, 1.0, padding=0.01)
-       p.enableAutoRange(axis="y")
-   ```
-3. `turn_templates.json` のアクセスは `.get(circuit, {}).get("turns", [])` で行うこと（dictではなくlist）
-4. 問題なければ `TS24_Workbench.command` ランチャーを作成して push する
+### 解決済みバグ（2026-05-03 Claude Code修正・push済み）
+
+**バグ①: X軸1.8問題**
+- 原因: `lap_overlay_data.json` の `lap_progress` はラン全体の連続値（Lap1: 0→1、Lap2: 1→2...）のため、2ラップが重なりではなく連結された
+- 修正: `_normalize_x()` でLap A・Lap Bそれぞれを独立して 0.0–1.0 に正規化
+
+**バグ②: Speed Y軸0-1問題**
+- 原因: `setXRange(0,1)` がpyqtgraphの内部でY軸のauto-rangeも無効化する（バージョン依存挙動）
+- 修正: `enableAutoRange(axis="y")` を先に呼んでからX軸固定に変更（順序が重要）
+
+**バグ③: turn_templates構造クラッシュ**
+- 原因: `{"T1": {"progress": 0.05}, ...}` のdict形式をiterateすると文字列キーが返り `.get("progress")` が失敗
+- 修正: `isinstance()` でlist/dict両方に対応 + サーキット名の大文字小文字を正規化して検索
+
+### 今後のタスク（Claude Code）
+- `TS24_Workbench.command` ランチャーを作成して push する
+- Waveform表示確認後、Problem Log / Setup Decision Log の保存動作もテストする
 
 ---
 
