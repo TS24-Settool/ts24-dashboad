@@ -50,9 +50,11 @@ DBに保存 + Problem Log テーブル更新
 - `left = QWidget()` とその中身すべて（title ラベル / circuit combo / tree / status label）
 - `self._tree = QTreeWidget()`
 - `_on_run_selected()` メソッド
-- `_on_circuit_changed()` メソッド（不要になる）
-- `_load_circuits()` メソッド（不要になる）
 - 外側の `QSplitter(left, self._tabs)` ラッパー
+
+### 維持（簡略化）するもの
+- `_on_circuit_changed()` — ツリー更新を削除し、`set_circuit()` 呼び出しのみに簡略化
+- `_load_circuits()` — コンボボックスへの回路リスト追加は維持
 
 ### 追加するもの
 
@@ -146,6 +148,8 @@ def _on_circuit_changed(self, circuit: str):
     self._tab_wave.set_circuit(circuit)
 ```
 
+※ `WaveformView.set_circuit()` は現在存在しないため、**変更3 で追加する**（後述）。
+
 ### `_load_circuits()` を維持（コンボボックス用）
 
 ```python
@@ -166,24 +170,41 @@ def _load_circuits(self):
 
 ## 変更2: `CsvImportTab` — `load_file()` メソッド追加
 
+既存の CSV 読み込みフローは次の順序：
+1. `_open_file()` → ファイルダイアログ → `_load_csv(path)` で `self._df` をセット
+2. ユーザーが「波形に送る」ボタン → `_send()` でラップ分割 + 波形更新
+
+外部から呼ぶ `load_file()` はこの2段階を自動で行う：
+
 ```python
 def load_file(self, path: str) -> None:
     """外部から CSV パスを渡して即読み込みを実行する。"""
-    self._path = Path(path)
+    p = Path(path)
+    self._lbl_file.setText(p.name)
     # run_id を CSV ファイル名から生成（DB未登録の場合の fallback）
-    stem = self._path.stem  # 例: "DA77_R1_ASSEN_FP"
     if not self._run_id:
-        self._run_id = stem
-    self._send()
+        self._run_id = p.stem  # 例: "DA77_R1_ASSEN_FP"
+    self._load_csv(p)          # self._df をセット
+    if self._df is not None:   # 読み込み成功時のみ
+        self._send()           # ラップ分割 + 波形へ送信
 ```
-
-※ 既存の `_send()` がファイルパスを使う箇所は `self._path` を参照している。
-`self._path` がまだ設定されていない場合は `_send()` 冒頭で早期リターンするため、
-`load_file()` で `self._path` をセットしてから `_send()` を呼ぶ。
 
 ---
 
-## 変更3: `WaveformView` — 個別 `PlotWidget` に変更
+## 変更3: `WaveformView` — 個別 `PlotWidget` に変更 + `set_circuit()` 追加
+
+### `set_circuit()` メソッドを追加（`_on_circuit_changed()` から呼ばれる）
+
+`WaveformView` クラスに以下を追加：
+
+```python
+def set_circuit(self, circuit: str) -> None:
+    """サーキット名をセット（コーナーテンプレート適用用）。"""
+    self._circuit = circuit
+```
+
+既存の `set_run(run_id, circuit)` は circuit も更新しているが、
+run_id なしでサーキットだけ更新するケース（ツールバーのコンボ変更時）のために追加する。
 
 ### 目的
 `GraphicsLayoutWidget` のまま行単位 show/hide は困難なため、
