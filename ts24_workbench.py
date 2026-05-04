@@ -356,7 +356,7 @@ class WaveformView(QWidget):
                 p.setXLink(self._p_speed)
             # ── LinearRegionItem（選択範囲）────────────────────────
             self._region = pg.LinearRegionItem(
-                values=[0.2, 0.4],
+                values=[0, 100],
                 brush=pg.mkBrush(0, 120, 212, 30),
                 pen=pg.mkPen("#0078D4", width=1.5),
                 movable=True,
@@ -586,6 +586,20 @@ class WaveformView(QWidget):
                 p.enableAutoRange(axis="x")
             else:
                 p.setXRange(0.0, 1.0, padding=0.01)
+
+        # LinearRegion をデータ範囲の 20%〜40% に再配置
+        try:
+            if lap_a and hasattr(self, "_region"):
+                xs_raw = _get_x(lap_a)
+                if xs_raw:
+                    xs = (np.array(xs_raw, dtype=float)
+                          if x_mode in ("time", "distance")
+                          else _normalize(xs_raw))
+                    x_min, x_max = float(xs[0]), float(xs[-1])
+                    span = x_max - x_min
+                    self._region.setRegion([x_min + span * 0.2, x_min + span * 0.4])
+        except Exception:
+            pass
 
         # Turn markers — progress mode only
         if x_mode not in ("time", "distance"):
