@@ -23,7 +23,7 @@ import pandas as pd
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
     QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -262,12 +262,13 @@ class WorkbenchDB:
 # ════════════════════════════════════════════════════════════════════
 
 class WaveformView(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, db: "WorkbenchDB | None" = None, parent=None):
         super().__init__(parent)
+        self._db_ref = db
         self._overlay_data: list[dict] = []
         self._templates: dict = {}
         self._circuit: str = ""
-        self._csv_x_mode: str = "progress"   # "time" | "progress"
+        self._csv_x_mode: str = "progress"   # "distance" | "time" | "progress"
         self._laps_cache: list[dict] = []
         self._problem_tab: "ProblemLogTab | None" = None
         self._run_id_wave: str = ""
@@ -277,6 +278,10 @@ class WaveformView(QWidget):
     def set_problem_tab(self, tab: "ProblemLogTab") -> None:
         """MainWindow から呼ばれ、Problem Log タブへの参照を設定する。"""
         self._problem_tab = tab
+
+    def set_circuit(self, circuit: str) -> None:
+        """サーキット名をセット（コーナーテンプレート適用用）。"""
+        self._circuit = circuit
 
     def _setup_ui(self):
         try:
@@ -330,31 +335,45 @@ class WaveformView(QWidget):
         btn_send_log.clicked.connect(self._send_to_problem_log)
         sel_row.addSpacing(24)
         sel_row.addWidget(btn_send_log)
-        sel_row.addStretch()
-        layout.addLayout(sel_row)
 
         if self._has_pg:
             pg = self._pg
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
-            self._plot_widget = pg.GraphicsLayoutWidget()
-            self._p_speed  = self._plot_widget.addPlot(row=0, col=0, title="Speed (km/h)")
-            self._p_brake  = self._plot_widget.addPlot(row=1, col=0, title="Brake (bar)")
-            self._p_gas    = self._plot_widget.addPlot(row=2, col=0, title="Gas (%)")
-            self._p_suspf  = self._plot_widget.addPlot(row=3, col=0, title="SUSP_FRONT (mm)")
-            self._p_suspr  = self._plot_widget.addPlot(row=4, col=0, title="SUSP_REAR (mm)")
+
+            # 個別 PlotWidget — show/hide 対応
+            self._pw_speed = pg.PlotWidget(title="Speed (km/h)")
+            self._pw_brake = pg.PlotWidget(title="Brake (bar)")
+            self._pw_gas   = pg.PlotWidget(title="Gas (%)")
+            self._pw_suspf = pg.PlotWidget(title="SUSP_FRONT (mm)")
+            self._pw_suspr = pg.PlotWidget(title="SUSP_REAR (mm)")
+
+            self._pw_speed.setMinimumHeight(120)
+            for _pw in [self._pw_brake, self._pw_gas, self._pw_suspf, self._pw_suspr]:
+                _pw.setMinimumHeight(80)
+
+            # PlotItem エイリアス（_draw() 等の後方互換）
+            self._p_speed = self._pw_speed.getPlotItem()
+            self._p_brake = self._pw_brake.getPlotItem()
+            self._p_gas   = self._pw_gas.getPlotItem()
+            self._p_suspf = self._pw_suspf.getPlotItem()
+            self._p_suspr = self._pw_suspr.getPlotItem()
+
+            # X軸リンク（全パネルを Speed に同期）
+            for _pw in [self._pw_brake, self._pw_gas, self._pw_suspf, self._pw_suspr]:
+                _pw.setXLink(self._pw_speed)
+
+            # _all_plots: PlotWidget タプル（clear/plot/enableAutoRange 共通操作用）
             self._all_plots = (
-                self._p_speed, self._p_brake, self._p_gas,
-                self._p_suspf, self._p_suspr,
+                self._pw_speed, self._pw_brake, self._pw_gas,
+                self._pw_suspf, self._pw_suspr,
             )
-            for p in self._all_plots:
-                p.setLabel("bottom", "Lap Progress")
-                p.showGrid(x=True, y=True, alpha=0.3)
-                p.setXRange(0, 1)
-            # Link all X axes to Speed panel
-            for p in (self._p_brake, self._p_gas, self._p_suspf, self._p_suspr):
-                p.setXLink(self._p_speed)
-            # ── LinearRegionItem（選択範囲）────────────────────────
+            for _pw in self._all_plots:
+                _pw.setLabel("bottom", "Lap Progress")
+                _pw.showGrid(x=True, y=True, alpha=0.3)
+                _pw.setXRange(0, 1)
+
+            # LinearRegionItem（選択範囲ハイライト）
             self._region = pg.LinearRegionItem(
                 values=[0, 100],
                 brush=pg.mkBrush(0, 120, 212, 30),
@@ -362,9 +381,57 @@ class WaveformView(QWidget):
                 movable=True,
             )
             self._region.setZValue(10)
-            self._p_speed.addItem(self._region)
-            layout.addWidget(self._plot_widget)
+            self._pw_speed.addItem(self._region)
+
+            # チャンネルチェックボックス（sel_row に追加）
+            sep = QLabel("  |  チャンネル:")
+            sep.setStyleSheet("font-size: 10px; color: #666;")
+            sel_row.addWidget(sep)
+            self._ch_checks: dict = {}
+            for _name, _pw in [
+                ("Speed",  self._pw_speed),
+                ("Brake",  self._pw_brake),
+                ("Gas",    self._pw_gas),
+                ("SUSP_F", self._pw_suspf),
+                ("SUSP_R", self._pw_suspr),
+            ]:
+                cb = QCheckBox(_name)
+                cb.setChecked(True)
+                cb.setStyleSheet("font-size: 10px;")
+                cb.toggled.connect(lambda checked, w=_pw: w.setVisible(checked))
+                sel_row.addWidget(cb)
+                self._ch_checks[_name] = (cb, _pw)
+
+            sel_row.addStretch()
+            layout.addLayout(sel_row)
+
+            # スクロールエリア（PlotWidget 縦積み）
+            self._wave_scroll = QScrollArea()
+            self._wave_scroll.setWidgetResizable(True)
+            _wave_container = QWidget()
+            _wave_vlay = QVBoxLayout(_wave_container)
+            _wave_vlay.setSpacing(0)
+            _wave_vlay.setContentsMargins(0, 0, 0, 0)
+            for _pw in self._all_plots:
+                _wave_vlay.addWidget(_pw)
+            self._wave_scroll.setWidget(_wave_container)
+
+            # QSplitter: 左(波形スクロール) + 右(Problem入力パネル)
+            self._wave_splitter = QSplitter(Qt.Orientation.Horizontal)
+            self._wave_splitter.addWidget(self._wave_scroll)
+            if self._db_ref is not None:
+                self._right_panel = _ProblemRightPanel(
+                    db=self._db_ref,
+                    on_close=self._close_right_panel,
+                )
+                self._wave_splitter.addWidget(self._right_panel)
+                self._wave_splitter.setStretchFactor(0, 3)
+                self._wave_splitter.setStretchFactor(1, 1)
+                self._wave_splitter.setSizes([1, 0])
+            layout.addWidget(self._wave_splitter)
         else:
+            sel_row.addStretch()
+            layout.addLayout(sel_row)
             layout.addWidget(QLabel(
                 "pyqtgraph が見つかりません。\n"
                 "pip install pyqtgraph でインストールしてください。"
@@ -513,16 +580,24 @@ class WaveformView(QWidget):
 
         data["data_source_file"] = lap_a.get("source_file", "")
 
-        self._problem_tab.prefill_from_waveform(data)
+        # 右パネルに送る（波形を維持したまま入力できる）
+        if hasattr(self, "_right_panel"):
+            self._right_panel.prefill_from_waveform(data)
+            self._open_right_panel()
 
-        parent = self.parent()
-        while parent is not None:
-            if hasattr(parent, "_tabs"):
-                idx = parent._tabs.indexOf(self._problem_tab)
-                if idx >= 0:
-                    parent._tabs.setCurrentIndex(idx)
-                break
-            parent = parent.parent()
+        # Problem Log タブにも送る（互換性維持）
+        if self._problem_tab is not None:
+            self._problem_tab.prefill_from_waveform(data)
+
+    def _open_right_panel(self) -> None:
+        if hasattr(self, "_wave_splitter"):
+            total = self._wave_splitter.width()
+            self._wave_splitter.setSizes([int(total * 0.65), int(total * 0.35)])
+
+    def _close_right_panel(self) -> None:
+        if hasattr(self, "_wave_splitter"):
+            total = self._wave_splitter.width()
+            self._wave_splitter.setSizes([total, 0])
 
     def _draw(self):
         if not self._has_pg or not self._laps_cache:
@@ -543,7 +618,7 @@ class WaveformView(QWidget):
         for p in self._all_plots:
             p.clear()
         if hasattr(self, "_region"):
-            self._p_speed.addItem(self._region)
+            self._pw_speed.addItem(self._region)
 
         def _get_x(lap):
             ch = lap.get("channels", {})
@@ -640,6 +715,211 @@ def _fmt_range(r: dict) -> str:
     if ts is not None and te is not None:
         return f"{ts:.1f}→{te:.1f}s"
     return "—"
+
+
+class _ProblemRightPanel(QWidget):
+    """波形タブ右側に表示する Problem Log 入力パネル。"""
+
+    def __init__(self, db: "WorkbenchDB", on_close, parent=None):
+        super().__init__(parent)
+        self._db = db
+        self._on_close = on_close
+        self._wave_prefill: dict = {}
+        self._run_meta: dict = {}
+        self._problem_tab_ref: "ProblemLogTab | None" = None
+        self._setup_ui()
+
+    def set_problem_tab(self, tab: "ProblemLogTab") -> None:
+        self._problem_tab_ref = tab
+
+    def set_run(self, run_id: str, meta: dict) -> None:
+        self._run_meta = meta
+
+    def _setup_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(4)
+        self.setStyleSheet("background: #1A1A2E;")
+
+        # ── ヘッダー ──────────────────────────────────────────────────
+        hdr = QHBoxLayout()
+        lbl_hdr = QLabel("📋 Problem Log")
+        lbl_hdr.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        lbl_hdr.setStyleSheet("color: #FFF;")
+        btn_close = QPushButton("×")
+        btn_close.setFixedSize(20, 20)
+        btn_close.setStyleSheet(
+            "QPushButton { background: #444; color: #CCC; border-radius: 2px; }"
+            "QPushButton:hover { background: #C00; color: #FFF; }"
+        )
+        btn_close.clicked.connect(self._on_close)
+        hdr.addWidget(lbl_hdr)
+        hdr.addStretch()
+        hdr.addWidget(btn_close)
+        lay.addLayout(hdr)
+
+        # ── 波形 auto-fill ボックス ───────────────────────────────────
+        self._wave_info_box = QFrame()
+        self._wave_info_box.setFrameShape(QFrame.Shape.Box)
+        self._wave_info_box.setStyleSheet(
+            "background: #001830; border: 1px solid #0078D4; border-radius: 4px;"
+        )
+        wave_info_lay = QVBoxLayout(self._wave_info_box)
+        wave_info_lay.setContentsMargins(6, 4, 6, 4)
+        wave_info_lay.setSpacing(2)
+        lbl_wave_title = QLabel("📊 波形から自動入力（読み取り専用）")
+        lbl_wave_title.setStyleSheet("color: #4FC3F7; font-size: 10px; font-weight: bold;")
+        wave_info_lay.addWidget(lbl_wave_title)
+        self._lbl_auto_run   = QLabel("Run: —")
+        self._lbl_auto_lap   = QLabel("Lap: —")
+        self._lbl_auto_range = QLabel("Range: —")
+        for lbl in [self._lbl_auto_run, self._lbl_auto_lap, self._lbl_auto_range]:
+            lbl.setStyleSheet("color: #B0BEC5; font-size: 10px;")
+            wave_info_lay.addWidget(lbl)
+        btn_clear_wave = QPushButton("✕ 自動入力をクリア")
+        btn_clear_wave.setFixedHeight(20)
+        btn_clear_wave.setStyleSheet("font-size: 10px; color: #888; background: transparent;")
+        btn_clear_wave.clicked.connect(self._clear_wave_prefill)
+        wave_info_lay.addWidget(btn_clear_wave)
+        self._wave_info_box.setVisible(False)
+        lay.addWidget(self._wave_info_box)
+
+        # ── フォーム ──────────────────────────────────────────────────
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setSpacing(4)
+
+        self._spin_lap = QSpinBox()
+        self._spin_lap.setRange(0, 99)
+        form.addRow("Lap No:", self._spin_lap)
+
+        self._combo_corner = QComboBox()
+        self._combo_corner.addItem("NONE")
+        for i in range(1, 20):
+            self._combo_corner.addItem(f"T{i}")
+        form.addRow("Corner:", self._combo_corner)
+
+        self._combo_phase = QComboBox()
+        self._combo_phase.addItems(PHASES)
+        form.addRow("Phase:", self._combo_phase)
+
+        self._combo_tag = QComboBox()
+        self._combo_tag.addItems(PROBLEM_TAGS)
+        form.addRow("Problem Tag:", self._combo_tag)
+
+        self._txt_desc = QTextEdit()
+        self._txt_desc.setFixedHeight(80)
+        self._txt_desc.setPlaceholderText("詳細説明（任意）")
+        form.addRow("Description:", self._txt_desc)
+
+        self._combo_sev = QComboBox()
+        self._combo_sev.addItems(SEVERITIES)
+        form.addRow("Severity:", self._combo_sev)
+
+        self._combo_src = QComboBox()
+        self._combo_src.addItems(SOURCES)
+        form.addRow("Source:", self._combo_src)
+
+        lay.addLayout(form)
+
+        # ── ボタン行 ──────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_add = QPushButton("追加")
+        btn_add.setStyleSheet(
+            "QPushButton { background: #107C10; color: white; border-radius: 4px; padding: 4px 16px; }"
+            "QPushButton:hover { background: #0E6B0E; }"
+        )
+        btn_add.clicked.connect(self._add_entry)
+        btn_clear = QPushButton("クリア")
+        btn_clear.clicked.connect(self._clear_form)
+        btn_row.addWidget(btn_add)
+        btn_row.addWidget(btn_clear)
+        lay.addLayout(btn_row)
+        lay.addStretch()
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def prefill_from_waveform(self, data: dict) -> None:
+        self._wave_prefill = data
+        run_id = data.get("run_id") or "—"
+        self._lbl_auto_run.setText(f"Run: {run_id}")
+        self._lbl_auto_lap.setText(f"Lap: {data.get('lap_no', '—')}")
+        ds = data.get("distance_start_m")
+        de = data.get("distance_end_m")
+        ts = data.get("time_start_s")
+        te = data.get("time_end_s")
+        if ds is not None and de is not None:
+            span = round(de - ds, 1)
+            self._lbl_auto_range.setText(f"Range: {ds}m → {de}m ({span}m)")
+        elif ts is not None and te is not None:
+            span = round(te - ts, 2)
+            self._lbl_auto_range.setText(f"Range: {ts}s → {te}s ({span}s)")
+        else:
+            self._lbl_auto_range.setText("Range: —")
+        self._wave_info_box.setVisible(True)
+        lap_no = data.get("lap_no")
+        if lap_no is not None:
+            self._spin_lap.setValue(int(lap_no))
+        idx = self._combo_src.findText("DATA")
+        if idx >= 0:
+            self._combo_src.setCurrentIndex(idx)
+
+    # ── Private ───────────────────────────────────────────────────────
+
+    def _clear_wave_prefill(self) -> None:
+        self._wave_prefill = {}
+        self._lbl_auto_run.setText("Run: —")
+        self._lbl_auto_lap.setText("Lap: —")
+        self._lbl_auto_range.setText("Range: —")
+        self._wave_info_box.setVisible(False)
+
+    def _clear_form(self) -> None:
+        self._spin_lap.setValue(0)
+        self._combo_corner.setCurrentIndex(0)
+        self._combo_phase.setCurrentIndex(0)
+        self._combo_tag.setCurrentIndex(0)
+        self._txt_desc.clear()
+
+    def _add_entry(self) -> None:
+        wp = self._wave_prefill
+        meta = self._run_meta
+        run_id = wp.get("run_id") or meta.get("run_id") or ""
+        if not run_id:
+            QMessageBox.warning(self, "警告", "Run が未設定です。CSVを先に読み込んでください。")
+            return
+        corner_val = self._combo_corner.currentText()
+        if corner_val == "NONE":
+            corner_val = None
+        data = {
+            "run_id":           run_id,
+            "round":            meta.get("round"),
+            "circuit":          meta.get("circuit"),
+            "session":          meta.get("session"),
+            "rider":            meta.get("rider"),
+            "run_no":           meta.get("run_no"),
+            "lap_no":           self._spin_lap.value() or None,
+            "corner":           corner_val,
+            "phase":            self._combo_phase.currentText(),
+            "problem_tag":      self._combo_tag.currentText(),
+            "description":      self._txt_desc.toPlainText().strip(),
+            "severity":         self._combo_sev.currentText(),
+            "source":           self._combo_src.currentText(),
+            "distance_start_m": wp.get("distance_start_m"),
+            "distance_end_m":   wp.get("distance_end_m"),
+            "time_start_s":     wp.get("time_start_s"),
+            "time_end_s":       wp.get("time_end_s"),
+            "data_source_file": wp.get("data_source_file"),
+            "analysis_note":    None,
+        }
+        try:
+            self._db.add_problem_log(data)
+        except Exception as e:
+            QMessageBox.critical(self, "DB Error", str(e))
+            return
+        self._clear_form()
+        self._clear_wave_prefill()
+        if self._problem_tab_ref:
+            self._problem_tab_ref._refresh_table()
 
 
 class ProblemLogTab(QWidget):
@@ -1128,6 +1408,7 @@ class CsvImportTab(QWidget):
         self._run_id: str = ""
         self._df: "pd.DataFrame | None" = None
         self._col_combos: dict[str, QComboBox] = {}
+        self._on_loaded: "callable | None" = None
         self._setup_ui()
 
     def set_run(self, run_id: str):
@@ -1258,6 +1539,16 @@ class CsvImportTab(QWidget):
             return
         self._lbl_file.setText(Path(path).name)
         self._load_csv(Path(path))
+
+    def load_file(self, path: str) -> None:
+        """外部から CSV パスを渡して即読み込み・波形送信を実行する。"""
+        p = Path(path)
+        self._lbl_file.setText(p.name)
+        if not self._run_id:
+            self._run_id = p.stem
+        self._load_csv(p)
+        if self._df is not None:
+            self._send()
 
     def _load_csv(self, path: Path):
         df = None
@@ -1607,6 +1898,12 @@ class CsvImportTab(QWidget):
             f"X軸: {axis_str}\n\n"
             "「📊 波形 (Reference)」タブに切り替えて確認してください。",
         )
+        if self._on_loaded:
+            meta = {
+                "run_id":  self._run_id,
+                "circuit": self._wave._circuit,
+            }
+            self._on_loaded(meta)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1626,58 +1923,69 @@ class MainWindow(QMainWindow):
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ── 左パネル ─────────────────────────────────────
-        left = QWidget()
-        left.setFixedWidth(280)
-        left_lay = QVBoxLayout(left)
+        # ── 上部ツールバー ────────────────────────────────────────────
+        toolbar = QWidget()
+        toolbar.setFixedHeight(40)
+        toolbar.setStyleSheet("background: #1E1E1E; border-bottom: 1px solid #333;")
+        tb_lay = QHBoxLayout(toolbar)
+        tb_lay.setContentsMargins(8, 4, 8, 4)
 
-        title = QLabel("TS24 Engineer Workbench")
-        title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        left_lay.addWidget(title)
+        lbl_title = QLabel("TS24 Engineer Workbench")
+        lbl_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        lbl_title.setStyleSheet("color: #FFFFFF;")
+        tb_lay.addWidget(lbl_title)
 
-        lbl_circ = QLabel("Circuit:")
+        lbl_circ = QLabel("  Circuit:")
+        lbl_circ.setStyleSheet("color: #CCC;")
+        tb_lay.addWidget(lbl_circ)
         self._combo_circuit = QComboBox()
+        self._combo_circuit.setFixedWidth(120)
+        self._combo_circuit.setToolTip("テンプレート（コーナーマーカー）に使用")
         self._combo_circuit.currentTextChanged.connect(self._on_circuit_changed)
-        left_lay.addWidget(lbl_circ)
-        left_lay.addWidget(self._combo_circuit)
+        tb_lay.addWidget(self._combo_circuit)
 
-        self._tree = QTreeWidget()
-        self._tree.setHeaderLabel("Session / Rider / Run")
-        self._tree.itemClicked.connect(self._on_run_selected)
-        left_lay.addWidget(self._tree, stretch=1)
+        btn_open_csv = QPushButton("📂  CSVを開く")
+        btn_open_csv.setFixedHeight(28)
+        btn_open_csv.setStyleSheet(
+            "QPushButton { background: #0078D4; color: white; border-radius: 4px; padding: 0 12px; }"
+            "QPushButton:hover { background: #106EBE; }"
+        )
+        btn_open_csv.clicked.connect(self._open_csv)
+        tb_lay.addWidget(btn_open_csv)
+
+        tb_lay.addStretch()
 
         self._lbl_status = QLabel("")
-        self._lbl_status.setWordWrap(True)
-        self._lbl_status.setStyleSheet("color: #666; font-size: 10px;")
-        left_lay.addWidget(self._lbl_status)
+        self._lbl_status.setStyleSheet("color: #888; font-size: 10px;")
+        tb_lay.addWidget(self._lbl_status)
 
-        # ── 右パネル (タブ) ───────────────────────────────
+        root.addWidget(toolbar)
+
+        # ── タブエリア ────────────────────────────────────────────────
         self._tabs = QTabWidget()
-        self._tab_wave    = WaveformView()
+        self._tab_wave    = WaveformView(db=self._db)
         self._tab_problem = ProblemLogTab(db=self._db)
         self._tab_setup   = SetupDecisionTab(db=self._db)
         self._tab_csv     = CsvImportTab(wave_view=self._tab_wave, db=self._db)
         self._tab_wave.set_problem_tab(self._tab_problem)
+        if hasattr(self._tab_wave, "_right_panel"):
+            self._tab_wave._right_panel.set_problem_tab(self._tab_problem)
+        self._tab_csv._on_loaded = self._on_csv_loaded
         self._tabs.addTab(self._tab_wave,    "📊 波形 (Reference)")
         self._tabs.addTab(self._tab_problem, "⚠️  Problem Log")
         self._tabs.addTab(self._tab_setup,   "🔧 Setup Decision")
         self._tabs.addTab(self._tab_csv,     "📂 2D CSV")
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left)
-        splitter.addWidget(self._tabs)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-
-        root.addWidget(splitter)
+        root.addWidget(self._tabs)
 
     def _load_circuits(self):
         try:
             circuits = self._db.get_circuits()
-        except Exception as e:
-            self._lbl_status.setText(f"DB error: {e}")
+        except Exception:
             circuits = []
         self._combo_circuit.blockSignals(True)
         self._combo_circuit.clear()
@@ -1687,44 +1995,34 @@ class MainWindow(QMainWindow):
             self._on_circuit_changed(circuits[0])
 
     def _on_circuit_changed(self, circuit: str):
-        self._tree.clear()
+        """サーキット変更 — テンプレート適用のみ（ツリー更新なし）。"""
+        self._tab_wave.set_circuit(circuit)
+
+    def _open_csv(self):
+        """ファイルダイアログでCSVを選択し、2D CSVタブで読み込んで波形に送る。"""
+        default = str(Path.home() / "Desktop" / "Data TS24 Claude" / "06_CSV")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "CSVファイルを選択", default,
+            "CSV files (*.csv);;All files (*)"
+        )
+        if not path:
+            return
+        self._lbl_status.setText(f"読込中: {Path(path).name}")
         try:
-            runs = self._db.get_runs(circuit=circuit)
+            self._tab_csv.load_file(path)
+            self._tabs.setCurrentWidget(self._tab_wave)
+            self._lbl_status.setText(f"読込完了: {Path(path).name}")
         except Exception as e:
-            self._lbl_status.setText(f"DB error: {e}")
-            return
+            self._lbl_status.setText(f"エラー: {e}")
 
-        # Group by session
-        by_session: dict[str, list[dict]] = {}
-        for r in runs:
-            s = r.get("session") or "—"
-            by_session.setdefault(s, []).append(r)
-
-        for session, run_list in sorted(by_session.items()):
-            sess_item = QTreeWidgetItem([session])
-            sess_item.setFont(0, QFont("Arial", 10, QFont.Weight.Bold))
-            for r in run_list:
-                best = r.get("perf_best_lap")
-                best_str = format_laptime(float(best)) if best else "—"
-                label = f"{r.get('rider','')}  R{r.get('run_no','')}  [{best_str}]"
-                run_item = QTreeWidgetItem([label])
-                run_item.setData(0, Qt.ItemDataRole.UserRole, r)
-                sess_item.addChild(run_item)
-            self._tree.addTopLevelItem(sess_item)
-        self._tree.expandAll()
-
-    def _on_run_selected(self, item: QTreeWidgetItem, _col: int):
-        meta = item.data(0, Qt.ItemDataRole.UserRole)
-        if not meta:
-            return
+    def _on_csv_loaded(self, meta: dict) -> None:
+        """CSV読み込み完了後に run_meta を全タブに伝播させる。"""
         run_id = meta.get("run_id", "")
-        self._run_meta = meta
-        circuit = self._combo_circuit.currentText()
-        self._lbl_status.setText(f"Selected: {run_id}")
-        self._tab_wave.set_run(run_id, circuit)
+        self._lbl_status.setText(f"Loaded: {run_id}")
         self._tab_problem.set_run(run_id, meta)
         self._tab_setup.set_run(run_id, meta)
-        self._tab_csv.set_run(run_id)
+        if hasattr(self._tab_wave, "_right_panel"):
+            self._tab_wave._right_panel.set_run(run_id, meta)
 
 
 # ════════════════════════════════════════════════════════════════════
