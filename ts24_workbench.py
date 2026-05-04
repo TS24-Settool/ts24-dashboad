@@ -298,6 +298,7 @@ class WaveformView(QWidget):
             "⚠️  Reference only — time-normalized data, not track-position aligned."
         )
         self._lbl_warn.setStyleSheet("color: #D83B01; font-style: italic; padding: 4px;")
+        self._lbl_warn.setFixedHeight(24)
         layout.addWidget(self._lbl_warn)
 
         # X-axis mode indicator
@@ -306,6 +307,7 @@ class WaveformView(QWidget):
             "color: #107C10; font-size: 10px; padding: 2px 4px;"
             " background: #F0FFF0; border-radius: 3px;"
         )
+        self._lbl_xmode.setFixedHeight(22)
         layout.addWidget(self._lbl_xmode)
 
         # Lap selectors
@@ -428,7 +430,7 @@ class WaveformView(QWidget):
                 self._wave_splitter.setStretchFactor(0, 3)
                 self._wave_splitter.setStretchFactor(1, 1)
                 self._wave_splitter.setSizes([1, 0])
-            layout.addWidget(self._wave_splitter)
+            layout.addWidget(self._wave_splitter, 1)  # stretch=1: 残りの縦スペースをすべて占有
         else:
             sel_row.addStretch()
             layout.addLayout(sel_row)
