@@ -542,6 +542,8 @@ class WaveformView(QWidget):
 
         for p in self._all_plots:
             p.clear()
+        if hasattr(self, "_region"):
+            self._p_speed.addItem(self._region)
 
         def _get_x(lap):
             ch = lap.get("channels", {})
