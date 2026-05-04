@@ -154,13 +154,18 @@ class WorkbenchDB:
             return [dict(r) for r in cur2.fetchall()]
 
     def get_problem_logs(self, run_id: str) -> list[dict]:
-        with self._conn() as conn:
-            cur = conn.execute(
-                """SELECT * FROM problem_log WHERE run_id = ?
-                   ORDER BY created_at DESC""",
-                (run_id,),
-            )
-            return [dict(r) for r in cur.fetchall()]
+        """problem_log を取得。スキーマ拡張後も安全に動作するよう SELECT * を使用。"""
+        try:
+            with self._conn() as conn:
+                cur = conn.execute(
+                    "SELECT * FROM problem_log WHERE run_id = ? ORDER BY created_at DESC",
+                    (run_id,),
+                )
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+        except Exception as e:
+            print("[WorkbenchDB] get_problem_logs error:", e)
+            return []
 
     def add_problem_log(self, data: dict) -> int:
         with self._conn() as conn:
@@ -169,14 +174,19 @@ class WorkbenchDB:
                 """INSERT INTO problem_log
                    (run_id, round, circuit, session, rider, run_no, lap_no,
                     corner, phase, problem_tag, description, severity, source,
+                    distance_start_m, distance_end_m, time_start_s, time_end_s,
+                    data_source_file, analysis_note,
                     export_status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     data.get("run_id"), data.get("round"), data.get("circuit"),
                     data.get("session"), data.get("rider"), data.get("run_no"),
                     data.get("lap_no"), data.get("corner"), data.get("phase"),
                     data.get("problem_tag"), data.get("description"),
                     data.get("severity", "MEDIUM"), data.get("source", "OBSERVATION"),
+                    data.get("distance_start_m"), data.get("distance_end_m"),
+                    data.get("time_start_s"), data.get("time_end_s"),
+                    data.get("data_source_file", ""), data.get("analysis_note", ""),
                     "PENDING", now, now,
                 ),
             )
@@ -259,8 +269,14 @@ class WaveformView(QWidget):
         self._circuit: str = ""
         self._csv_x_mode: str = "progress"   # "time" | "progress"
         self._laps_cache: list[dict] = []
+        self._problem_tab: "ProblemLogTab | None" = None
+        self._run_id_wave: str = ""
         self._setup_ui()
         self._load_static_data()
+
+    def set_problem_tab(self, tab: "ProblemLogTab") -> None:
+        """MainWindow から呼ばれ、Problem Log タブへの参照を設定する。"""
+        self._problem_tab = tab
 
     def _setup_ui(self):
         try:
@@ -301,6 +317,19 @@ class WaveformView(QWidget):
         btn = QPushButton("表示更新")
         btn.clicked.connect(self._draw)
         sel_row.addWidget(btn)
+        btn_send_log = QPushButton("📋  Problem Log へ送る")
+        btn_send_log.setToolTip(
+            "選択範囲（青いハイライト）の座標情報を Problem Log に自動入力します。\n"
+            "Lap A の run_id / lap_no / time / distance が入力されます。"
+        )
+        btn_send_log.setStyleSheet(
+            "QPushButton { background: #107C10; color: white; padding: 4px 12px;"
+            " border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #0D6A0D; }"
+        )
+        btn_send_log.clicked.connect(self._send_to_problem_log)
+        sel_row.addSpacing(24)
+        sel_row.addWidget(btn_send_log)
         sel_row.addStretch()
         layout.addLayout(sel_row)
 
@@ -325,6 +354,15 @@ class WaveformView(QWidget):
             # Link all X axes to Speed panel
             for p in (self._p_brake, self._p_gas, self._p_suspf, self._p_suspr):
                 p.setXLink(self._p_speed)
+            # ── LinearRegionItem（選択範囲）────────────────────────
+            self._region = pg.LinearRegionItem(
+                values=[0.2, 0.4],
+                brush=pg.mkBrush(0, 120, 212, 30),
+                pen=pg.mkPen("#0078D4", width=1.5),
+                movable=True,
+            )
+            self._region.setZValue(10)
+            self._p_speed.addItem(self._region)
             layout.addWidget(self._plot_widget)
         else:
             layout.addWidget(QLabel(
@@ -345,6 +383,7 @@ class WaveformView(QWidget):
                 self._templates = {}
 
     def set_run(self, run_id: str, circuit: str):
+        self._run_id_wave = run_id
         self._circuit = circuit
         self._csv_x_mode = "progress"
         self._lbl_warn.setVisible(True)
@@ -428,6 +467,62 @@ class WaveformView(QWidget):
         self._combo_b.addItems(labels)
         if len(labels) > 1:
             self._combo_b.setCurrentIndex(1)
+
+    def _send_to_problem_log(self) -> None:
+        """選択範囲の座標情報を ProblemLogTab に送り、自動入力させる。"""
+        if self._problem_tab is None:
+            QMessageBox.warning(self, "未接続", "Problem Log タブが接続されていません。")
+            return
+        if not self._laps_cache:
+            QMessageBox.warning(self, "データなし", "波形データがありません。先に CSV を送信してください。")
+            return
+
+        ia = self._combo_a.currentIndex()
+        if ia < 0 or ia >= len(self._laps_cache):
+            QMessageBox.warning(self, "Lap未選択", "Lap A を選択してください。")
+            return
+
+        lap_a = self._laps_cache[ia]
+        x_start, x_end = self._region.getRegion()
+        if x_start > x_end:
+            x_start, x_end = x_end, x_start
+
+        x_mode = self._csv_x_mode
+
+        data: dict = {
+            "run_id":  self._run_id_wave,
+            "lap_no":  lap_a.get("lap_no"),
+            "x_mode":  x_mode,
+        }
+
+        if x_mode == "distance":
+            data["distance_start_m"] = round(float(x_start), 1)
+            data["distance_end_m"]   = round(float(x_end),   1)
+            data["time_start_s"]     = None
+            data["time_end_s"]       = None
+        elif x_mode == "time":
+            data["time_start_s"]     = round(float(x_start), 3)
+            data["time_end_s"]       = round(float(x_end),   3)
+            data["distance_start_m"] = None
+            data["distance_end_m"]   = None
+        else:
+            data["time_start_s"]     = round(float(x_start), 4)
+            data["time_end_s"]       = round(float(x_end),   4)
+            data["distance_start_m"] = None
+            data["distance_end_m"]   = None
+
+        data["data_source_file"] = lap_a.get("source_file", "")
+
+        self._problem_tab.prefill_from_waveform(data)
+
+        parent = self.parent()
+        while parent is not None:
+            if hasattr(parent, "_tabs"):
+                idx = parent._tabs.indexOf(self._problem_tab)
+                if idx >= 0:
+                    parent._tabs.setCurrentIndex(idx)
+                break
+            parent = parent.parent()
 
     def _draw(self):
         if not self._has_pg or not self._laps_cache:
@@ -517,30 +612,47 @@ class WaveformView(QWidget):
 # Problem Log タブ
 # ════════════════════════════════════════════════════════════════════
 
+
+def _fmt_range(r: dict) -> str:
+    """problem_log 行の距離/時間範囲を表示文字列に変換する。"""
+    ds = r.get("distance_start_m")
+    de = r.get("distance_end_m")
+    if ds is not None and de is not None:
+        return f"{ds:.0f}→{de:.0f}m"
+    ts = r.get("time_start_s")
+    te = r.get("time_end_s")
+    if ts is not None and te is not None:
+        return f"{ts:.1f}→{te:.1f}s"
+    return "—"
+
+
 class ProblemLogTab(QWidget):
     def __init__(self, db: WorkbenchDB, parent=None):
         super().__init__(parent)
         self._db = db
         self._run_id: str = ""
         self._run_meta: dict = {}
+        self._wave_prefill: dict = {}
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
         # ── 一覧テーブル ──────────────────────────────────
-        self._table = QTableWidget(0, 7)
+        self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels(
-            ["ID", "Corner", "Phase", "Tag", "Description", "Severity", "Lap"]
+            ["ID", "Corner", "Phase", "Tag", "Description", "Severity", "Lap", "Range", "Source"]
         )
         self._table.horizontalHeader().setStretchLastSection(False)
         self._table.setColumnWidth(0, 40)
         self._table.setColumnWidth(1, 60)
         self._table.setColumnWidth(2, 60)
         self._table.setColumnWidth(3, 140)
-        self._table.setColumnWidth(4, 280)
+        self._table.setColumnWidth(4, 220)
         self._table.setColumnWidth(5, 70)
-        self._table.setColumnWidth(6, 50)
+        self._table.setColumnWidth(6, 40)
+        self._table.setColumnWidth(7, 160)
+        self._table.setColumnWidth(8, 80)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSortingEnabled(True)
@@ -561,6 +673,36 @@ class ProblemLogTab(QWidget):
         form_label = QLabel("▼ 新規問題を追加")
         form_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         layout.addWidget(form_label)
+
+        # ── 波形連携: 自動入力エリア ─────────────────────────────────
+        self._wave_info_box = QWidget()
+        self._wave_info_box.setStyleSheet(
+            "background: #EFF6FF; border: 1px solid #0078D4;"
+            " border-radius: 4px; padding: 4px;"
+        )
+        wave_info_lay = QVBoxLayout(self._wave_info_box)
+        wave_info_lay.setContentsMargins(8, 4, 8, 4)
+        wave_info_lay.setSpacing(2)
+
+        wave_header = QLabel("📊 波形から自動入力（読み取り専用）")
+        wave_header.setStyleSheet("color: #0078D4; font-weight: bold; font-size: 10px;")
+        wave_info_lay.addWidget(wave_header)
+
+        self._lbl_auto_run   = QLabel("Run: —")
+        self._lbl_auto_lap   = QLabel("Lap: —")
+        self._lbl_auto_range = QLabel("Range: —")
+        for lbl in (self._lbl_auto_run, self._lbl_auto_lap, self._lbl_auto_range):
+            lbl.setStyleSheet("color: #004578; font-size: 10px;")
+            wave_info_lay.addWidget(lbl)
+
+        btn_clear_wave = QPushButton("✕ 自動入力をクリア")
+        btn_clear_wave.setFixedHeight(20)
+        btn_clear_wave.setStyleSheet("font-size: 10px; color: #666;")
+        btn_clear_wave.clicked.connect(self._clear_wave_prefill)
+        wave_info_lay.addWidget(btn_clear_wave)
+
+        self._wave_info_box.setVisible(False)
+        layout.addWidget(self._wave_info_box)
 
         form = QFormLayout()
 
@@ -618,22 +760,90 @@ class ProblemLogTab(QWidget):
         self._lbl_run.setText(run_id or "（未選択）")
         self._refresh_table()
 
+    def prefill_from_waveform(self, data: dict) -> None:
+        """WaveformView から呼ばれ、座標情報を自動入力する。"""
+        self._wave_prefill = data
+
+        run_id = data.get("run_id", "")
+        if run_id and self._run_id and run_id != self._run_id:
+            QMessageBox.warning(
+                self,
+                "Run 不一致",
+                f"波形のRun ({run_id}) と\n"
+                f"Problem Log のRun ({self._run_id}) が一致しません。\n"
+                "左パネルで同じ Run を選択してください。",
+            )
+            self._wave_prefill = {}
+            return
+
+        self._lbl_auto_run.setText(f"Run: {run_id or '—'}")
+        lap_no = data.get("lap_no")
+        self._lbl_auto_lap.setText(f"Lap: {lap_no if lap_no is not None else '—'}")
+
+        x_mode = data.get("x_mode", "")
+        if x_mode == "distance":
+            ds = data.get("distance_start_m")
+            de = data.get("distance_end_m")
+            range_str = (f"{ds:.1f}m → {de:.1f}m  ({de - ds:.1f}m)"
+                         if ds is not None and de is not None else "—")
+        elif x_mode == "time":
+            ts = data.get("time_start_s")
+            te = data.get("time_end_s")
+            range_str = (f"{ts:.3f}s → {te:.3f}s  ({te - ts:.3f}s)"
+                         if ts is not None and te is not None else "—")
+        else:
+            ts = data.get("time_start_s")
+            te = data.get("time_end_s")
+            range_str = f"progress {ts:.4f} → {te:.4f}" if ts is not None else "—"
+
+        self._lbl_auto_range.setText(f"Range: {range_str}")
+        self._wave_info_box.setVisible(True)
+
+        if lap_no is not None:
+            self._spin_lap.setValue(int(lap_no))
+
+        src_items = [self._combo_src.itemText(i) for i in range(self._combo_src.count())]
+        if "DATA" in src_items:
+            self._combo_src.setCurrentText("DATA")
+
+    def _clear_wave_prefill(self) -> None:
+        """波形からの自動入力をリセットする。"""
+        self._wave_prefill = {}
+        self._lbl_auto_run.setText("Run: —")
+        self._lbl_auto_lap.setText("Lap: —")
+        self._lbl_auto_range.setText("Range: —")
+        self._wave_info_box.setVisible(False)
+
     def _refresh_table(self):
-        rows = self._db.get_problem_logs(self._run_id) if self._run_id else []
+        try:
+            print("[ProblemLog] run_id:", self._run_id)
+            rows = self._db.get_problem_logs(self._run_id) if self._run_id else []
+            print("[ProblemLog] rows:", len(rows))
+            if rows:
+                print("[ProblemLog] keys:", list(rows[0].keys()))
+        except Exception as e:
+            print("[ProblemLog] refresh error:", e)
+            import traceback; traceback.print_exc()
+            rows = []
         self._table.setRowCount(0)
-        for r in rows:
-            ri = self._table.rowCount()
-            self._table.insertRow(ri)
-            for ci, val in enumerate([
-                r.get("problem_id", ""),
-                r.get("corner", "—"),
-                r.get("phase", "—"),
-                r.get("problem_tag", ""),
-                r.get("description", ""),
-                r.get("severity", ""),
-                r.get("lap_no", "—"),
-            ]):
-                self._table.setItem(ri, ci, QTableWidgetItem(str(val) if val is not None else "—"))
+        for ri, r in enumerate(rows):
+            try:
+                self._table.insertRow(ri)
+                vals = [
+                    str(r.get("problem_id", "")),
+                    str(r.get("corner", "") or ""),
+                    str(r.get("phase", "") or ""),
+                    str(r.get("problem_tag", "") or ""),
+                    str(r.get("description", "") or ""),
+                    str(r.get("severity", "") or ""),
+                    str(r.get("lap_no", "") if r.get("lap_no") is not None else "—"),
+                    _fmt_range(r),
+                    str(r.get("source", "") or ""),
+                ]
+                for ci, val in enumerate(vals):
+                    self._table.setItem(ri, ci, QTableWidgetItem(val))
+            except Exception as e:
+                print(f"[ProblemLog] row {ri} render error:", e)
 
     def _add_entry(self):
         if not self._run_id:
@@ -659,9 +869,16 @@ class ProblemLogTab(QWidget):
             "description": self._txt_desc.toPlainText().strip(),
             "severity":   self._combo_sev.currentText(),
             "source":     self._combo_src.currentText(),
+            "distance_start_m": self._wave_prefill.get("distance_start_m"),
+            "distance_end_m":   self._wave_prefill.get("distance_end_m"),
+            "time_start_s":     self._wave_prefill.get("time_start_s"),
+            "time_end_s":       self._wave_prefill.get("time_end_s"),
+            "data_source_file": self._wave_prefill.get("data_source_file", ""),
+            "analysis_note":    "",
         }
         self._db.add_problem_log(data)
         self._clear_form()
+        self._clear_wave_prefill()
         self._refresh_table()
 
     def _clear_form(self):
@@ -1426,6 +1643,7 @@ class MainWindow(QMainWindow):
         self._tab_problem = ProblemLogTab(db=self._db)
         self._tab_setup   = SetupDecisionTab(db=self._db)
         self._tab_csv     = CsvImportTab(wave_view=self._tab_wave, db=self._db)
+        self._tab_wave.set_problem_tab(self._tab_problem)
         self._tabs.addTab(self._tab_wave,    "📊 波形 (Reference)")
         self._tabs.addTab(self._tab_problem, "⚠️  Problem Log")
         self._tabs.addTab(self._tab_setup,   "🔧 Setup Decision")
