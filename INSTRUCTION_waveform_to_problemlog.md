@@ -482,6 +482,138 @@ FROM problem_log ORDER BY created_at DESC LIMIT 5;
 
 ---
 
+---
+
+## Change 10: macOS ランチャー .app の作成
+
+### 目的
+
+`TS24_Workbench.command` は現在デスクトップに置かれており、ダブルクリックで起動できるが、
+アイコンが標準のターミナルアイコンのままで見つけにくい。
+`.app` バンドル形式で専用ランチャーを作り、カスタムアイコンを設定する。
+
+### 作成場所
+
+```
+05_SCRIPTS/TS24_Workbench.app    ← Gitで管理
+~/Desktop/TS24_Workbench.app     ← ユーザーのデスクトップに別途コピー（指示書には含めない）
+```
+
+### .app バンドル構成
+
+```
+TS24_Workbench.app/
+├── Contents/
+│   ├── Info.plist
+│   ├── MacOS/
+│   │   └── launcher          ← 実行シェルスクリプト (chmod +x)
+│   └── Resources/
+│       └── AppIcon.icns      ← アイコンファイル
+```
+
+### Contents/MacOS/launcher の内容
+
+```bash
+#!/bin/bash
+cd "/Users/ts24/Desktop/Data TS24 Claude/05_SCRIPTS"
+source venv/bin/activate 2>/dev/null || true
+python ts24_workbench.py
+```
+
+### Contents/Info.plist の内容
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>    <string>launcher</string>
+  <key>CFBundleIconFile</key>      <string>AppIcon</string>
+  <key>CFBundleIdentifier</key>    <string>com.ts24.workbench</string>
+  <key>CFBundleName</key>          <string>TS24 Workbench</string>
+  <key>CFBundlePackageType</key>   <string>APPL</string>
+  <key>CFBundleShortVersionString</key> <string>1.0</string>
+  <key>LSUIElement</key>           <false/>
+</dict>
+</plist>
+```
+
+### アイコン生成
+
+カスタムアイコン（`AppIcon.icns`）を Python で生成する。
+pillow を使用（`pip install pillow --break-system-packages`）：
+
+```python
+# generate_icon.py — 05_SCRIPTS/ に置く
+from PIL import Image, ImageDraw, ImageFont
+import subprocess, os, shutil
+
+def make_icon(out_icns: str):
+    sizes = [16, 32, 64, 128, 256, 512, 1024]
+    iconset = out_icns.replace(".icns", ".iconset")
+    os.makedirs(iconset, exist_ok=True)
+    for s in sizes:
+        img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        # 背景: ダークグレー角丸
+        r = s // 8
+        d.rounded_rectangle([0, 0, s-1, s-1], radius=r, fill=(30, 30, 40, 255))
+        # TS24 テキスト
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", int(s * 0.35))
+        except:
+            font = ImageFont.load_default()
+        text = "TS24"
+        bbox = d.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        d.text(((s-tw)//2, (s-th)//2 - s//10), text, font=font, fill=(255, 200, 0, 255))
+        # WB サブテキスト
+        try:
+            font2 = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", int(s * 0.18))
+        except:
+            font2 = ImageFont.load_default()
+        sub = "Workbench"
+        bbox2 = d.textbbox((0, 0), sub, font=font2)
+        sw = bbox2[2]-bbox2[0]
+        d.text(((s-sw)//2, s//2 + s//12), sub, font=font2, fill=(180, 180, 200, 255))
+        # @1x
+        img.save(f"{iconset}/icon_{s}x{s}.png")
+        # @2x (前のサイズ)
+        if s <= 512:
+            img.save(f"{iconset}/icon_{s//2}x{s//2}@2x.png")
+    subprocess.run(["iconutil", "-c", "icns", iconset, "-o", out_icns], check=True)
+    shutil.rmtree(iconset)
+
+make_icon("TS24_Workbench.app/Contents/Resources/AppIcon.icns")
+print("Icon generated.")
+```
+
+### 実装手順（Claude Code が実行する順序）
+
+```bash
+# 1. .app バンドル骨格を作成
+mkdir -p 05_SCRIPTS/TS24_Workbench.app/Contents/MacOS
+mkdir -p 05_SCRIPTS/TS24_Workbench.app/Contents/Resources
+
+# 2. launcher スクリプトを作成 → chmod +x
+# 3. Info.plist を作成
+# 4. generate_icon.py を実行してアイコン生成
+python 05_SCRIPTS/generate_icon.py
+# 5. .app を quarantine 解除
+xattr -cr 05_SCRIPTS/TS24_Workbench.app
+# 6. デスクトップにコピー（Gitにはコミットしない）
+cp -r 05_SCRIPTS/TS24_Workbench.app ~/Desktop/TS24_Workbench.app
+# 7. .gitignore に ~/Desktop コピー分は不要（05_SCRIPTS内はコミット対象）
+```
+
+### .gitignore への追記
+
+`.app` は大きくなりうるため、Gitで管理する場合はアイコンのみ注意。
+基本的にはコミット対象で問題なし（pillow生成アイコンはバイナリだが小さい）。
+
+---
+
 ## Git コミットメッセージ
 
 ```
@@ -499,4 +631,5 @@ feat: waveform range selection → Problem Log auto-fill (Phase 2)
 - add: Range + Source columns to problem_log table widget
 - add: MainWindow.set_problem_tab() wiring
 - result: run_id/lap_no/dist/time auto-filled, tag/phase/desc manual
+- add: TS24_Workbench.app launcher with custom icon (Change 10)
 ```
