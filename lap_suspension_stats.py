@@ -507,8 +507,12 @@ HEADERS = [
     "RUN_NO", "LAP_NO", "DATE", "LAP_TIME", "LAP_TIME_S",
     # APEX (新定義 2026-04-30: BRAKE_FRONT+GAS+dTPS_A+SUSP_F+SUSP_R 5条件同時成立)
     "APEX_CNT",    "APEX_SPD_AVG",    "APEX_SUSF_AVG",    "APEX_SUSR_AVG",
+    # WheelForce Proxy — APEX (Level 1: バネ成分のみ, MR=0.5, LR=2.0 ZX-636R確定値)
+    "WF_F_APEX_N", "WF_R_APEX_N",
     # BRAKE ENTRY / FULL BRK
     "BRK_CNT",     "BRK_SPD_AVG",     "BRK_SUSF_AVG",     "BRK_SUSR_AVG",
+    # WheelForce Proxy — BRK
+    "WF_F_BRK_N",  "WF_R_BRK_N",
     "FULLBRK_CNT", "FULLBRK_SUSF",    "FULLBRK_SUSR",
     # LAP OVERALL
     "LAP_SUSF_MEAN", "LAP_SUSF_MIN", "LAP_SUSF_MAX", "LAP_SUSR_MEAN",
@@ -519,8 +523,12 @@ FIELDS = [
     "run_no", "lap_no", "date", "lap_time_fmt", "lap_time_s",
     # APEX
     "apex_count",    "apex_spd_avg",    "apex_susF_avg",    "apex_susR_avg",
+    # WF APEX
+    "wf_f_apex_n",   "wf_r_apex_n",
     # BRAKE
     "brk_count",     "brk_spd_avg",     "brk_susF_avg",     "brk_susR_avg",
+    # WF BRK
+    "wf_f_brk_n",    "wf_r_brk_n",
     "fullbrk_count", "fullbrk_susF",    "fullbrk_susR",
     # LAP
     "lap_susF_mean", "lap_susF_min", "lap_susF_max", "lap_susR_mean",
@@ -628,11 +636,17 @@ CREATE TABLE lap_suspension (
     apex_spd_avg     REAL,
     apex_susF_avg    REAL,
     apex_susR_avg    REAL,
+    -- WheelForce Proxy APEX (Level 1: Spring only, MR=0.5, LR=2.0 ZX-636R)
+    wf_f_apex_n      REAL,
+    wf_r_apex_n      REAL,
     -- ブレーキ進入 / フルブレーキング
     brk_count        INTEGER,
     brk_spd_avg      REAL,
     brk_susF_avg     REAL,
     brk_susR_avg     REAL,
+    -- WheelForce Proxy BRK
+    wf_f_brk_n       REAL,
+    wf_r_brk_n       REAL,
     fullbrk_count    INTEGER,
     fullbrk_susF     REAL,
     fullbrk_susR     REAL,
@@ -653,7 +667,9 @@ INSERT OR REPLACE INTO lap_suspension (
     lap_id, run_id, round, circuit, session, rider, run_no, lap_no, date,
     lap_time_s, lap_time_fmt,
     apex_count,  apex_spd_avg,  apex_susF_avg,  apex_susR_avg,
+    wf_f_apex_n, wf_r_apex_n,
     brk_count,   brk_spd_avg,   brk_susF_avg,   brk_susR_avg,
+    wf_f_brk_n,  wf_r_brk_n,
     fullbrk_count, fullbrk_susF, fullbrk_susR,
     lap_susF_mean, lap_susF_min, lap_susF_max, lap_susR_mean,
     updated_at
@@ -661,7 +677,9 @@ INSERT OR REPLACE INTO lap_suspension (
     :lap_id, :run_id, :round, :circuit, :session, :rider, :run_no, :lap_no, :date,
     :lap_time_s, :lap_time_fmt,
     :apex_count,  :apex_spd_avg,  :apex_susF_avg,  :apex_susR_avg,
+    :wf_f_apex_n, :wf_r_apex_n,
     :brk_count,   :brk_spd_avg,   :brk_susF_avg,   :brk_susR_avg,
+    :wf_f_brk_n,  :wf_r_brk_n,
     :fullbrk_count, :fullbrk_susF, :fullbrk_susR,
     :lap_susF_mean, :lap_susF_min, :lap_susF_max, :lap_susR_mean,
     datetime('now')
@@ -769,6 +787,38 @@ def main():
               f"APEX SusF avg: {round(sum(apex_f)/len(apex_f),1) if apex_f else '—'} mm | "
               f"BRK SusF avg: {round(sum(brk_f)/len(brk_f),1) if brk_f else '—'} mm | "
               f"LapTime avg: {round(sum(avg_lt)/len(avg_lt),3) if avg_lt else '—'} s")
+
+    # ── WheelForce_Proxy 計算 ────────────────────────────
+    try:
+        _conn = sqlite3.connect(UNIFIED_DB)
+        _cur  = _conn.cursor()
+        _cur.execute("SELECT run_id, f_spr_l, f_spr_r, r_spr FROM runs")
+        spring_rates = {}
+        for _rid, _fl, _fr, _rs in _cur.fetchall():
+            if _fl and _fr and _rs:
+                spring_rates[_rid] = {"f_eff": (_fl + _fr) / 2.0, "r_spr": float(_rs)}
+        _conn.close()
+        wf_hit = 0
+        for row in all_rows:
+            sr = spring_rates.get(row.get("run_id"))
+            if sr:
+                fe, rs = sr["f_eff"], sr["r_spr"]
+                sf_a = row.get("apex_susF_avg"); sr_a = row.get("apex_susR_avg")
+                sf_b = row.get("brk_susF_avg");  sr_b = row.get("brk_susR_avg")
+                row["wf_f_apex_n"] = round(fe * sf_a, 1) if sf_a is not None else None
+                row["wf_r_apex_n"] = round(rs * sr_a * 0.5, 1) if sr_a is not None else None
+                row["wf_f_brk_n"]  = round(fe * sf_b, 1) if sf_b is not None else None
+                row["wf_r_brk_n"]  = round(rs * sr_b * 0.5, 1) if sr_b is not None else None
+                wf_hit += 1
+            else:
+                row["wf_f_apex_n"] = row["wf_r_apex_n"] = None
+                row["wf_f_brk_n"]  = row["wf_r_brk_n"]  = None
+        print(f"  WheelForce_Proxy: {wf_hit}/{len(all_rows)} ランにバネレート適用 (MR=0.5)")
+    except Exception as _e:
+        print(f"  [警告] WheelForce_Proxy 計算失敗: {_e}")
+        for row in all_rows:
+            row.setdefault("wf_f_apex_n", None); row.setdefault("wf_r_apex_n", None)
+            row.setdefault("wf_f_brk_n",  None); row.setdefault("wf_r_brk_n",  None)
 
     # ── 書き込み ─────────────────────────────────────────
     print(f"\n[4/4] データ書き込み...")
