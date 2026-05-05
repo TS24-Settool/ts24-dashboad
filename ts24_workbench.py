@@ -23,8 +23,8 @@ import pandas as pd
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-    QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
+    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
+    QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
     QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     QLineEdit, QFrame, QScrollArea,
@@ -270,6 +270,11 @@ class WaveformView(QWidget):
         self._circuit: str = ""
         self._csv_x_mode: str = "progress"   # "distance" | "time" | "progress"
         self._laps_cache: list[dict] = []
+        # 2ライダー比較用
+        self._laps_cache_b: list[dict] = []
+        self._label_a: str = ""
+        self._label_b: str = ""
+        self._offset_b: float = 0.0
         self._problem_tab: "ProblemLogTab | None" = None
         self._run_id_wave: str = ""
         self._setup_ui()
@@ -403,6 +408,51 @@ class WaveformView(QWidget):
                 sel_row.addWidget(cb)
                 self._ch_checks[_name] = (cb, _pw)
 
+            # ── 比較ライダー表示ラベル ────────────────────────────────
+            self._lbl_b_rider = QLabel("")
+            self._lbl_b_rider.setStyleSheet(
+                "color: #FF8C00; font-weight: bold; font-size: 10px;"
+                " background: #FFF3E0; padding: 2px 6px; border-radius: 3px;"
+            )
+            self._lbl_b_rider.setVisible(False)
+            sel_row.addSpacing(16)
+            sel_row.addWidget(self._lbl_b_rider)
+
+            # ── Bオフセットコントロール ───────────────────────────────
+            lbl_off = QLabel("  Bオフセット:")
+            lbl_off.setStyleSheet("font-size: 10px; color: #666;")
+            self._offset_spin = QDoubleSpinBox()
+            self._offset_spin.setRange(-600.0, 600.0)
+            self._offset_spin.setSingleStep(0.5)
+            self._offset_spin.setSuffix(" s")
+            self._offset_spin.setValue(0.0)
+            self._offset_spin.setDecimals(1)
+            self._offset_spin.setFixedWidth(90)
+            self._offset_spin.setToolTip("比較ライダー(B)の時間軸をずらして位置合わせ")
+            self._offset_spin.valueChanged.connect(self._on_offset_changed)
+
+            btn_reset_off = QPushButton("↺")
+            btn_reset_off.setFixedWidth(28)
+            btn_reset_off.setFixedHeight(22)
+            btn_reset_off.setToolTip("オフセットを 0 にリセット")
+            btn_reset_off.clicked.connect(lambda: self._offset_spin.setValue(0.0))
+
+            btn_clear_b = QPushButton("✕ 比較解除")
+            btn_clear_b.setFixedHeight(22)
+            btn_clear_b.setStyleSheet(
+                "QPushButton { background: #797673; color: white; padding: 2px 8px;"
+                " border-radius: 3px; font-size: 10px; }"
+                "QPushButton:hover { background: #5C5A58; }"
+            )
+            btn_clear_b.setToolTip("比較CSVをクリア")
+            btn_clear_b.clicked.connect(self.clear_compare)
+
+            sel_row.addWidget(lbl_off)
+            sel_row.addWidget(self._offset_spin)
+            sel_row.addWidget(btn_reset_off)
+            sel_row.addSpacing(8)
+            sel_row.addWidget(btn_clear_b)
+
             sel_row.addStretch()
             layout.addLayout(sel_row)
 
@@ -532,9 +582,63 @@ class WaveformView(QWidget):
             else:
                 labels.append(f"CSV Lap {lap_no}  {lt_str}")
         self._combo_a.addItems(labels)
-        self._combo_b.addItems(labels)
-        if len(labels) > 1:
-            self._combo_b.setCurrentIndex(1)
+        # 比較CSVがなければ _combo_b も同期更新
+        if not self._laps_cache_b:
+            self._combo_b.addItems(labels)
+            if len(labels) > 1:
+                self._combo_b.setCurrentIndex(1)
+        else:
+            self._update_combo_b()
+
+    # ── 2ライダー比較 API ─────────────────────────────────────────────
+
+    def set_label_a(self, label: str) -> None:
+        """プライマリCSV（A）のライダーラベルを設定。"""
+        self._label_a = label
+
+    def set_compare_laps(self, laps_b: list[dict], label_b: str) -> None:
+        """比較ライダー(B)のラップデータをセット。_combo_b を更新して再描画。"""
+        self._laps_cache_b = laps_b
+        self._label_b = label_b
+        self._update_combo_b()
+        if hasattr(self, "_lbl_b_rider"):
+            self._lbl_b_rider.setText(f"B: {label_b}  ({len(laps_b)} laps)")
+            self._lbl_b_rider.setVisible(True)
+        self._draw()
+
+    def clear_compare(self) -> None:
+        """比較ライダーのデータをクリアし、通常モードに戻す。"""
+        self._laps_cache_b = []
+        self._label_b = ""
+        self._offset_b = 0.0
+        if hasattr(self, "_offset_spin"):
+            self._offset_spin.setValue(0.0)
+        if hasattr(self, "_lbl_b_rider"):
+            self._lbl_b_rider.setVisible(False)
+        self._update_combo_b()
+        self._draw()
+
+    def _on_offset_changed(self, v: float) -> None:
+        """オフセットスピンボックス変更時。"""
+        self._offset_b = float(v)
+        self._draw()
+
+    def _update_combo_b(self) -> None:
+        """_laps_cache_b がある場合はそちらを、なければ _laps_cache を _combo_b に表示。"""
+        src = self._laps_cache_b if self._laps_cache_b else self._laps_cache
+        self._combo_b.blockSignals(True)
+        self._combo_b.clear()
+        for i, r in enumerate(src):
+            lap_no = r.get("lap_no", i + 1)
+            lt = r.get("lap_time_s")
+            lt_str = f"{lt:.3f}s" if lt else "—"
+            xm = r.get("x_mode", "")
+            if xm == "distance":
+                dist_m = float(r.get("dist_m", r.get("dist_span_m", 0)))
+                self._combo_b.addItem(f"CSV Lap {lap_no}  {dist_m:.0f}m  ({lt_str})")
+            else:
+                self._combo_b.addItem(f"CSV Lap {lap_no}  {lt_str}")
+        self._combo_b.blockSignals(False)
 
     def _send_to_problem_log(self) -> None:
         """選択範囲の座標情報を ProblemLogTab に送り、自動入力させる。"""
@@ -611,9 +715,14 @@ class WaveformView(QWidget):
         if ia < 0 or ia >= len(self._laps_cache):
             return
         lap_a = self._laps_cache[ia]
-        lap_b = self._laps_cache[ib] if (0 <= ib < len(self._laps_cache)) else None
-
-        colors = {"a": pg.mkPen("#0078D4", width=2), "b": pg.mkPen("#E74C3C", width=1.5)}
+        # B ラップ: 比較CSVがあればそちらから、なければ同一CSVから
+        if self._laps_cache_b:
+            lap_b = self._laps_cache_b[ib] if (0 <= ib < len(self._laps_cache_b)) else None
+            pen_b = pg.mkPen("#FF8C00", width=1.5)   # オレンジ = 比較ライダー
+        else:
+            lap_b = self._laps_cache[ib] if (0 <= ib < len(self._laps_cache)) else None
+            pen_b = pg.mkPen("#E74C3C", width=1.5)   # 赤 = 同一CSV内比較（従来）
+        colors = {"a": pg.mkPen("#0078D4", width=2), "b": pen_b}
         x_mode = self._csv_x_mode
 
         for p in self._all_plots:
@@ -636,12 +745,15 @@ class WaveformView(QWidget):
             lo, hi = arr.min(), arr.max()
             return (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
 
-        def _plot(lap, label, pen, channel, plot_obj):
+        def _plot(lap, label, pen, channel, plot_obj, offset_x: float = 0.0):
             xs_raw = _get_x(lap)
             ys_raw = _get_y(lap, channel)
             if not xs_raw or not ys_raw or len(xs_raw) != len(ys_raw):
                 return
-            xs = np.array(xs_raw, dtype=float) if x_mode in ("time", "distance") else _normalize(xs_raw)
+            if x_mode in ("time", "distance"):
+                xs = np.array(xs_raw, dtype=float) + offset_x
+            else:
+                xs = _normalize(xs_raw)
             ys = np.array(ys_raw, dtype=float)
             plot_obj.plot(x=xs, y=ys, pen=pen, name=label)
 
@@ -652,10 +764,14 @@ class WaveformView(QWidget):
             ("susp_front", self._p_suspf),
             ("susp_rear",  self._p_suspr),
         ]
+        label_a = f"{self._label_a + ' ' if self._label_a else ''}L{lap_a.get('lap_no', '')}"
+        offset_apply = self._offset_b if x_mode == "time" else 0.0
+
         for ch, p in _CHAN_PANELS:
-            _plot(lap_a, f"A Lap{lap_a.get('lap_no', '')}", colors["a"], ch, p)
+            _plot(lap_a, f"A:{label_a}", colors["a"], ch, p)
             if lap_b:
-                _plot(lap_b, f"B Lap{lap_b.get('lap_no', '')}", colors["b"], ch, p)
+                label_b = f"{self._label_b + ' ' if self._label_b else ''}L{lap_b.get('lap_no', '')}"
+                _plot(lap_b, f"B:{label_b}", colors["b"], ch, p, offset_x=offset_apply)
 
         # Y auto-range; X range depends on mode
         for p in self._all_plots:
@@ -1958,6 +2074,17 @@ class MainWindow(QMainWindow):
         btn_open_csv.clicked.connect(self._open_csv)
         tb_lay.addWidget(btn_open_csv)
 
+        btn_compare_csv = QPushButton("📂 比較CSV")
+        btn_compare_csv.setFixedHeight(28)
+        btn_compare_csv.setToolTip("2人目ライダーのCSVを追加して波形を重ねて表示")
+        btn_compare_csv.setStyleSheet(
+            "QPushButton { background: #5C2D91; color: white; padding: 4px 10px;"
+            " border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #4A2175; }"
+        )
+        btn_compare_csv.clicked.connect(self._open_csv_compare)
+        tb_lay.addWidget(btn_compare_csv)
+
         tb_lay.addStretch()
 
         self._lbl_status = QLabel("")
@@ -1999,6 +2126,16 @@ class MainWindow(QMainWindow):
         """サーキット変更 — テンプレート適用のみ（ツリー更新なし）。"""
         self._tab_wave.set_circuit(circuit)
 
+    def _parse_filename(self, stem: str) -> dict:
+        """ファイル名から rider / session / round 等を推定する。"""
+        stem_up = stem.upper()
+        rider = ""
+        for tag in ("DA77", "JA52"):
+            if tag in stem_up:
+                rider = tag
+                break
+        return {"rider": rider, "stem": stem}
+
     def _open_csv(self):
         """ファイルダイアログでCSVを選択し、2D CSVタブで読み込んで波形に送る。"""
         default = str(Path.home() / "Desktop" / "Data TS24 Claude" / "06_CSV")
@@ -2008,6 +2145,9 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        stem = Path(path).stem
+        parsed = self._parse_filename(stem)
+        self._tab_wave.set_label_a(parsed.get("rider", ""))
         self._lbl_status.setText(f"読込中: {Path(path).name}")
         try:
             self._tab_csv.load_file(path)
@@ -2015,6 +2155,117 @@ class MainWindow(QMainWindow):
             self._lbl_status.setText(f"読込完了: {Path(path).name}")
         except Exception as e:
             self._lbl_status.setText(f"エラー: {e}")
+
+    def _open_csv_compare(self) -> None:
+        """比較ライダーのCSVを読み込み、WaveformView に渡す。"""
+        import numpy as np
+
+        default = str(Path.home() / "Desktop" / "Data TS24 Claude" / "06_CSV")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "比較CSVファイルを選択", default,
+            "CSV files (*.csv);;All files (*)"
+        )
+        if not path:
+            return
+
+        stem = Path(path).stem
+        parsed = self._parse_filename(stem)
+        label_b = parsed.get("rider", "") or stem[:8]
+
+        try:
+            df = None
+            for enc in ("utf-8-sig", "shift-jis", "utf-8"):
+                try:
+                    df = pd.read_csv(
+                        path, sep=None, engine="python",
+                        encoding=enc, header=0, skiprows=[1], dtype=str,
+                    )
+                    break
+                except Exception:
+                    continue
+            if df is None:
+                QMessageBox.critical(self, "読込失敗", "CSV を読み込めませんでした。")
+                return
+
+            df = df.apply(
+                lambda col: pd.to_numeric(
+                    col.str.replace(",", ".", regex=False), errors="coerce"
+                )
+            )
+
+            CHANNEL_MAP = {
+                "time":       ["time", "time2d"],
+                "distance":   ["dist", "distance"],
+                "speed":      ["speed_front", "speed"],
+                "brake":      ["brake_front"],
+                "gas":        ["gas", "gas_smooth", "tps"],
+                "susp_front": ["susp_front"],
+                "susp_rear":  ["susp_rear"],
+                "lean_angle": ["bike_angle", "lean_angle"],
+            }
+            cols_lower = {c.lower(): c for c in df.columns}
+            col_map: dict[str, str] = {}
+            for ch, aliases in CHANNEL_MAP.items():
+                for alias in aliases:
+                    if alias in cols_lower:
+                        col_map[ch] = cols_lower[alias]
+                        break
+
+            if "time" not in col_map:
+                QMessageBox.warning(self, "チャンネル不足", "Time 列が検出できませんでした。")
+                return
+
+            t_raw = df[col_map["time"]].values
+
+            d_raw = None
+            x_mode = "time"
+            if "distance" in col_map:
+                d_raw = df[col_map["distance"]].values
+                if float(np.nanmax(d_raw)) > 10.0:
+                    x_mode = "distance"
+
+            segments: list[tuple[int, int]] = []
+            seg_start = 0
+            for i in range(1, len(t_raw)):
+                if (t_raw[i] - t_raw[i - 1]) > 5.0:
+                    segments.append((seg_start, i - 1))
+                    seg_start = i
+            segments.append((seg_start, len(t_raw) - 1))
+
+            laps_b: list[dict] = []
+            for lap_no, (s_start, s_end) in enumerate(segments, 1):
+                if s_end - s_start < 10:
+                    continue
+                if x_mode == "distance" and d_raw is not None:
+                    x_vals = d_raw[s_start:s_end + 1].tolist()
+                else:
+                    x_vals = t_raw[s_start:s_end + 1].tolist()
+
+                ch_data: dict[str, list] = {"x": x_vals}
+                for ch in ["speed", "brake", "gas", "susp_front", "susp_rear", "lean_angle"]:
+                    if ch in col_map:
+                        ch_data[ch] = df[col_map[ch]].iloc[s_start:s_end + 1].tolist()
+
+                lt = float(t_raw[s_end]) - float(t_raw[s_start]) if x_mode == "time" else None
+                laps_b.append({
+                    "lap_no":      lap_no,
+                    "lap_time_s":  round(lt, 3) if lt else None,
+                    "x_mode":      x_mode,
+                    "channels":    ch_data,
+                    "source_file": path,
+                })
+
+            if not laps_b:
+                QMessageBox.warning(self, "読込失敗", "ラップデータが検出できませんでした。")
+                return
+
+            self._tab_wave.set_compare_laps(laps_b, label_b)
+            self._lbl_status.setText(
+                f"比較CSV: {Path(path).name}  |  Rider B: {label_b}  |  {len(laps_b)} セグメント"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "CSV読込エラー", str(e))
 
     def _on_csv_loaded(self, meta: dict) -> None:
         """CSV読み込み完了後に run_meta を全タブに伝播させる。"""
