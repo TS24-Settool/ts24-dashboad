@@ -1,6 +1,14 @@
 {
   "version": 2,
   "circuit_insights": {
+    "BALATON": {
+      "JA52": [
+        "[2026-05-01] ROUND4 Balaton Park（ハンガリー）。全長3,937m、12コーナー（左7・右5）。MESデータ確認済：FP×2、QP×8、WU1×1、R1×1（計12ファイル）。Copiaファイルは複製のため処理除外。セットアップ・結果データ入力待ち（DB未登録）。"
+      ],
+      "DA77": [
+        "[2026-05-01] ROUND4 Balaton Park。MESデータ確認済：F1×2、SP×3、WU1+WU2×2、R1×1（計8ファイル）。06_CSVにQP-RUN1/2/3とRACE1の4ファイル出力済みでWorkbench対応確認済。セットアップ・結果データ入力待ち（DB未登録）。"
+      ]
+    },
     "ASSEN": {
       "JA52": [
         "[2026-04-19] Race2 P8確定。スイングアーム568mm・RサスショックR 340mmがベースセットアップ。FサスCOMP 18click（次戦16から評価推奨）。SCXがSC0より全フェーズで優位。",
@@ -319,6 +327,25 @@
         "05_SCRIPTS/INSTRUCTION_wheelforce_proxy_db.md（Cowork Claude作成）",
         "05_SCRIPTS/lap_suspension_stats.py（Claude Code実装・git push済み）",
         "04_REFERENCE/2D_Software_Knowledge.md（§9 リンク比データ追加）"
+      ]
+    },
+    {
+      "date": "2026-05-05",
+      "session_title": "ROUND4 Balaton確認 + Workbench自動検出 + WheelForce完成確認",
+      "key_outcomes": [
+        "lap_suspension_stats.py に import re を追加（構文エラー修正）、py_compile ✅",
+        "Workbench: _ROUND_FALLBACK辞書を追加。ROUND4→BALATON、ROUND1→PHILLIP ISLANDをDBなしでも自動検出",
+        "R04_BALATON.26 DATA 2D確認: JA52=12ファイル(FP×2/QP×8/WU1/R1)、DA77=8ファイル(F1×2/SP×3/WU1+WU2/R1)",
+        "CopiaファイルはMES複製のため処理除外（本体ファイルのみ使用）",
+        "DA77の06_CSV 4ファイル確認済み(QP×3+RACE1)、Workbench対応フォーマット ✅",
+        "DB未登録：ROUND4はExcel RUN_LOG入力 + イベントレポート・結果待ちのため一括更新予定",
+        "set_rocket_icon.command を05_SCRIPTSに作成（launch_workbench.commandにロケットアイコン設定用）",
+        "race_memory.jsonにBALATON circuit_insights追加（3,937m / 12コーナー）"
+      ],
+      "pending": [
+        "ROUND4 RUN_LOG Excel入力（セットアップデータ）→ build_unified_db.py → lap_suspension_stats.py",
+        "JA52 ROUND4 CSVエクスポート未完（MESは存在）",
+        "git push（ts24_workbench.py + race_memory.json変更）"
       ]
     }
   ]

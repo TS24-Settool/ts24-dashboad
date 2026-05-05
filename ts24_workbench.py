@@ -14,6 +14,7 @@ PyQt6製ローカルデスクトップアプリ。
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from datetime import datetime
@@ -2000,6 +2001,62 @@ class MainWindow(QMainWindow):
         """サーキット変更 — テンプレート適用のみ（ツリー更新なし）。"""
         self._tab_wave.set_circuit(circuit)
 
+    # ── ファイル名自動解析 ─────────────────────────────────────────
+    _FNAME_RE = re.compile(
+        r"(\d{8})-"                          # date: YYYYMMDD
+        r"(ROUND\d+|TEST\d+|UNK)-"           # round
+        r"([A-Z0-9]+)-?"                     # session (QP/RACE1/FP/WUP...)
+        r"(?:RUN(\d+)-)?"                    # optional run number
+        r"(DA77|JA52|DA\d+|JA\d+)",          # rider
+        re.IGNORECASE,
+    )
+
+    def _parse_filename(self, stem: str) -> dict:
+        """ファイル名から date/round/session/run_no/rider を抽出。"""
+        m = self._FNAME_RE.search(stem)
+        if not m:
+            return {}
+        date_s, round_s, session_s, run_no_s, rider_s = m.groups()
+        result = {
+            "date":    date_s,
+            "round":   round_s.upper(),
+            "session": session_s.upper(),
+            "rider":   rider_s.upper(),
+        }
+        if run_no_s:
+            result["run_no"] = int(run_no_s)
+        return result
+
+    # DB未登録ラウンドのフォールバック (ROUND → CIRCUIT)
+    _ROUND_FALLBACK: dict[str, str] = {
+        "ROUND1":  "PHILLIP ISLAND",
+        "ROUND4":  "BALATON",
+        "ROUND5":  "",
+        "ROUND10": "",
+    }
+
+    def _detect_circuit(self, round_s: str) -> str:
+        """ROUND → CIRCUIT をDBから引く。DBにない場合はフォールバックマップを使用。"""
+        try:
+            conn = __import__("sqlite3").connect(str(DB_PATH))
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT DISTINCT circuit FROM runs WHERE round = ? AND circuit NOT LIKE 'TEST%'",
+                (round_s,),
+            )
+            rows = [r[0] for r in cur.fetchall() if r[0]]
+            conn.close()
+            # ROUND2は PORTIMAO + CREMONA など混在 → レース系のみ優先
+            race_circuits = [c for c in rows if c not in ("CREMONA", "WORKSHOP", "AUSTRALIA")]
+            if len(race_circuits) == 1:
+                return race_circuits[0]
+            if len(rows) == 1:
+                return rows[0]
+        except Exception:
+            pass
+        # DB未登録の場合はフォールバック
+        return self._ROUND_FALLBACK.get(round_s.upper(), "")
+
     def _open_csv(self):
         """ファイルダイアログでCSVを選択し、2D CSVタブで読み込んで波形に送る。"""
         default = str(Path.home() / "Desktop" / "Data TS24 Claude" / "06_CSV")
@@ -2009,18 +2066,42 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        stem = Path(path).stem
         self._lbl_status.setText(f"読込中: {Path(path).name}")
+
+        # ファイル名自動解析
+        parsed = self._parse_filename(stem)
+
         try:
             self._tab_csv.load_file(path)
             self._tabs.setCurrentWidget(self._tab_wave)
-            self._lbl_status.setText(f"読込完了: {Path(path).name}")
+
+            # サーキット自動検出・ComboBox 更新
+            circuit_detected = ""
+            if parsed.get("round"):
+                circuit_detected = self._detect_circuit(parsed["round"])
+                if circuit_detected:
+                    idx = self._combo_circuit.findText(
+                        circuit_detected, Qt.MatchFlag.MatchFixedString
+                    )
+                    if idx >= 0:
+                        self._combo_circuit.setCurrentIndex(idx)
+                        self._on_circuit_changed(circuit_detected)
+
+            # ステータスバー表示
+            parts = []
+            if parsed.get("rider"):   parts.append(f"Rider: {parsed['rider']}")
+            if parsed.get("session"): parts.append(f"Session: {parsed['session']}")
+            if parsed.get("round"):   parts.append(f"Round: {parsed['round']}")
+            if circuit_detected:      parts.append(f"Circuit: {circuit_detected} ✅")
+            else:                     parts.append("Circuit: 手動選択 ▲")
+            self._lbl_status.setText("  |  ".join(parts))
         except Exception as e:
             self._lbl_status.setText(f"エラー: {e}")
 
     def _on_csv_loaded(self, meta: dict) -> None:
         """CSV読み込み完了後に run_meta を全タブに伝播させる。"""
         run_id = meta.get("run_id", "")
-        self._lbl_status.setText(f"Loaded: {run_id}")
         self._tab_problem.set_run(run_id, meta)
         self._tab_setup.set_run(run_id, meta)
         if hasattr(self._tab_wave, "_right_panel"):
