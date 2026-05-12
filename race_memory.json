@@ -85,6 +85,13 @@
       "run_no": 0,
       "insight": "pseudo_corner_id 実装完了。brake_peak_progress ベースのクラスタリングで同一コーナーを識別。cluster_confidence（高/中/低）付与。ChatGPT監査#1対応。corner_phase_analysis.py に assign_pseudo_corner_ids() 追加、dashboard.py Corner Phase ページにも信頼度フィルター・Y軸ラベル更新・Section Cテーブル列追加。",
       "source": "claude_code"
+    },
+    {
+      "date": "2026-05-12",
+      "circuit": "ALL",
+      "rider": "ALL",
+      "insight": "ts24_workbench.py に workbench_update_spec_v1.2 (Fix1/Fix2/Enhancement3) を実装完了。 Fix1: WaveformView 全5パネルにクロスヘア縦線（黄色破線）追加 — setXLink済みのX軸に InfiniteLine+SignalProxy で連動。 Fix2: ProblemLogTab/SetupDecisionTabに _RunSelectorWidget（Circuit→Run DB連動コンボ）追加 — CSVロード不要で過去Run参照・入力が可能。WorkbenchDB.get_run()追加。 Enhancement3: PostureAnalysisTab（🎯 姿勢分析）新タブ追加 — Pitch=SusF-SusR/Heave=(SusF+SusR)/2 を4パネルで可視化: Pitch-Laptime散布図・PhaseSpace・ライダー指紋レーダー・Lap推移グラフ。 データソース: lap_suspension_data.json (§0参考値)。",
+      "source": "claude_code"
     }
   ],
   "conversation_summaries": [
@@ -122,6 +129,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "旧APEX列(BOFF_*/THRON_*)を完全削除。Excel/JSON/SQLite/dashboardをAPEX_*単一定義に統一。列数34→26に整理。lap_suspension_stats.py・dashboard.py・CLAUDE.md更新・全844ラップ再処理・lap_suspension_data.json再生成・push完了"
+    },
+    {
+      "date": "2026-05-12",
+      "page": "workbench",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code作業: ts24_workbench.py へ3実装完了。(1)クロスヘアカーソル(Fix1) (2)DBベースRun選択UI(Fix2) (3)姿勢分析タブPostureAnalysisTab追加(Enhancement3)。構文チェックOK / コミット待ち。"
     }
   ]
 }

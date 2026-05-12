@@ -136,6 +136,13 @@ class WorkbenchDB:
                 )
             return [dict(r) for r in cur.fetchall()]
 
+    def get_run(self, run_id: str) -> dict:
+        """単一 run の全フィールドを返す。"""
+        with self._conn() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            return dict(row) if row else {}
+
     def get_next_runs(self, run_id: str) -> list[dict]:
         """同一 circuit・rider の次の run 候補を返す。"""
         with self._conn() as conn:
@@ -379,6 +386,22 @@ class WaveformView(QWidget):
                 _pw.showGrid(x=True, y=True, alpha=0.3)
                 _pw.setXRange(0, 1)
 
+            # Crosshair — 全パネルを横断する黄色縦線（マウスホバー連動）
+            self._vlines: list = []
+            self._mouse_proxies: list = []
+            _cross_pen = pg.mkPen("#F5C518", width=1, style=Qt.PenStyle.DashLine)
+            for _pw in self._all_plots:
+                vl = pg.InfiniteLine(angle=90, movable=False, pen=_cross_pen)
+                vl.setVisible(False)
+                _pw.addItem(vl, ignoreBounds=True)
+                self._vlines.append(vl)
+            for _pw in self._all_plots:
+                proxy = pg.SignalProxy(
+                    _pw.scene().sigMouseMoved, rateLimit=60,
+                    slot=lambda ev, p=_pw: self._on_mouse_moved(ev, p),
+                )
+                self._mouse_proxies.append(proxy)
+
             # LinearRegionItem（選択範囲ハイライト）
             self._region = pg.LinearRegionItem(
                 values=[0, 100],
@@ -589,6 +612,21 @@ class WaveformView(QWidget):
                 self._combo_b.setCurrentIndex(1)
         else:
             self._update_combo_b()
+
+    def _on_mouse_moved(self, event, source_plot) -> None:
+        """クロスヘア縦線を全パネルで同時更新する。"""
+        if not hasattr(self, "_vlines"):
+            return
+        pos = event[0]
+        if source_plot.sceneBoundingRect().contains(pos):
+            mp = source_plot.getPlotItem().vb.mapSceneToView(pos)
+            x = mp.x()
+            for vl in self._vlines:
+                vl.setValue(x)
+                vl.setVisible(True)
+        else:
+            for vl in self._vlines:
+                vl.setVisible(False)
 
     # ── 2ライダー比較 API ─────────────────────────────────────────────
 
@@ -1039,6 +1077,87 @@ class _ProblemRightPanel(QWidget):
             self._problem_tab_ref._refresh_table()
 
 
+class _RunSelectorWidget(QWidget):
+    """Circuit → Run 選択 UI。CSV ロード不要で DB から直接 Run を選べる。"""
+
+    def __init__(self, db: WorkbenchDB, on_run_selected, parent=None):
+        super().__init__(parent)
+        self._db = db
+        self._cb = on_run_selected
+        self._setup_ui()
+
+    def _setup_ui(self):
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(6)
+        lbl_c = QLabel("🗂 Circuit:")
+        lbl_c.setStyleSheet("font-size: 10px; font-weight: bold;")
+        lay.addWidget(lbl_c)
+        self._combo_circ = QComboBox()
+        self._combo_circ.setMinimumWidth(120)
+        lay.addWidget(self._combo_circ)
+        lbl_r = QLabel("Run:")
+        lbl_r.setStyleSheet("font-size: 10px; font-weight: bold;")
+        lay.addWidget(lbl_r)
+        self._combo_run = QComboBox()
+        self._combo_run.setMinimumWidth(250)
+        lay.addWidget(self._combo_run)
+        lay.addStretch()
+        self._combo_circ.currentTextChanged.connect(self._on_circ)
+        self._combo_run.currentIndexChanged.connect(self._on_run)
+        self.setStyleSheet(
+            "background: #F0F4F8; border: 1px solid #C8D3DC;"
+            " border-radius: 4px; padding: 2px;"
+        )
+        self._load_circuits()
+
+    def _load_circuits(self):
+        try:
+            circs = self._db.get_circuits()
+        except Exception:
+            circs = []
+        self._combo_circ.blockSignals(True)
+        self._combo_circ.clear()
+        self._combo_circ.addItem("— 全て —")
+        self._combo_circ.addItems(circs)
+        self._combo_circ.blockSignals(False)
+        if circs:
+            self._combo_circ.setCurrentIndex(1)
+        else:
+            self._on_circ("— 全て —")
+
+    def _on_circ(self, circuit: str):
+        circ = circuit if circuit != "— 全て —" else None
+        try:
+            runs = self._db.get_runs(circ)
+        except Exception:
+            runs = []
+        self._combo_run.blockSignals(True)
+        self._combo_run.clear()
+        for r in runs:
+            label = f"{r['rider']}  {r['session']} R{r['run_no']}  ({r['run_id']})"
+            self._combo_run.addItem(label, userData=r["run_id"])
+        self._combo_run.blockSignals(False)
+        if self._combo_run.count():
+            self._combo_run.setCurrentIndex(0)
+            self._emit()
+
+    def _on_run(self, _idx: int):
+        self._emit()
+
+    def _emit(self):
+        run_id = self._combo_run.currentData()
+        if run_id:
+            self._cb(run_id)
+
+    def select_run_id(self, run_id: str):
+        """外部から特定 run_id を選択状態にする（波形ロード連携）。"""
+        for i in range(self._combo_run.count()):
+            if self._combo_run.itemData(i) == run_id:
+                self._combo_run.setCurrentIndex(i)
+                return
+
+
 class ProblemLogTab(QWidget):
     def __init__(self, db: WorkbenchDB, parent=None):
         super().__init__(parent)
@@ -1050,6 +1169,10 @@ class ProblemLogTab(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
+
+        # ── DB ベース Run セレクタ ────────────────────────────────────
+        self._run_sel = _RunSelectorWidget(self._db, self._on_db_run_selected)
+        layout.addWidget(self._run_sel)
 
         # ── 一覧テーブル ──────────────────────────────────
         self._table = QTableWidget(0, 9)
@@ -1167,11 +1290,24 @@ class ProblemLogTab(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
+    def _on_db_run_selected(self, run_id: str):
+        """Run セレクタから呼ばれる。DB からメタを取得して set_run() へ渡す。"""
+        try:
+            meta = self._db.get_run(run_id)
+        except Exception:
+            meta = {}
+        self._run_id = run_id
+        self._run_meta = meta
+        self._lbl_run.setText(run_id or "（未選択）")
+        self._refresh_table()
+
     def set_run(self, run_id: str, meta: dict):
         self._run_id = run_id
         self._run_meta = meta
         self._lbl_run.setText(run_id or "（未選択）")
         self._refresh_table()
+        if hasattr(self, "_run_sel"):
+            self._run_sel.select_run_id(run_id)
 
     def prefill_from_waveform(self, data: dict) -> None:
         """WaveformView から呼ばれ、座標情報を自動入力する。"""
@@ -1339,6 +1475,10 @@ class SetupDecisionTab(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
+        # ── DB ベース Run セレクタ ────────────────────────────────────
+        self._run_sel = _RunSelectorWidget(self._db, self._on_db_run_selected)
+        layout.addWidget(self._run_sel)
+
         # ── 一覧テーブル ──────────────────────────────────
         self._table = QTableWidget(0, 6)
         self._table.setHorizontalHeaderLabels(
@@ -1419,6 +1559,13 @@ class SetupDecisionTab(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
+    def _on_db_run_selected(self, run_id: str):
+        try:
+            meta = self._db.get_run(run_id)
+        except Exception:
+            meta = {}
+        self.set_run(run_id, meta)
+
     def set_run(self, run_id: str, meta: dict):
         self._run_id = run_id
         self._run_meta = meta
@@ -1432,6 +1579,8 @@ class SetupDecisionTab(QWidget):
                 userData=nr["run_id"],
             )
         self._refresh_table()
+        if hasattr(self, "_run_sel"):
+            self._run_sel.select_run_id(run_id)
 
     def _refresh_table(self):
         rows = self._db.get_setup_decisions(self._run_id) if self._run_id else []
@@ -2027,6 +2176,345 @@ class CsvImportTab(QWidget):
 # メインウィンドウ
 # ════════════════════════════════════════════════════════════════════
 
+class PostureAnalysisTab(QWidget):
+    """🎯 姿勢分析タブ
+    Pitch = ApexSusF - ApexSusR  (負値=ノーズDOWN=良好なターンイン)
+    Heave = (ApexSusF + ApexSusR) / 2  (全体沈み込み量)
+    データソース: lap_suspension_data.json (参考値 §0)
+    """
+
+    _LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
+    _COLORS   = {"DA77": "#0078D4", "JA52": "#FF8C00"}
+
+    def __init__(self, db: WorkbenchDB, parent=None):
+        super().__init__(parent)
+        self._db  = db
+        self._df  = None        # pandas DataFrame
+        self._circuit_filter = ""
+        self._setup_ui()
+        self._load_data()
+
+    # ── データ読み込み ──────────────────────────────────────────────
+
+    def _load_data(self):
+        if not self._LAP_SUS.exists():
+            if hasattr(self, "_lbl_status"):
+                self._lbl_status.setText(
+                    "⚠️  lap_suspension_data.json が見つかりません。"
+                    " python lap_suspension_stats.py を実行してください。"
+                )
+            return
+        try:
+            raw = json.loads(self._LAP_SUS.read_text(encoding="utf-8"))
+            self._df = pd.DataFrame(raw)
+            self._df.columns = [c.lower() for c in self._df.columns]
+            sf = "apex_susf_avg"
+            sr = "apex_susr_avg"
+            if sf in self._df.columns and sr in self._df.columns:
+                self._df["pitch"] = self._df[sf] - self._df[sr]
+                self._df["heave"] = (self._df[sf] + self._df[sr]) / 2.0
+            if hasattr(self, "_lbl_status"):
+                n = len(self._df)
+                riders = self._df["rider"].unique().tolist() if "rider" in self._df.columns else []
+                self._lbl_status.setText(
+                    f"✅  {n} ラップ読み込み済 | riders: {', '.join(riders)}"
+                )
+            # サーキット選択コンボ更新
+            if "circuit" in self._df.columns:
+                circs = sorted(self._df["circuit"].dropna().unique().tolist())
+                self._combo_circ.blockSignals(True)
+                self._combo_circ.clear()
+                self._combo_circ.addItem("全サーキット")
+                self._combo_circ.addItems(circs)
+                self._combo_circ.blockSignals(False)
+            self._update_all()
+        except Exception as e:
+            if hasattr(self, "_lbl_status"):
+                self._lbl_status.setText(f"❌ 読み込みエラー: {e}")
+
+    def _filtered_df(self):
+        if self._df is None:
+            return None
+        df = self._df
+        circ = self._combo_circ.currentText()
+        if circ and circ != "全サーキット" and "circuit" in df.columns:
+            df = df[df["circuit"] == circ]
+        return df
+
+    # ── UI 構築 ────────────────────────────────────────────────────
+
+    def _setup_ui(self):
+        try:
+            import pyqtgraph as pg
+            self._pg   = pg
+            self._haspg = True
+        except ImportError:
+            self._haspg = False
+
+        root = QVBoxLayout(self)
+        root.setSpacing(4)
+
+        # §0 原則注記
+        warn = QLabel("⚠️  §0 参考値 — lap_suspension_data.json (推定値)")
+        warn.setStyleSheet("color: #D83B01; font-style: italic; font-size: 10px; padding: 2px;")
+        root.addWidget(warn)
+
+        # ツールバー行
+        tb = QHBoxLayout()
+        self._lbl_status = QLabel("データ読込中…")
+        self._lbl_status.setStyleSheet("font-size: 10px; color: #666;")
+        tb.addWidget(self._lbl_status, stretch=1)
+        tb.addWidget(QLabel("Circuit:"))
+        self._combo_circ = QComboBox()
+        self._combo_circ.setMinimumWidth(130)
+        self._combo_circ.currentTextChanged.connect(self._update_all)
+        tb.addWidget(self._combo_circ)
+        btn_reload = QPushButton("↺ 再読込")
+        btn_reload.setFixedHeight(24)
+        btn_reload.clicked.connect(self._load_data)
+        tb.addWidget(btn_reload)
+        root.addLayout(tb)
+
+        if not self._haspg:
+            root.addWidget(QLabel("pyqtgraph が必要です: pip install pyqtgraph"))
+            return
+
+        pg = self._pg
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+
+        # 2×2 グリッド: QSplitter 縦 × (横スプリッタ 上/下)
+        vsplit = QSplitter(Qt.Orientation.Vertical)
+
+        # 上段スプリッタ
+        top = QSplitter(Qt.Orientation.Horizontal)
+        self._pw_scatter = pg.PlotWidget(title="Pitch vs Lap Time")
+        self._pw_phase   = pg.PlotWidget(title="Phase Space (SusF vs SusR)")
+        top.addWidget(self._pw_scatter)
+        top.addWidget(self._pw_phase)
+        top.setStretchFactor(0, 1)
+        top.setStretchFactor(1, 1)
+
+        # 下段スプリッタ
+        bot = QSplitter(Qt.Orientation.Horizontal)
+        self._pw_radar = pg.PlotWidget(title="Rider Fingerprint")
+        self._pw_trend = pg.PlotWidget(title="Pitch / Heave Lap推移")
+        bot.addWidget(self._pw_radar)
+        bot.addWidget(self._pw_trend)
+        bot.setStretchFactor(0, 1)
+        bot.setStretchFactor(1, 1)
+
+        vsplit.addWidget(top)
+        vsplit.addWidget(bot)
+        vsplit.setStretchFactor(0, 1)
+        vsplit.setStretchFactor(1, 1)
+        root.addWidget(vsplit, stretch=1)
+
+        for _pw in (self._pw_scatter, self._pw_phase, self._pw_radar, self._pw_trend):
+            _pw.showGrid(x=True, y=True, alpha=0.3)
+            _pw.addLegend()
+
+        # Radar は極座標描画のため軸を非表示・正方形
+        self._pw_radar.setAspectLocked(True)
+        self._pw_radar.hideAxis("bottom")
+        self._pw_radar.hideAxis("left")
+
+    # ── 描画 ───────────────────────────────────────────────────────
+
+    def _update_all(self):
+        if not self._haspg or self._df is None:
+            return
+        df = self._filtered_df()
+        if df is None or df.empty:
+            return
+        self._draw_pitch_scatter(df)
+        self._draw_phase_space(df)
+        self._draw_radar(df)
+        self._draw_trend(df)
+
+    def _draw_pitch_scatter(self, df):
+        """Panel 1: Pitch vs Lap Time散布図。"""
+        pg  = self._pg
+        pw  = self._pw_scatter
+        pw.clear()
+        pw.setLabel("left", "Pitch (mm) = SusF - SusR")
+        pw.setLabel("bottom", "Lap Time (s)")
+        if "pitch" not in df.columns or "lap_time_s" not in df.columns:
+            return
+        pw.addLegend()
+        for rider, col in self._COLORS.items():
+            sub = df[df.get("rider", pd.Series(dtype=str)) == rider] if "rider" in df.columns else df
+            if rider not in df.get("rider", pd.Series(dtype=str)).values:
+                continue
+            sub = df[df["rider"] == rider].dropna(subset=["pitch", "lap_time_s"])
+            if sub.empty:
+                continue
+            pw.plot(
+                x=sub["lap_time_s"].values.tolist(),
+                y=sub["pitch"].values.tolist(),
+                pen=None,
+                symbol="o", symbolSize=6,
+                symbolBrush=pg.mkBrush(col),
+                symbolPen=pg.mkPen(col, width=0.5),
+                name=rider,
+            )
+        # ゼロライン
+        pw.addItem(pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen("#888", width=1,
+                                   style=Qt.PenStyle.DotLine)))
+
+    def _draw_phase_space(self, df):
+        """Panel 2: SusF vs SusR Phase Space。速いラップ=青、遅い=赤。"""
+        pg = self._pg
+        pw = self._pw_phase
+        pw.clear()
+        pw.setLabel("left",   "Apex SusR (mm)")
+        pw.setLabel("bottom", "Apex SusF (mm)")
+        sf_col = "apex_susf_avg"
+        sr_col = "apex_susr_avg"
+        lt_col = "lap_time_s"
+        if sf_col not in df.columns or sr_col not in df.columns:
+            return
+        sub = df.dropna(subset=[sf_col, sr_col])
+        if sub.empty:
+            return
+        pw.addLegend()
+        for rider, col in self._COLORS.items():
+            if "rider" not in df.columns:
+                break
+            rs = sub[sub["rider"] == rider]
+            if rs.empty:
+                continue
+            symbol = "o" if rider == "DA77" else "t"
+            pw.plot(
+                x=rs[sf_col].values.tolist(),
+                y=rs[sr_col].values.tolist(),
+                pen=None,
+                symbol=symbol, symbolSize=7,
+                symbolBrush=pg.mkBrush(col + "A0"),
+                symbolPen=pg.mkPen(col, width=0.5),
+                name=rider,
+            )
+        # 対角線（SusF=SusR）
+        lim = max(sub[sf_col].max(), sub[sr_col].max()) * 1.05
+        pw.plot([0, lim], [0, lim], pen=pg.mkPen("#CCC", width=1,
+                style=Qt.PenStyle.DotLine))
+
+    def _draw_radar(self, df):
+        """Panel 3: ライダー指紋レーダーチャート（5軸）。"""
+        import math
+        pg = self._pg
+        pw = self._pw_radar
+        pw.clear()
+        pw.addLegend()
+
+        METRICS = [
+            ("pitch",          "Pitch\n(SusF-SusR)",  True),   # (列名, ラベル, 小さい=良い)
+            ("heave",          "Heave\n(avg sink)",    True),
+            ("brk_susf_avg",   "BRK\nSusF",           True),
+            ("apex_spd_avg",   "Apex\nSpeed",          False),  # 大きい=良い
+            ("lap_time_s",     "Lap\nTime",            True),
+        ]
+        n = len(METRICS)
+        angles = [2 * math.pi * i / n - math.pi / 2 for i in range(n)]
+
+        # 各指標の全ライダー平均
+        rider_vals: dict[str, list[float]] = {}
+        raw_stats: dict[str, dict] = {}
+        for rider in self._COLORS:
+            if "rider" not in df.columns:
+                break
+            rs = df[df["rider"] == rider]
+            vals = []
+            stats = {}
+            for col, _lbl, lower_better in METRICS:
+                if col in rs.columns:
+                    v = rs[col].dropna().mean()
+                    stats[col] = float(v) if not pd.isna(v) else 0.0
+                else:
+                    stats[col] = 0.0
+                vals.append(stats[col])
+            rider_vals[rider] = vals
+            raw_stats[rider] = stats
+
+        if not rider_vals:
+            return
+
+        # 各軸を 0-1 正規化（全ライダー横断）
+        norm_vals: dict[str, list[float]] = {r: [] for r in rider_vals}
+        for i, (col, _lbl, lower_better) in enumerate(METRICS):
+            all_v = [rider_vals[r][i] for r in rider_vals if rider_vals[r]]
+            mn, mx = min(all_v), max(all_v)
+            span = mx - mn if mx != mn else 1.0
+            for rider in rider_vals:
+                raw = rider_vals[rider][i]
+                norm = (raw - mn) / span  # 0=低, 1=高
+                # 「小さい=良い」指標は反転して 1=良い になるよう
+                if lower_better:
+                    norm = 1.0 - norm
+                norm_vals[rider].append(norm)
+
+        # グリッド円
+        for r in [0.25, 0.5, 0.75, 1.0]:
+            xs = [math.cos(a) * r for a in angles] + [math.cos(angles[0]) * r]
+            ys = [math.sin(a) * r for a in angles] + [math.sin(angles[0]) * r]
+            pw.plot(xs, ys, pen=pg.mkPen("#DDD", width=0.7))
+
+        # 軸線 + ラベル
+        for a, (_, lbl, _b) in zip(angles, METRICS):
+            pw.plot([0, math.cos(a)], [0, math.sin(a)],
+                    pen=pg.mkPen("#AAA", width=0.7))
+            ti = pg.TextItem(lbl, anchor=(0.5, 0.5), color="#555")
+            ti.setPos(math.cos(a) * 1.22, math.sin(a) * 1.22)
+            pw.addItem(ti)
+
+        # ライダーポリゴン
+        for rider, col in self._COLORS.items():
+            if rider not in norm_vals:
+                continue
+            nv = norm_vals[rider]
+            xs = [math.cos(angles[i]) * nv[i] for i in range(n)] + \
+                 [math.cos(angles[0]) * nv[0]]
+            ys = [math.sin(angles[i]) * nv[i] for i in range(n)] + \
+                 [math.sin(angles[0]) * nv[0]]
+            pw.plot(xs, ys, pen=pg.mkPen(col, width=2.5), name=rider,
+                    fillLevel=0, brush=pg.mkBrush(col + "28"))
+
+        pw.setXRange(-1.4, 1.4, padding=0)
+        pw.setYRange(-1.4, 1.4, padding=0)
+
+    def _draw_trend(self, df):
+        """Panel 4: Lap 推移 (Pitch / Heave)。最新ランを自動選択。"""
+        pg = self._pg
+        pw = self._pw_trend
+        pw.clear()
+        pw.setLabel("left",   "mm")
+        pw.setLabel("bottom", "Lap No")
+        pw.addLegend()
+        if "pitch" not in df.columns or "lap_no" not in df.columns:
+            return
+        for rider, col in self._COLORS.items():
+            if "rider" not in df.columns:
+                break
+            rs = df[df["rider"] == rider].sort_values("lap_no")
+            if rs.empty:
+                continue
+            rs = rs.dropna(subset=["lap_no", "pitch", "heave"])
+            if rs.empty:
+                continue
+            laps = rs["lap_no"].values.tolist()
+            pw.plot(laps, rs["pitch"].values.tolist(),
+                    pen=pg.mkPen(col, width=2),
+                    symbol="o", symbolSize=5, symbolBrush=pg.mkBrush(col),
+                    name=f"{rider} Pitch")
+            pw.plot(laps, rs["heave"].values.tolist(),
+                    pen=pg.mkPen(col, width=1.5, style=Qt.PenStyle.DashLine),
+                    symbol="t", symbolSize=5, symbolBrush=pg.mkBrush(col + "80"),
+                    name=f"{rider} Heave")
+        # Pitch=0 ライン
+        pw.addItem(pg.InfiniteLine(pos=0, angle=0,
+                   pen=pg.mkPen("#888", width=1, style=Qt.PenStyle.DotLine)))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, db: WorkbenchDB):
         super().__init__()
@@ -2099,6 +2587,7 @@ class MainWindow(QMainWindow):
         self._tab_problem = ProblemLogTab(db=self._db)
         self._tab_setup   = SetupDecisionTab(db=self._db)
         self._tab_csv     = CsvImportTab(wave_view=self._tab_wave, db=self._db)
+        self._tab_posture = PostureAnalysisTab(db=self._db)
         self._tab_wave.set_problem_tab(self._tab_problem)
         if hasattr(self._tab_wave, "_right_panel"):
             self._tab_wave._right_panel.set_problem_tab(self._tab_problem)
@@ -2107,6 +2596,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._tab_problem, "⚠️  Problem Log")
         self._tabs.addTab(self._tab_setup,   "🔧 Setup Decision")
         self._tabs.addTab(self._tab_csv,     "📂 2D CSV")
+        self._tabs.addTab(self._tab_posture, "🎯 姿勢分析")
 
         root.addWidget(self._tabs)
 
