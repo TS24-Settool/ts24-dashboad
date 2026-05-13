@@ -261,6 +261,8 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
         "PHILLIPISLAND": "PHILLIP ISLAND",
         "PHILLIPISISLAND": "PHILLIP ISLAND",
         "PHILLIP ISLAND": "PHILLIP ISLAND",
+        "BALATON PARK": "BALATON",
+        "BALATONPARK": "BALATON",
     }
     circuit = _CIRC_NORM.get(circuit.upper().strip(), circuit.upper().strip())
 

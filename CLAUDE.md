@@ -1,6 +1,6 @@
 # CLAUDE.md — TS24 Project Team Shared Context
 **Project:** TS24 SET-UP TOOL / Puccetti Racing WorldSSP Suspension Management System
-**Last Updated:** 2026-05-05
+**Last Updated:** 2026-05-13
 **Read this file at the start of every session — Claude Code, Cowork Claude, and ChatGPT both.**
 
 ---
@@ -763,7 +763,7 @@ python ts24_workbench.py
 
 ---
 
-## 7. race_memory.json — 知見蓄積ファイル
+## 7b. race_memory.json — 知見蓄積ファイル
 
 **このファイルはCoworkとClaude Codeの共有記憶。**
 
@@ -987,3 +987,250 @@ python lap_suspension_stats.py
 
 *このファイルはプロジェクトの進化とともに更新する。*
 *重要な決定・変更・発見は必ずここに反映すること。*
+
+---
+
+## 14. ツール役割定義（2026-05-13 確定）
+
+### 3ツールの明確な役割分担
+
+| ツール | 対象ユーザー | 役割 | 方針 |
+|-------|------------|------|------|
+| **Workbench** (`ts24_workbench.py`) | エンジニア（Tatsuki） | 記録・思考・検証 | DB中心・CSV不要・波形なし |
+| **Dashboard** (`dashboard.py`) | 関係者（チーム・スポンサー等） | 情報共有・結果報告 | シンプル・直感的・技術的グラフなし |
+| **Cowork Claude** | エンジニア | 深い分析・解釈・提案 | DBに蓄積されたデータを対話的に分析 |
+
+### Workbench: 波形機能の廃止決定（2026-05-13）
+
+**決定:** `WaveformView` タブ・CSV Import 機能を Workbench から完全削除する。
+
+**理由:**
+- 波形解析は 2D Analyzer（MES専用ソフト）が担う
+- Workbench の本質は「記録・思考・検証」であり、波形表示は本来の目的外
+- CSV不要でWorkbenchを使えることが最重要（波形削除でこれが実現）
+
+**廃止対象クラス/タブ:**
+- `WaveformView` クラス全体
+- `CsvImportTab` クラス全体
+- 波形タブ（トップレベルタブから削除）
+
+**廃止後のタブ構成:**
+```
+[🗺️ Run Browser] [⚡ Quick Log] [📋 Problem Log] [🔧 Setup Decision] [📈 Trend Analysis]
+```
+
+### Dashboard: シンプル化の方針
+
+**残すもの（直感的・関係者向け）:**
+- シーズン順位・ポイント推移
+- ラウンド別ラップタイム結果
+- 問題サマリー（セッションごとの件数）
+- セットアップ変更の前後比較（シンプル数値）
+
+**将来的に削除候補（エンジニア向けすぎる）:**
+- Lap Overlay / Corner Phase Analysis / Suspension Dynamics
+- Setup Target の複雑な散布図群
+
+※ Dashboard のシンプル化は Workbench Phase 1 完了後に着手する。
+
+---
+
+## 15. Workbench 改善計画 v1.2（2026-05-12 Cowork Claude 設計）
+
+**詳細仕様:** `05_SCRIPTS/workbench_update_spec_v1.2.md` を必ず読むこと。
+
+### Fix 1: 波形グラフ X軸同期（優先度: 高）
+
+**問題:** `WaveformView` の5つのPlotWidgetが独立。ズーム/パンが連動しない。
+**解決策:** `setXLink()` で全グラフをSpeedグラフにリンク + クロスヘア縦線。
+
+```python
+# _setup_ui() 内、全PlotWidget生成後に追加
+for pw in self._plot_widgets[1:]:
+    pw.setXLink(self._plot_widgets[0])  # brake/gas/susf/susr → speed に同期
+
+# クロスヘア縦線
+self._vlines = []
+for pw in self._plot_widgets:
+    vl = pg.InfiniteLine(angle=90, movable=False,
+                         pen=pg.mkPen(color='y', width=1, style=Qt.PenStyle.DashLine))
+    pw.addItem(vl, ignoreBounds=True)
+    self._vlines.append(vl)
+
+self._plot_widgets[0].scene().sigMouseMoved.connect(self._on_mouse_moved)
+
+def _on_mouse_moved(self, evt):
+    pos = evt[0] if isinstance(evt, tuple) else evt
+    if self._plot_widgets[0].sceneBoundingRect().contains(pos):
+        mp = self._plot_widgets[0].plotItem.vb.mapSceneToView(pos)
+        for vl in self._vlines:
+            vl.setPos(mp.x())
+```
+
+### Fix 2: Problem Log / Setup Decision の独立Run選択（優先度: 高）
+
+**問題:** 両タブがCSV未ロード時に Run=(未選択) → テーブル空。
+**解決策:** タブ内にDBベースのCircuit + Run選択コンボを追加（全Run表示オプション付き）。
+
+### Enhancement 3: バイク姿勢分析タブ追加（優先度: 中）
+
+**新サブタブ `🎯 姿勢分析`** を TrendAnalysisTab に追加。
+
+| 指標 | 計算式 | 解釈 |
+|------|--------|------|
+| **Pitch** | ApexSusF − ApexSusR [mm] | 負=ノーズDOWN(ターンイン良), 正=ノーズUP |
+| **Heave** | (ApexSusF + ApexSusR) / 2 [mm] | バイク全体の沈み込み量 |
+
+**4パネル構成:**
+1. Pitch vs Lap Time 散布図（目標ゾーン表示）
+2. Phase Space（ApexSusF vs ApexSusR）— ライダー好みクラスター可視化
+3. ライダー指紋レーダーチャート（matplotlib → QLabel Pixmap）
+4. Lap-by-Lap Pitch/Heave 推移（タイヤ摩耗トラッキング）
+
+**依存ライブラリ追加:** `requirements_workbench.txt` に `scipy>=1.10.0`, `matplotlib>=3.7.0` を追記。
+
+### 実装後の状態テーブル（更新予定）
+
+| 機能 | 実装前 | 実装後 |
+|------|--------|--------|
+| 波形X軸同期 | ❌ 独立 | ✅ setXLink() |
+| クロスヘアカーソル | ❌ なし | ✅ 全グラフ連動 |
+| Problem LogのRun選択 | ❌ CSV依存 | ✅ DB独立 |
+| Pitch/Heave分析 | ❌ なし | ✅ 姿勢分析タブ |
+| レーダーチャート | ❌ なし | ✅ DA77 vs JA52 |
+
+---
+
+## 16. Workbench 再設計 v2.0（2026-05-13 Cowork Claude 設計）
+
+**詳細仕様:** `05_SCRIPTS/workbench_redesign_spec_v2.0.md` を必ず読むこと。
+
+### 基本方針の転換
+
+**従来:** 「波形ビューアツール（CSV必須）」  
+**新方針:** 「記録・思考・検証ツール（CSV不要でも使える）」
+
+```
+現場で気づいた問題 → 30秒でQuick Log（DBのみ）
+               ↓
+      問題 → 仮説 → セットアップ変更 → 結果 の一連を記録
+               ↓
+      知見（Knowledge Case）として蓄積 → 次ラウンドに活用
+```
+
+### 新規DBテーブル（3つ）
+
+| テーブル | 役割 |
+|---------|------|
+| `analysis_note` | 思考・仮説・気づきの記録（問題に紐付け可） |
+| `result_validation` | セットアップ変更の効果検証 |
+| `knowledge_cases` | 繰り返し問題 → 解決パターンの知識化 |
+
+**CREATE文:** `workbench_redesign_spec_v2.0.md` の Section 2 に完全定義あり。
+
+### 新UIタブ（追加）
+
+| タブ名 | 目的 |
+|-------|------|
+| 🗺️ Run Browser | DB全Runを横断閲覧・フィルタ・Run切り替え |
+| ⚡ Quick Log | CSV不要で問題を30秒記録（最重要） |
+| 💭 Analysis Note | 仮説・思考を紐付き記録 |
+| ✅ Result Validation | 変更前後の効果検証 |
+| 📚 Knowledge Base | 蓄積知見の検索・参照 |
+
+### Phase 1 実装優先事項（Claude Code指示）
+
+1. `create_workbench_tables.py` に3新テーブル追加（analysis_note, result_validation, knowledge_cases）
+2. `ts24_workbench.py` に `RunBrowserTab` 追加（DBからRun一覧 → フィルタ → Run切り替え）
+3. `ts24_workbench.py` に `QuickLogTab` 追加（Circuit/Session/Run選択 + ProblemLog記録フォーム）
+4. タブ順序更新: 先頭に「Run Browser」「Quick Log」を配置
+
+**成功基準:** CSV未ロード状態でQuick Logタブを開き、問題を30秒以内に記録できること。
+
+### Phase 2〜3（将来実装）
+
+- Analysis Note タブ（思考記録・問題紐付け）
+- Result Validation タブ（効果検証フォーム）
+- Knowledge Base タブ（知見検索）
+- TrendAnalysisTab への BI統合ビュー
+
+### Claude Code への作業指示文（コピーしてそのまま渡すこと）
+
+```
+CLAUDE.md の Section 14・15・16 を読んでから実装すること。
+また 05_SCRIPTS/workbench_redesign_spec_v2.0.md と 05_SCRIPTS/workbench_update_spec_v1.2.md も参照すること。
+
+【最重要決定】WaveformView と CsvImportTab を完全削除する（2026-05-13 確定）
+  - WaveformView クラス全体を削除
+  - CsvImportTab クラス全体を削除
+  - 波形タブをトップレベルタブから削除
+  - 波形関連のimport（pyqtgraph以外に依存するもの）を整理
+
+実装優先順位:
+  1. [削除] WaveformView / CsvImportTab の完全削除
+  2. [v2.0] create_workbench_tables.py に analysis_note/result_validation/knowledge_cases を追加
+  3. [v2.0] ts24_workbench.py に RunBrowserTab を新規作成（DB全Run一覧・フィルタ・Run切り替え）
+  4. [v2.0] ts24_workbench.py に QuickLogTab を新規作成（CSV不要・30秒記録）
+  5. [v1.2] ProblemLogTab / SetupDecisionTab に独立Run選択UIを追加（Circuit + Run コンボ）
+
+完了後のタブ構成（この順序で）:
+  [🗺️ Run Browser] [⚡ Quick Log] [📋 Problem Log] [🔧 Setup Decision] [📈 Trend Analysis]
+
+成功基準:
+  - Workbenchを起動してCSVを一切使わずにQuick Logで問題を記録できること
+  - Problem LogタブがCSV未ロードでも全件表示できること
+
+完了後チェック:
+  python3 -m py_compile ts24_workbench.py
+  race_memory.json の conversation_summaries に実装内容を記録
+```
+
+---
+
+## 17. 自動化システム v1.0（2026-05-13 Cowork Claude 設計）
+
+**詳細仕様:** `05_SCRIPTS/automation_spec_v1.0.md` を必ず読むこと。
+
+### 構成概要
+
+単一デーモン `ts24_watcher.py`（macOS LaunchAgent）が以下を監視:
+
+| 監視フォルダ | ファイル種別 | 処理 |
+|------------|-----------|------|
+| `07_RESULTS/` | `*.pdf` | pdf_result_extractor.py → race_results テーブル |
+| `01_REPORTS/**` | `*ROUND*.xlsx` | report_importer.py → DB Master + SQLite |
+| `DATA 2D/**` | `*.MES` | mes_importer.py → 既存スクリプト群を順次実行 |
+| `02_DATABASE/ts24_unified.db` | DB変更 | Workbench QFileSystemWatcher でリロード |
+
+### 最重要ルール: DB Masterの既存フォーマット厳守
+
+**既存シートのフォーマット（フォント・色・レイアウト）は一切変更しないこと。**  
+データ行を追加するだけ。スタイルは必ず既存行からコピー（openpyxl copy_style 相当）。
+
+### 新規追加のみ（変更禁止）
+
+- **SQLite**: `race_results` テーブルを新規作成（既存テーブル変更なし）
+- **DB Master**: 既存シートにデータ行を追加のみ。新シート `RACE_RESULTS` は新規作成可。
+
+### Claude Code への作業指示文（コピーしてそのまま渡すこと）
+
+```
+CLAUDE.md の Section 17 と 05_SCRIPTS/automation_spec_v1.0.md を読んでから実装すること。
+
+【最重要制約】TS24 DB Master.xlsx の既存シートのフォーマットは絶対に変更しないこと。
+  データ行の追加は OK。スタイルは必ず既存行から copy すること。
+
+実装優先順位:
+  1. ts24_watcher.py — watchdog 監視デーモン骨格 + LaunchAgent plist 生成スクリプト
+  2. report_importer.py — excel_parser.py の CLI化 + watcher からの呼び出し
+  3. race_results テーブル CREATE 文を create_workbench_tables.py に追加
+  4. pdf_result_extractor.py — pdfplumber で結果/セクターを抽出 → race_results テーブル
+  5. mes_importer.py — 既存スクリプト群（lap_suspension_stats / parse_2d_channels / parse_2d_to_excel）を順次呼び出すオーケストレーター
+  6. ts24_workbench.py に QFileSystemWatcher を追加（各タブに refresh() メソッドも追加）
+
+完了後チェック:
+  launchctl list | grep ts24  （デーモン起動確認）
+  テスト: 07_RESULTS/TEST/ にPDFをコピー → watcher.log を確認
+  race_memory.json の conversation_summaries に実装内容を記録
+```
+
