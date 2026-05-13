@@ -951,6 +951,8 @@ def analyze_mes(mes_path: Path, event_meta: dict | None = None) -> dict | None:
         "PHILLIP ISLAND": "PHILLIP ISLAND",
         "PHI": "PHILLIP ISLAND",
         "AUSTRALIA": "PHILLIP ISLAND",
+        "BALATON PARK": "BALATON",
+        "BALATONPARK": "BALATON",
     }
     circuit = _CIRC_NORM.get(circuit.upper().strip(), circuit.upper().strip())
 

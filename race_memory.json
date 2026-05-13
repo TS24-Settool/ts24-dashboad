@@ -383,6 +383,21 @@
         "JA52 ROUND4 CSVエクスポート未完（MESは存在）",
         "git push（ts24_workbench.py + race_memory.json変更）"
       ]
+    },
+    {
+      "date": "2026-05-05",
+      "session": "continuation",
+      "work_done": [
+        "Added BALATON PARK->BALATON normalization to _CIRC_NORM in 4 scripts: parse_2d_channels.py, lap_suspension_stats.py, lap_overlay_extractor.py, corner_phase_analysis.py",
+        "Fixed _open_csv() in ts24_workbench.py: DB-unregistered circuits now auto-added to ComboBox (BALATON support without DB update)",
+        "Implemented full dual-rider comparison in WaveformView (10 changes from INSTRUCTION_dual_rider_compare.md): _laps_cache_b, _label_a/b, _offset_b, orange pen #FF8C00, offset spinbox ±600s, purple compare CSV button, set_compare_laps/clear_compare/_on_offset_changed/_update_combo_b methods, _open_csv_compare() in MainWindow"
+      ],
+      "pending": [
+        "User to update Data_Bace_TS24_ORIGINAL.xlsx with ROUND4 data",
+        "Run build_unified_db.py after Excel update",
+        "Run lap_suspension_stats.py to process ROUND4 MES files",
+        "JA52 ROUND4 CSVs not yet in 06_CSV (only DA77 has 4 CSVs)"
+      ]
     }
   ]
 }

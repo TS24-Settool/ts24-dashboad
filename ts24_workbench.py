@@ -77,8 +77,9 @@ def format_laptime(sec: float) -> str:
 # ════════════════════════════════════════════════════════════════════
 
 class WorkbenchDB:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, xl_path: Path | None = None):
         self.db_path = str(db_path)
+        self.xl_path = str(xl_path) if xl_path else str(Path(db_path).parent / "TS24 DB Master.xlsx")
         try:
             with self._conn() as conn:
                 self._migrate_problem_log(conn)
@@ -1167,6 +1168,1211 @@ class QuickLogTab(QWidget):
 
 
 # ════════════════════════════════════════════════════════════════════
+# トレンド分析タブ
+# ════════════════════════════════════════════════════════════════════
+
+class TrendAnalysisTab(QWidget):
+    """ライダー別・セッション別のパフォーマンストレンドを表示するタブ。"""
+
+    _RIDER_COLORS = {"DA77": "#0078D4", "JA52": "#E86C00"}
+
+    def __init__(self, db: WorkbenchDB, parent=None):
+        super().__init__(parent)
+        self._db = db
+        self._has_pg = False
+        self._setup_ui()
+        self.refresh()
+
+    # ── UI 構築 ─────────────────────────────────────────────────────
+    def _setup_ui(self):
+        root = QHBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+
+        # ── 左フィルターパネル ──────────────────────────────────
+        filter_panel = QWidget()
+        filter_panel.setFixedWidth(190)
+        fl = QVBoxLayout(filter_panel)
+        fl.setContentsMargins(0, 0, 8, 0)
+        fl.setSpacing(4)
+
+        fl.addWidget(QLabel("<b>フィルター</b>"))
+
+        fl.addWidget(QLabel("ライダー"))
+        self._cb_rider = QComboBox()
+        self._cb_rider.addItems(["両方", "DA77", "JA52"])
+        fl.addWidget(self._cb_rider)
+
+        fl.addWidget(QLabel("ラウンド"))
+        self._cb_round = QComboBox()
+        self._cb_round.addItem("全て")
+        fl.addWidget(self._cb_round)
+
+        fl.addWidget(QLabel("セッション"))
+        self._cb_session = QComboBox()
+        self._cb_session.addItems(["全て", "FP", "QP", "WUP1", "WUP2", "RACE1", "RACE2"])
+        fl.addWidget(self._cb_session)
+
+        btn_refresh = QPushButton("🔄 データ更新")
+        btn_refresh.clicked.connect(self.refresh)
+        fl.addWidget(btn_refresh)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        fl.addWidget(sep)
+
+        fl.addWidget(QLabel("<b>サマリー</b>"))
+        self._lbl_summary = QLabel("—")
+        self._lbl_summary.setWordWrap(True)
+        self._lbl_summary.setStyleSheet("font-size: 11px; color: #444;")
+        fl.addWidget(self._lbl_summary)
+        fl.addStretch()
+
+        root.addWidget(filter_panel)
+
+        # ── 右エリア：サブタブ ────────────────────────────────────
+        self._inner_tabs = QTabWidget()
+
+        # 📈 Lap Times
+        self._w_laptime = QWidget()
+        lt_layout = QVBoxLayout(self._w_laptime)
+        lt_layout.setContentsMargins(0, 0, 0, 0)
+        try:
+            import pyqtgraph as pg
+            pg.setConfigOption("background", "w")
+            pg.setConfigOption("foreground", "k")
+            self._pw_best = pg.PlotWidget(title="Best Lap per Run")
+            self._pw_best.showGrid(x=True, y=True, alpha=0.3)
+            self._pw_best.setLabel("left", "Lap Time (s)")
+            self._pw_best.addLegend(offset=(-10, 10))
+            self._pw_all = pg.PlotWidget(title="All Laps — Scatter (outlap除く)")
+            self._pw_all.showGrid(x=True, y=True, alpha=0.3)
+            self._pw_all.setLabel("left", "Lap Time (s)")
+            lt_layout.addWidget(self._pw_best, 3)
+            lt_layout.addWidget(self._pw_all, 2)
+            self._has_pg = True
+        except ImportError:
+            lt_layout.addWidget(QLabel("pyqtgraph が未インストールです。"))
+        self._inner_tabs.addTab(self._w_laptime, "📈 Lap Times")
+
+        # 📋 Performance Table
+        self._tbl_perf = QTableWidget()
+        self._tbl_perf.setAlternatingRowColors(True)
+        self._tbl_perf.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl_perf.setSortingEnabled(True)
+        self._inner_tabs.addTab(self._tbl_perf, "📋 Performance")
+
+        # 🔧 Setup History
+        self._tbl_setup = QTableWidget()
+        self._tbl_setup.setAlternatingRowColors(True)
+        self._tbl_setup.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._inner_tabs.addTab(self._tbl_setup, "🔧 Setup History")
+
+        # ⚠️ Problem Analysis
+        self._w_problem = QWidget()
+        prob_layout = QVBoxLayout(self._w_problem)
+        prob_layout.setContentsMargins(0, 0, 0, 0)
+        prob_splitter = QSplitter(Qt.Orientation.Vertical)
+        if self._has_pg:
+            import pyqtgraph as pg
+            self._pw_prob = pg.PlotWidget(title="Problem Tag 頻度")
+            self._pw_prob.showGrid(x=False, y=True, alpha=0.3)
+            self._pw_prob.setLabel("left", "件数")
+            prob_splitter.addWidget(self._pw_prob)
+        self._tbl_prob = QTableWidget()
+        self._tbl_prob.setAlternatingRowColors(True)
+        prob_splitter.addWidget(self._tbl_prob)
+        prob_layout.addWidget(prob_splitter)
+        self._inner_tabs.addTab(self._w_problem, "⚠️ Problems")
+
+        # 📊 Lap Log (全ラップ詳細)
+        self._tbl_laplog = QTableWidget()
+        self._tbl_laplog.setAlternatingRowColors(True)
+        self._tbl_laplog.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl_laplog.setSortingEnabled(True)
+        self._inner_tabs.addTab(self._tbl_laplog, "📊 Lap Log")
+
+        # 🦾 Suspension (速度帯別サスペンション分析)
+        self._w_sus = QWidget()
+        sus_v = QVBoxLayout(self._w_sus)
+        sus_v.setContentsMargins(4, 4, 4, 4)
+        sus_v.setSpacing(4)
+
+        # ── フィルターバー ──
+        sus_bar = QWidget()
+        sus_bar_h = QHBoxLayout(sus_bar)
+        sus_bar_h.setContentsMargins(0, 0, 0, 4)
+        sus_bar_h.addWidget(QLabel("⚡ 速度帯:"))
+        self._cb_speed_zone = QComboBox()
+        self._cb_speed_zone.addItems(["全て", "低速 <80km/h", "中速 80-120km/h", "高速 >120km/h"])
+        self._cb_speed_zone.currentIndexChanged.connect(self._on_sus_filter_changed)
+        sus_bar_h.addWidget(self._cb_speed_zone)
+        sus_bar_h.addSpacing(16)
+        sus_bar_h.addWidget(QLabel("📊 Y軸:"))
+        self._cb_sus_metric = QComboBox()
+        self._cb_sus_metric.addItems(
+            ["ApexSusF vs LapTime", "ApexSusR vs LapTime",
+             "BrkSusF vs LapTime",  "BrkSusR vs LapTime",
+             "ApexSusF vs ApexSusR (F/R姿勢)"])
+        self._cb_sus_metric.currentIndexChanged.connect(self._on_sus_filter_changed)
+        sus_bar_h.addWidget(self._cb_sus_metric)
+        sus_bar_h.addStretch()
+        self._lbl_sus_zone_info = QLabel("")
+        self._lbl_sus_zone_info.setStyleSheet("color:#555; font-size:10px;")
+        sus_bar_h.addWidget(self._lbl_sus_zone_info)
+        sus_v.addWidget(sus_bar)
+
+        # ── プロットエリア: メイン散布図 + 速度帯別バーチャート ──
+        if self._has_pg:
+            import pyqtgraph as pg
+            sus_plot_split = QSplitter(Qt.Orientation.Horizontal)
+            self._pw_sus_main = pg.PlotWidget()
+            self._pw_sus_main.showGrid(x=True, y=True, alpha=0.3)
+            self._pw_sus_main.addLegend(offset=(-10, 10))
+            sus_plot_split.addWidget(self._pw_sus_main)
+            self._pw_sus_zone = pg.PlotWidget(title="速度帯別 平均SusF / SusR (DA77|JA52)")
+            self._pw_sus_zone.showGrid(x=False, y=True, alpha=0.3)
+            self._pw_sus_zone.setLabel("left", "Sus Position (mm)")
+            sus_plot_split.addWidget(self._pw_sus_zone)
+            sus_plot_split.setSizes([700, 400])
+            sus_v.addWidget(sus_plot_split, 2)
+
+        # ── テーブル ──
+        self._tbl_sus = QTableWidget()
+        self._tbl_sus.setAlternatingRowColors(False)
+        self._tbl_sus.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl_sus.setSortingEnabled(True)
+        self._tbl_sus.verticalHeader().setDefaultSectionSize(22)
+        sus_v.addWidget(self._tbl_sus, 3)
+        self._inner_tabs.addTab(self._w_sus, "🦾 Suspension")
+
+        # 🔍 Analysis (FAST/SLOW比較 + 回路別問題トレンド)
+        self._w_analysis = QWidget()
+        ana_v = QVBoxLayout(self._w_analysis)
+        ana_v.setContentsMargins(4, 4, 4, 4)
+        ana_split = QSplitter(Qt.Orientation.Vertical)
+
+        # ── 上部: FAST vs SLOW ──
+        ana_top = QWidget()
+        ana_top_v = QVBoxLayout(ana_top)
+        ana_top_v.setContentsMargins(0, 0, 0, 0)
+        ana_lbl = QLabel(
+            "<b>🏁 FAST vs SLOW サスペンション比較</b>"
+            "  <small style='color:#666;'>(上位30% vs 下位30% ラップ | "
+            "負Δ = FAST時により沈む = 良い方向)</small>"
+        )
+        ana_lbl.setStyleSheet("padding:2px;")
+        ana_top_v.addWidget(ana_lbl)
+        if self._has_pg:
+            self._pw_fast_slow = pg.PlotWidget()
+            self._pw_fast_slow.showGrid(x=False, y=True, alpha=0.3)
+            self._pw_fast_slow.setLabel("left", "FAST-SLOW Δ SusF (mm)")
+            ana_top_v.addWidget(self._pw_fast_slow, 2)
+        self._tbl_fast_slow = QTableWidget()
+        self._tbl_fast_slow.setAlternatingRowColors(True)
+        self._tbl_fast_slow.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        ana_top_v.addWidget(self._tbl_fast_slow, 2)
+        ana_split.addWidget(ana_top)
+
+        # ── 下部: 回路別問題タグ ──
+        ana_bot = QWidget()
+        ana_bot_v = QVBoxLayout(ana_bot)
+        ana_bot_v.setContentsMargins(0, 0, 0, 0)
+        ana_lbl2 = QLabel(
+            "<b>🗺️ 回路別 問題タグ トレンド</b>"
+            "  <small style='color:#666;'>(セル = DA77件数 | JA52件数)</small>"
+        )
+        ana_lbl2.setStyleSheet("padding:2px;")
+        ana_bot_v.addWidget(ana_lbl2)
+        self._tbl_circuit_prob = QTableWidget()
+        self._tbl_circuit_prob.setAlternatingRowColors(True)
+        self._tbl_circuit_prob.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        ana_bot_v.addWidget(self._tbl_circuit_prob)
+        ana_split.addWidget(ana_bot)
+
+        ana_split.setSizes([380, 280])
+        ana_v.addWidget(ana_split)
+        self._inner_tabs.addTab(self._w_analysis, "🔍 Analysis")
+
+        # 📊 Perf Corr (パフォーマンス相関)
+        self._w_perf_corr = QWidget()
+        pc_layout = QVBoxLayout(self._w_perf_corr)
+        pc_layout.setContentsMargins(4, 4, 4, 4)
+        pc_lbl = QLabel("<b>パフォーマンス相関 — セッション別サスペンション vs ラップタイム</b>")
+        pc_layout.addWidget(pc_lbl)
+        self._tbl_perf_corr = QTableWidget()
+        self._tbl_perf_corr.setAlternatingRowColors(True)
+        self._tbl_perf_corr.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl_perf_corr.setSortingEnabled(True)
+        pc_layout.addWidget(self._tbl_perf_corr, 3)
+        pc_sep = QFrame(); pc_sep.setFrameShape(QFrame.Shape.HLine)
+        pc_layout.addWidget(pc_sep)
+        pc_lbl2 = QLabel("<b>FAST vs SLOW サスペンション比較 (回路別)</b>")
+        pc_layout.addWidget(pc_lbl2)
+        self._tbl_perf_cmp = QTableWidget()
+        self._tbl_perf_cmp.setAlternatingRowColors(True)
+        self._tbl_perf_cmp.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        pc_layout.addWidget(self._tbl_perf_cmp, 2)
+        self._inner_tabs.addTab(self._w_perf_corr, "📊 Perf Corr")
+
+        # 📝 Session Notes (エンジニアノート + 問題タグ)
+        self._w_notes = QWidget()
+        notes_layout = QVBoxLayout(self._w_notes)
+        notes_layout.setContentsMargins(4, 4, 4, 4)
+        notes_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # 左: 問題タグ表
+        self._tbl_tag_summary = QTableWidget()
+        self._tbl_tag_summary.setAlternatingRowColors(True)
+        self._tbl_tag_summary.setMaximumWidth(450)
+        notes_splitter.addWidget(self._tbl_tag_summary)
+        # 右: エンジニアノートテキスト
+        from PyQt6.QtWidgets import QTextBrowser
+        self._txt_notes = QTextBrowser()
+        self._txt_notes.setOpenExternalLinks(False)
+        notes_splitter.addWidget(self._txt_notes)
+        notes_splitter.setSizes([420, 800])
+        notes_layout.addWidget(notes_splitter)
+        self._inner_tabs.addTab(self._w_notes, "📝 Session Notes")
+
+        root.addWidget(self._inner_tabs, 1)
+
+        # フィルター変更でコネクト
+        self._cb_rider.currentIndexChanged.connect(self._on_filter_changed)
+        self._cb_round.currentIndexChanged.connect(self._on_filter_changed)
+        self._cb_session.currentIndexChanged.connect(self._on_filter_changed)
+
+    # ── データ更新 ───────────────────────────────────────────────────
+    def refresh(self):
+        """DBとExcelからデータを再読み込みしてラウンドComboBoxと静的ビューを更新。"""
+        rounds = self._db.get_all_rounds()
+        prev = self._cb_round.currentText()
+        self._cb_round.blockSignals(True)
+        self._cb_round.clear()
+        self._cb_round.addItem("全て")
+        for r in rounds:
+            self._cb_round.addItem(r)
+        idx = self._cb_round.findText(prev)
+        if idx >= 0:
+            self._cb_round.setCurrentIndex(idx)
+        self._cb_round.blockSignals(False)
+
+        # Excelデータをキャッシュ（フィルター変更時に再ロードしない）
+        try:
+            self._perf_corr_cache = self._db.get_perf_correlation()
+        except Exception:
+            self._perf_corr_cache = ([], [], [], [])
+        try:
+            self._trend_notes_cache = self._db.get_trend_notes()
+        except Exception:
+            self._trend_notes_cache = {"tags": [], "rider_tags": {}, "notes": []}
+
+        self._update_views()
+
+    def _on_filter_changed(self, _=None):
+        self._update_views()
+
+    def _on_sus_filter_changed(self, _=None):
+        """Suspensionタブ内の速度帯/メトリック変更時のみ再描画。"""
+        sus_data = getattr(self, "_sus_cache", [])
+        self._build_suspension_view(sus_data)
+
+    def _get_filters(self) -> tuple:
+        rider_sel = self._cb_rider.currentText()
+        rider = None if rider_sel == "両方" else rider_sel
+        round_sel = self._cb_round.currentText()
+        round_s = None if round_sel == "全て" else round_sel
+        session_sel = self._cb_session.currentText()
+        session_s = None if session_sel == "全て" else session_sel
+        return rider, round_s, session_s
+
+    def _update_views(self):
+        rider, round_s, session_s = self._get_filters()
+        laps     = self._db.get_trend_laps(rider, round_s, session_s)
+        runs     = self._db.get_trend_runs(rider, round_s, session_s)
+        problems = self._db.get_trend_problems(rider, round_s, session_s)
+        sus_data = self._db.get_lap_suspension(rider, round_s, session_s)
+
+        valid_laps = [l for l in laps if not l.get("is_outlap") and l.get("lap_time_s")]
+        riders = sorted(set(l.get("rider", "") for l in laps if l.get("rider")))
+        self._lbl_summary.setText(
+            f"Runs: {len(runs)}\n"
+            f"Laps: {len(valid_laps)}\n"
+            f"Sus Laps: {len(sus_data)}\n"
+            f"Problems: {len(problems)}\n"
+            f"Riders: {', '.join(riders)}"
+        )
+
+        self._build_laptime_plot(laps, runs)
+        self._build_perf_table(laps, runs)
+        self._build_setup_table(runs)
+        self._build_problem_view(problems)
+        self._build_laplog_table(laps)
+
+        # sus_data をキャッシュ（速度帯フィルター変更時に再利用）
+        self._sus_cache = sus_data
+        self._build_suspension_view(sus_data)
+
+        # Analysis tab (FAST/SLOW + Circuit Problem Trend)
+        notes = getattr(self, "_trend_notes_cache", {"tags": [], "rider_tags": {}, "notes": []})
+        self._build_analysis_view(sus_data, notes)
+
+        # Perf Corr / Session Notes はキャッシュから
+        pc = getattr(self, "_perf_corr_cache", ([], [], [], []))
+        self._build_perf_corr_tables(pc, rider, round_s)
+        self._build_session_notes(notes, rider)
+
+    # ── ユーティリティ ───────────────────────────────────────────────
+    @staticmethod
+    def _fmt(s) -> str:
+        """秒数を M'SS.000 形式（motorsport標準）に変換。"""
+        if s is None:
+            return "—"
+        try:
+            s = float(s)
+        except (ValueError, TypeError):
+            return str(s)
+        m = int(s) // 60
+        sec = s - m * 60
+        return f"{m}'{sec:06.3f}"
+
+    @staticmethod
+    def _fmt_delta(delta_s) -> str:
+        """差分秒数を +0.000s 形式に変換。"""
+        if delta_s is None:
+            return "—"
+        try:
+            d = float(delta_s)
+        except (ValueError, TypeError):
+            return "—"
+        if abs(d) < 0.001:
+            return "—"
+        return f"+{d:.3f}s" if d > 0 else f"{d:.3f}s"
+
+    # ── 📈 Lap Time プロット ─────────────────────────────────────────
+    def _build_laptime_plot(self, laps: list, runs: list):
+        if not self._has_pg:
+            return
+        import pyqtgraph as pg
+
+        run_ids = [r["run_id"] for r in runs]
+        x_map   = {rid: i for i, rid in enumerate(run_ids)}
+        x_labels = [
+            f"{r.get('session','?')}R{r.get('run_no','?')}\n{r.get('rider','?')}"
+            for r in runs
+        ]
+
+        self._pw_best.clear()
+        self._pw_all.clear()
+
+        for pw in (self._pw_best, self._pw_all):
+            pw.getAxis("bottom").setTicks([list(enumerate(x_labels))] if x_labels else [[]])
+
+        for rider, color in self._RIDER_COLORS.items():
+            rider_runs = [r for r in runs if r.get("rider") == rider]
+            best_x, best_y, all_x, all_y = [], [], [], []
+
+            for r in rider_runs:
+                rid = r["run_id"]
+                xi = x_map.get(rid)
+                if xi is None:
+                    continue
+                r_laps = [l for l in laps if l["run_id"] == rid
+                          and not l.get("is_outlap") and l.get("lap_time_s")]
+                if not r_laps:
+                    continue
+                times = [float(l["lap_time_s"]) for l in r_laps]
+                best_x.append(xi)
+                best_y.append(min(times))
+                jitter = 0.12 if rider == "JA52" else -0.12
+                for t in times:
+                    all_x.append(xi + jitter)
+                    all_y.append(t)
+
+            pen   = pg.mkPen(color, width=2)
+            brush = pg.mkBrush(color)
+
+            if best_x:
+                self._pw_best.plot(best_x, best_y, pen=pen, name=rider)
+                self._pw_best.plot(best_x, best_y, pen=None, symbol="o",
+                                   symbolSize=11, symbolBrush=brush,
+                                   symbolPen=pg.mkPen("w", width=1.5))
+
+            if all_x:
+                r_c = int(color[1:3], 16)
+                g_c = int(color[3:5], 16)
+                b_c = int(color[5:7], 16)
+                self._pw_all.plot(all_x, all_y, pen=None, symbol="o",
+                                  symbolSize=7,
+                                  symbolBrush=pg.mkBrush(r_c, g_c, b_c, 140),
+                                  symbolPen=pg.mkPen(r_c, g_c, b_c, 200),
+                                  name=rider)
+
+    # ── 📋 Performance テーブル ──────────────────────────────────────
+    def _build_perf_table(self, laps: list, runs: list):
+        cols    = ["Round", "Session", "Run", "Rider", "Laps",
+                   "Best Lap", "Avg Lap", "Worst Lap",
+                   "Gap to Best", "Improvement"]
+        headers = cols
+        self._tbl_perf.setSortingEnabled(False)
+        self._tbl_perf.setColumnCount(len(cols))
+        self._tbl_perf.setHorizontalHeaderLabels(headers)
+
+        from collections import defaultdict
+        rows_data = []
+        for r in runs:
+            rid = r["run_id"]
+            r_laps = [l for l in laps if l["run_id"] == rid
+                      and not l.get("is_outlap") and l.get("lap_time_s")]
+            if not r_laps:
+                continue
+            times = [float(l["lap_time_s"]) for l in r_laps]
+            improvement = times[0] - times[-1] if len(times) >= 2 else 0.0
+            rows_data.append({
+                "round": r.get("round", ""), "session": r.get("session", ""),
+                "run_no": r.get("run_no", ""), "rider": r.get("rider", ""),
+                "n_laps": len(times), "best": min(times),
+                "avg": sum(times) / len(times), "worst": max(times),
+                "improvement": improvement,
+            })
+
+        # セッション別ベスト（ギャップ計算用）
+        session_bests: dict = defaultdict(lambda: float("inf"))
+        for rd in rows_data:
+            key = (rd["round"], rd["session"])
+            session_bests[key] = min(session_bests[key], rd["best"])
+
+        self._tbl_perf.setRowCount(len(rows_data))
+        for i, rd in enumerate(rows_data):
+            key = (rd["round"], rd["session"])
+            gap = rd["best"] - session_bests[key]
+            values = [
+                rd["round"], rd["session"], f"R{rd['run_no']}", rd["rider"],
+                str(rd["n_laps"]),
+                self._fmt(rd["best"]), self._fmt(rd["avg"]), self._fmt(rd["worst"]),
+                f"+{gap:.3f}s" if gap > 0.001 else "—",
+                f"{rd['improvement']:+.3f}s" if abs(rd["improvement"]) > 0.001 else "—",
+            ]
+            for j, v in enumerate(values):
+                item = QTableWidgetItem(str(v))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if gap < 0.001 and j >= 5:  # ベストラン行をハイライト
+                    item.setBackground(QColor("#E8F5E9"))
+                self._tbl_perf.setItem(i, j, item)
+
+        self._tbl_perf.resizeColumnsToContents()
+        self._tbl_perf.horizontalHeader().setStretchLastSection(True)
+        self._tbl_perf.setSortingEnabled(True)
+
+    # ── 🔧 Setup History テーブル ────────────────────────────────────
+    def _build_setup_table(self, runs: list):
+        run_ids  = [r["run_id"] for r in runs]
+        detailed = self._db.get_trend_runs_detail(run_ids)
+
+        key_cols = ["session", "run_no", "rider",
+                    "tyre_front", "tyre_rear",
+                    "f_comp", "f_reb", "f_offset",
+                    "r_comp", "r_reb", "ride_hgt",
+                    "perf_best_lap", "perf_n_laps", "comment"]
+        headers  = ["Session", "Run", "Rider",
+                    "Tyre F", "Tyre R",
+                    "F Comp", "F Reb", "F Offset",
+                    "R Comp", "R Reb", "Ride Hgt",
+                    "Best Lap", "Laps", "Comment"]
+
+        self._tbl_setup.setColumnCount(len(headers))
+        self._tbl_setup.setHorizontalHeaderLabels(headers)
+        self._tbl_setup.setRowCount(len(detailed))
+
+        # 前行との差異を検出してハイライトするため値を収集
+        prev_vals: dict = {}
+        for i, r in enumerate(detailed):
+            for j, col in enumerate(key_cols):
+                v = r.get(col)
+                if col == "perf_best_lap" and v is not None:
+                    display = self._fmt(v)
+                elif col == "run_no":
+                    display = f"R{v}" if v is not None else "—"
+                else:
+                    display = str(v) if v is not None else "—"
+
+                item = QTableWidgetItem(display)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                # セットアップ値が前行から変化した場合に黄色ハイライト
+                setup_cols = {"f_comp", "f_reb", "f_offset", "r_comp", "r_reb", "ride_hgt",
+                              "tyre_front", "tyre_rear"}
+                if col in setup_cols and v is not None:
+                    if prev_vals.get(col) is not None and str(prev_vals[col]) != str(v):
+                        item.setBackground(QColor("#FFF9C4"))
+                    prev_vals[col] = v
+
+                self._tbl_setup.setItem(i, j, item)
+
+        self._tbl_setup.resizeColumnsToContents()
+        self._tbl_setup.horizontalHeader().setStretchLastSection(True)
+
+    # ── ⚠️ Problem Analysis ─────────────────────────────────────────
+    def _build_problem_view(self, problems: list):
+        from collections import Counter
+        tag_counts = Counter(p.get("problem_tag", "?") for p in problems)
+        tags_sorted = sorted(tag_counts.items(), key=lambda x: -x[1])
+
+        # バーチャート
+        if self._has_pg:
+            import pyqtgraph as pg
+            self._pw_prob.clear()
+            if tags_sorted:
+                x = list(range(len(tags_sorted)))
+                y = [cnt for _, cnt in tags_sorted]
+                labels = [tag for tag, _ in tags_sorted]
+                bargraph = pg.BarGraphItem(x=x, height=y, width=0.6,
+                                           brush="#E74C3C", pen=pg.mkPen("w", width=0.5))
+                self._pw_prob.addItem(bargraph)
+                self._pw_prob.getAxis("bottom").setTicks([list(enumerate(labels))])
+                self._pw_prob.setTitle("Problem Tag 頻度")
+            else:
+                # データなし時のメッセージ
+                self._pw_prob.setTitle("")
+                msg = pg.TextItem(
+                    text="Problem Log にデータがありません\n"
+                         "波形タブで問題を選択し「Problem Log へ送る」ボタンで登録できます",
+                    color="#AAAAAA", anchor=(0.5, 0.5))
+                msg.setPos(0.5, 0.5)
+                self._pw_prob.addItem(msg)
+                self._pw_prob.setXRange(0, 1)
+                self._pw_prob.setYRange(0, 1)
+
+        # テーブル
+        cols = ["Tag", "件数", "Max Severity", "Riders", "Sessions", "Corners"]
+        self._tbl_prob.setColumnCount(len(cols))
+        self._tbl_prob.setHorizontalHeaderLabels(cols)
+        self._tbl_prob.setRowCount(len(tags_sorted))
+
+        sev_map: dict = {}
+        for p in problems:
+            tag = p.get("problem_tag", "?")
+            sev_map[tag] = max(sev_map.get(tag, 0), int(p.get("severity") or 0))
+
+        for i, (tag, cnt) in enumerate(tags_sorted):
+            tag_probs = [p for p in problems if p.get("problem_tag") == tag]
+            riders   = ", ".join(sorted({p.get("rider", "") for p in tag_probs if p.get("rider")}))
+            sessions = ", ".join(sorted({p.get("session", "") for p in tag_probs if p.get("session")}))
+            corners  = ", ".join(sorted({str(p.get("corner", "")) for p in tag_probs if p.get("corner")}))
+            sev = sev_map.get(tag, 0)
+            values = [tag, str(cnt), str(sev) if sev else "—", riders, sessions, corners]
+            for j, v in enumerate(values):
+                item = QTableWidgetItem(v)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if cnt >= 3:
+                    item.setBackground(QColor("#FFEBEE"))
+                elif cnt >= 2:
+                    item.setBackground(QColor("#FFF3E0"))
+                self._tbl_prob.setItem(i, j, item)
+
+        self._tbl_prob.resizeColumnsToContents()
+        self._tbl_prob.horizontalHeader().setStretchLastSection(True)
+
+    # ── 📊 Lap Log テーブル ─────────────────────────────────────────
+    def _build_laplog_table(self, laps: list):
+        cols    = ["Round", "Circuit", "Session", "Run", "Lap", "Rider",
+                   "Lap Time", "Outlap", "Tyre F", "Tyre R",
+                   "Weather", "Track °C", "Air °C"]
+        self._tbl_laplog.setSortingEnabled(False)
+        self._tbl_laplog.setColumnCount(len(cols))
+        self._tbl_laplog.setHorizontalHeaderLabels(cols)
+        self._tbl_laplog.setRowCount(len(laps))
+
+        for i, l in enumerate(laps):
+            lt = l.get("lap_time_s")
+            is_out = bool(l.get("is_outlap"))
+            values = [
+                l.get("round", ""), l.get("circuit", ""),
+                l.get("session", ""), f"R{l.get('run_no','?')}",
+                str(l.get("lap_no", "")), l.get("rider", ""),
+                self._fmt(lt),
+                "✓" if is_out else "",
+                l.get("tyre_front", "") or "—",
+                l.get("tyre_rear", "") or "—",
+                l.get("weather", "") or "—",
+                str(l.get("track_temp", "")) or "—",
+                str(l.get("air_temp", "")) or "—",
+            ]
+            for j, v in enumerate(values):
+                item = QTableWidgetItem(str(v))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if is_out:
+                    item.setForeground(QColor("#999999"))
+                # ライダー色分け
+                rider = l.get("rider", "")
+                if rider in self._RIDER_COLORS and not is_out:
+                    c = self._RIDER_COLORS[rider]
+                    item.setBackground(QColor(c).lighter(195))
+                self._tbl_laplog.setItem(i, j, item)
+
+        self._tbl_laplog.resizeColumnsToContents()
+        self._tbl_laplog.horizontalHeader().setStretchLastSection(True)
+        self._tbl_laplog.setSortingEnabled(True)
+
+    # ── 🦾 Suspension ビュー (速度帯フィルター対応) ──────────────────
+    @staticmethod
+    def _valid_sus(sus_data: list) -> list:
+        """outlap除去 + 極端な異常値除去の共通フィルター。"""
+        return [d for d in sus_data
+                if d.get("lap_time_s")
+                and float(d["lap_time_s"]) > 85
+                and float(d["lap_time_s"]) < 360
+                and d.get("lap_no") and int(d["lap_no"]) > 0
+                and d.get("apex_spd_avg")
+                and float(d["apex_spd_avg"]) > 10]
+
+    def _build_suspension_view(self, sus_data: list):
+        """速度帯フィルター付きサスペンション分析ビュー。"""
+        zone = getattr(self._cb_speed_zone, "currentText", lambda: "全て")()
+        metric = getattr(self._cb_sus_metric, "currentText",
+                         lambda: "ApexSusF vs LapTime")()
+
+        valid = self._valid_sus(sus_data)
+
+        # ── 速度帯フィルター ──
+        if zone == "低速 <80km/h":
+            filtered = [d for d in valid if float(d["apex_spd_avg"]) < 80]
+        elif zone == "中速 80-120km/h":
+            filtered = [d for d in valid if 80 <= float(d["apex_spd_avg"]) <= 120]
+        elif zone == "高速 >120km/h":
+            filtered = [d for d in valid if float(d["apex_spd_avg"]) > 120]
+        else:
+            filtered = valid
+
+        # ── メトリック選択 ──
+        if metric == "ApexSusR vs LapTime":
+            y_key, y_lbl = "apex_susR_avg", "ApexSusR (mm)"
+            x_key, x_lbl = "lap_time_s",    "Lap Time (s)"
+        elif metric == "BrkSusF vs LapTime":
+            y_key, y_lbl = "brk_susF_avg",  "BrkSusF (mm)"
+            x_key, x_lbl = "lap_time_s",    "Lap Time (s)"
+        elif metric == "BrkSusR vs LapTime":
+            y_key, y_lbl = "brk_susR_avg",  "BrkSusR (mm)"
+            x_key, x_lbl = "lap_time_s",    "Lap Time (s)"
+        elif metric == "ApexSusF vs ApexSusR (F/R姿勢)":
+            y_key, y_lbl = "apex_susF_avg", "ApexSusF (mm)"   # Y軸=フロント
+            x_key, x_lbl = "apex_susR_avg", "ApexSusR (mm)"   # X軸=リア
+        else:  # デフォルト
+            y_key, y_lbl = "apex_susF_avg", "ApexSusF (mm)"
+            x_key, x_lbl = "lap_time_s",    "Lap Time (s)"
+
+        # ── ゾーン情報ラベル ──
+        parts = []
+        for rider in ("DA77", "JA52"):
+            rpts = [d for d in filtered if d.get("rider") == rider
+                    and d.get("apex_susF_avg") and d.get("apex_susR_avg")]
+            if rpts:
+                af = sum(float(d["apex_susF_avg"]) for d in rpts) / len(rpts)
+                ar = sum(float(d["apex_susR_avg"]) for d in rpts) / len(rpts)
+                parts.append(f"{rider}: n={len(rpts)} | ApexSusF={af:.1f}mm | ApexSusR={ar:.1f}mm")
+        if hasattr(self, "_lbl_sus_zone_info"):
+            self._lbl_sus_zone_info.setText("   ".join(parts))
+
+        # ── メイン散布図 ──
+        if self._has_pg and hasattr(self, "_pw_sus_main"):
+            import pyqtgraph as pg
+            self._pw_sus_main.clear()
+            title = f"{y_lbl} vs {x_lbl}"
+            if zone != "全て":
+                title += f"  [{zone}]"
+            self._pw_sus_main.setTitle(title)
+            self._pw_sus_main.setLabel("left", y_lbl)
+            self._pw_sus_main.setLabel("bottom", x_lbl)
+
+            for rider, color in self._RIDER_COLORS.items():
+                pts = [(float(d[x_key]), float(d[y_key]))
+                       for d in filtered
+                       if d.get("rider") == rider
+                       and d.get(x_key) and d.get(y_key)]
+                if not pts:
+                    continue
+                xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                rc, gc, bc = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+                self._pw_sus_main.plot(
+                    xs, ys, pen=None, symbol="o", symbolSize=8,
+                    symbolBrush=pg.mkBrush(rc, gc, bc, 170),
+                    symbolPen=pg.mkPen(rc, gc, bc, 220), name=rider)
+                # 平均線
+                if xs and y_key != x_key:
+                    mean_y = sum(ys) / len(ys)
+                    self._pw_sus_main.addItem(pg.InfiniteLine(
+                        pos=mean_y, angle=0,
+                        pen=pg.mkPen(rc, gc, bc, 120, width=1.5,
+                                     style=Qt.PenStyle.DashLine),
+                        label=f"{rider} avg:{mean_y:.1f}mm",
+                        labelOpts={"color": color, "position": 0.05}))
+
+        # ── 速度帯別バーチャート (右側) ──
+        if self._has_pg and hasattr(self, "_pw_sus_zone"):
+            import pyqtgraph as pg
+            self._pw_sus_zone.clear()
+            zone_defs = [
+                ("低速\n<80", lambda d: float(d["apex_spd_avg"]) < 80),
+                ("中速\n80-120", lambda d: 80 <= float(d["apex_spd_avg"]) <= 120),
+                ("高速\n>120", lambda d: float(d["apex_spd_avg"]) > 120),
+            ]
+            x_ticks, bar_items = [], []
+            x_base = 0.0
+            for z_lbl, z_fn in zone_defs:
+                z_pts = [d for d in valid if d.get("apex_spd_avg") and z_fn(d)]
+                for ri, (rider, color) in enumerate(self._RIDER_COLORS.items()):
+                    rz = [d for d in z_pts
+                          if d.get("rider") == rider
+                          and d.get("apex_susF_avg") and d.get("apex_susR_avg")]
+                    if rz:
+                        avg_f = sum(float(d["apex_susF_avg"]) for d in rz) / len(rz)
+                        avg_r = sum(float(d["apex_susR_avg"]) for d in rz) / len(rz)
+                        xpos = x_base + ri * 0.45
+                        rc, gc, bc = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+                        # SusF (solid), SusR (transparent)
+                        self._pw_sus_zone.addItem(pg.BarGraphItem(
+                            x=[xpos], height=[avg_f], width=0.4,
+                            brush=pg.mkBrush(rc, gc, bc, 220),
+                            pen=pg.mkPen("k", width=0.5)))
+                        self._pw_sus_zone.addItem(pg.BarGraphItem(
+                            x=[xpos], height=[avg_r], width=0.4,
+                            brush=pg.mkBrush(rc, gc, bc, 80),
+                            pen=pg.mkPen(rc, gc, bc, 180, width=1.5,
+                                         style=Qt.PenStyle.DashLine)))
+                x_ticks.append((x_base + 0.22, z_lbl))
+                x_base += 1.3
+            if x_ticks:
+                self._pw_sus_zone.getAxis("bottom").setTicks([x_ticks])
+
+        # ── テーブル ──
+        db_keys = ["round", "circuit", "session", "run_no", "lap_no", "rider",
+                   "lap_time_s", "apex_spd_avg",
+                   "apex_susF_avg", "apex_susR_avg",
+                   "brk_susF_avg", "brk_susR_avg",
+                   "fullbrk_susF", "fullbrk_susR",
+                   "lap_susF_mean", "lap_susF_min", "lap_susF_max", "lap_susR_mean"]
+        col_hdrs = ["Round", "Circuit", "Sess", "Run", "Lap", "Rider",
+                    "Lap Time", "ApexSpd\n(km/h)",
+                    "ApexSusF\n(mm)", "ApexSusR\n(mm)",
+                    "BrkSusF\n(mm)", "BrkSusR\n(mm)",
+                    "FullBrk\nSusF", "FullBrk\nSusR",
+                    "SusF\nMean", "SusF\nMin", "SusF\nMax", "SusR\nMean"]
+
+        self._tbl_sus.setSortingEnabled(False)
+        self._tbl_sus.setColumnCount(len(col_hdrs))
+        self._tbl_sus.setHorizontalHeaderLabels(col_hdrs)
+        self._tbl_sus.setRowCount(len(filtered))
+
+        # ライダー別に交互背景色（視認性を高める）
+        RIDER_BG = {
+            "DA77": ("#1A3A5C", "#FFFFFF"),   # 濃紺テキスト → 明るい青系背景
+            "JA52": ("#5C2A00", "#FFFFFF"),   # 濃茶テキスト → 明るいオレンジ系背景
+        }
+        RIDER_FILL = {
+            "DA77": QColor("#D0E8FF"),   # 青系
+            "JA52": QColor("#FFE0B2"),   # オレンジ系
+        }
+        for i, d in enumerate(filtered):
+            rider = d.get("rider", "")
+            bg = RIDER_FILL.get(rider, QColor("#EEEEEE"))
+            fg = QColor(RIDER_BG.get(rider, ("#000000", "#000000"))[0])
+            for j, key in enumerate(db_keys):
+                v = d.get(key)
+                if key == "lap_time_s":
+                    display = self._fmt(v)
+                elif key == "run_no":
+                    display = f"R{v}" if v is not None else "—"
+                elif isinstance(v, float):
+                    display = f"{v:.2f}"
+                elif v is None:
+                    display = "—"
+                else:
+                    display = str(v)
+                item = QTableWidgetItem(display)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setBackground(bg)
+                item.setForeground(fg)
+                self._tbl_sus.setItem(i, j, item)
+
+        self._tbl_sus.resizeColumnsToContents()
+        self._tbl_sus.horizontalHeader().setStretchLastSection(True)
+        self._tbl_sus.setSortingEnabled(True)
+
+    # ── 🔍 Analysis (FAST/SLOW + 回路別問題トレンド) ─────────────────
+    def _build_analysis_view(self, sus_data: list, notes_data: dict):
+        """FAST vs SLOW サスペンション比較 + 回路別問題タグ クロス集計。"""
+        from collections import defaultdict
+
+        valid = self._valid_sus(sus_data)
+
+        # ════════════════════════════════════════════════
+        # 1) FAST vs SLOW 比較 (ライダー×回路 ごと)
+        # ════════════════════════════════════════════════
+        groups: dict = defaultdict(list)
+        for d in valid:
+            groups[(d.get("rider"), d.get("circuit"))].append(d)
+
+        def avg_key(lst, key):
+            vals = [float(d[key]) for d in lst if d.get(key)]
+            return sum(vals) / len(vals) if vals else None
+
+        comp_rows = []
+        for (rider, circuit), laps in sorted(groups.items()):
+            if len(laps) < 4:
+                continue
+            times = sorted(float(d["lap_time_s"]) for d in laps)
+            n3 = max(1, len(times) // 3)
+            fast_t = set(times[:n3])
+            slow_t = set(times[-n3:])
+            fast_laps = [d for d in laps if float(d["lap_time_s"]) in fast_t]
+            slow_laps = [d for d in laps if float(d["lap_time_s"]) in slow_t]
+
+            def delta(fval, sval):
+                if fval is None or sval is None:
+                    return None
+                return round(fval - sval, 2)
+
+            faf = avg_key(fast_laps, "apex_susF_avg")
+            saf = avg_key(slow_laps, "apex_susF_avg")
+            far = avg_key(fast_laps, "apex_susR_avg")
+            sar = avg_key(slow_laps, "apex_susR_avg")
+            fbf = avg_key(fast_laps, "brk_susF_avg")
+            sbf = avg_key(slow_laps, "brk_susF_avg")
+            fbr = avg_key(fast_laps, "brk_susR_avg")
+            sbr = avg_key(slow_laps, "brk_susR_avg")
+
+            comp_rows.append({
+                "rider": rider or "?", "circuit": circuit or "?",
+                "n": len(laps), "n3": n3,
+                "fast_best": min(times[:n3]), "slow_best": max(times[-n3:]),
+                "fApexF": faf, "sApexF": saf, "dApexF": delta(faf, saf),
+                "fApexR": far, "sApexR": sar, "dApexR": delta(far, sar),
+                "fBrkF": fbf,  "sBrkF": sbf,  "dBrkF":  delta(fbf, sbf),
+                "fBrkR": fbr,  "sBrkR": sbr,  "dBrkR":  delta(fbr, sbr),
+            })
+
+        # バーチャート: Δ ApexSusF per rider+circuit
+        if self._has_pg and hasattr(self, "_pw_fast_slow"):
+            import pyqtgraph as pg
+            self._pw_fast_slow.clear()
+            x_ticks = []
+            for xi, row in enumerate(comp_rows):
+                color = self._RIDER_COLORS.get(row["rider"], "#888")
+                rc, gc, bc = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+                d_f = row.get("dApexF") or 0
+                d_r = row.get("dApexR") or 0
+                # SusF bar (solid), SusR bar (behind, lighter)
+                self._pw_fast_slow.addItem(pg.BarGraphItem(
+                    x=[xi - 0.18], height=[d_f], width=0.32,
+                    brush=pg.mkBrush(rc, gc, bc, 220),
+                    pen=pg.mkPen("k", width=0.5)))
+                self._pw_fast_slow.addItem(pg.BarGraphItem(
+                    x=[xi + 0.18], height=[d_r], width=0.32,
+                    brush=pg.mkBrush(rc, gc, bc, 90),
+                    pen=pg.mkPen(rc, gc, bc, 180, width=1)))
+                x_ticks.append((xi, f"{row['rider']}\n{(row['circuit'] or '')[:7]}"))
+            self._pw_fast_slow.setTitle(
+                "FAST vs SLOW Δ: ■=ApexSusF  □=ApexSusR  (負=FAST時に沈む=良方向)")
+            self._pw_fast_slow.addItem(pg.InfiniteLine(
+                pos=0, angle=0, pen=pg.mkPen("k", width=1)))
+            if x_ticks:
+                self._pw_fast_slow.getAxis("bottom").setTicks([x_ticks])
+                self._pw_fast_slow.getAxis("bottom").setStyle(tickFont=None)
+
+        # FAST/SLOW テーブル
+        fs_hdrs = ["Rider", "Circuit", "N", "n/3",
+                   "FAST Best", "SLOW Best",
+                   "FAST\nApexF", "SLOW\nApexF", "Δ ApexF",
+                   "FAST\nApexR", "SLOW\nApexR", "Δ ApexR",
+                   "FAST\nBrkF",  "SLOW\nBrkF",  "Δ BrkF",
+                   "FAST\nBrkR",  "SLOW\nBrkR",  "Δ BrkR"]
+        self._tbl_fast_slow.setSortingEnabled(False)
+        self._tbl_fast_slow.setColumnCount(len(fs_hdrs))
+        self._tbl_fast_slow.setHorizontalHeaderLabels(fs_hdrs)
+        self._tbl_fast_slow.setRowCount(len(comp_rows))
+        self._tbl_fast_slow.verticalHeader().setDefaultSectionSize(22)
+
+        delta_cols = {8, 11, 14, 17}  # Δ列インデックス
+
+        for i, row in enumerate(comp_rows):
+            color = self._RIDER_COLORS.get(row["rider"])
+            base_bg = QColor(color).lighter(215) if color else QColor("#F5F5F5")
+
+            def fmtv(v):
+                if v is None: return "—"
+                if isinstance(v, float): return f"{v:.2f}"
+                return str(v)
+
+            vals = [
+                row["rider"], row["circuit"],
+                str(row["n"]), str(row["n3"]),
+                self._fmt(row["fast_best"]), self._fmt(row["slow_best"]),
+                fmtv(row["fApexF"]), fmtv(row["sApexF"]),
+                f"{row['dApexF']:+.2f}" if row.get("dApexF") is not None else "—",
+                fmtv(row["fApexR"]), fmtv(row["sApexR"]),
+                f"{row['dApexR']:+.2f}" if row.get("dApexR") is not None else "—",
+                fmtv(row["fBrkF"]),  fmtv(row["sBrkF"]),
+                f"{row['dBrkF']:+.2f}" if row.get("dBrkF") is not None else "—",
+                fmtv(row["fBrkR"]),  fmtv(row["sBrkR"]),
+                f"{row['dBrkR']:+.2f}" if row.get("dBrkR") is not None else "—",
+            ]
+            for j, v in enumerate(vals):
+                item = QTableWidgetItem(str(v))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if j in delta_cols and v not in ("—", ""):
+                    try:
+                        dv = float(str(v).replace("+", ""))
+                        # 負=FAST時により沈む=良方向 → 緑
+                        item.setBackground(QColor("#C8E6C9") if dv < -0.5
+                                           else QColor("#FFCDD2") if dv > 0.5
+                                           else QColor("#FFF9C4"))
+                    except ValueError:
+                        item.setBackground(base_bg)
+                else:
+                    item.setBackground(base_bg)
+                self._tbl_fast_slow.setItem(i, j, item)
+
+        self._tbl_fast_slow.resizeColumnsToContents()
+        self._tbl_fast_slow.horizontalHeader().setStretchLastSection(True)
+        self._tbl_fast_slow.setSortingEnabled(True)
+
+        # ════════════════════════════════════════════════
+        # 2) 回路別 問題タグ クロス集計
+        # ════════════════════════════════════════════════
+        rider_tags = notes_data.get("rider_tags", {})
+        circuit_tag: dict = defaultdict(lambda: defaultdict(dict))
+
+        for rider, rtags in rider_tags.items():
+            for tag, count, circuits_str in rtags:
+                for circ in [c.strip() for c in circuits_str.split(",") if c.strip()]:
+                    circuit_tag[circ][tag][rider] = count
+
+        if not circuit_tag:
+            self._tbl_circuit_prob.setRowCount(0)
+            return
+
+        # タグを全体件数で降順ソート
+        all_tags_raw = set()
+        for td in circuit_tag.values():
+            all_tags_raw.update(td.keys())
+        tag_totals = {
+            t: sum(circuit_tag[c].get(t, {}).get("DA77", 0)
+                   + circuit_tag[c].get(t, {}).get("JA52", 0)
+                   for c in circuit_tag)
+            for t in all_tags_raw
+        }
+        tags_ord = sorted(all_tags_raw, key=lambda t: -tag_totals.get(t, 0))
+        circuits_ord = sorted(circuit_tag.keys())
+
+        # ヘッダー: Circuit + タグ列 (DA77 | JA52)
+        hdr = ["Circuit"] + tags_ord
+        self._tbl_circuit_prob.setColumnCount(len(hdr))
+        self._tbl_circuit_prob.setHorizontalHeaderLabels(hdr)
+        self._tbl_circuit_prob.setRowCount(len(circuits_ord))
+        self._tbl_circuit_prob.verticalHeader().setDefaultSectionSize(24)
+
+        for i, circ in enumerate(circuits_ord):
+            for j, col in enumerate(hdr):
+                if col == "Circuit":
+                    item = QTableWidgetItem(circ)
+                    item.setBackground(QColor("#E3F2FD"))
+                else:
+                    td = circuit_tag[circ].get(col, {})
+                    da = td.get("DA77", 0)
+                    ja = td.get("JA52", 0)
+                    total = da + ja
+                    if total == 0:
+                        display = "—"
+                        bg = QColor("#FAFAFA")
+                    else:
+                        display = f"D:{da}  J:{ja}"
+                        bg = (QColor("#FFCDD2") if total >= 2
+                              else QColor("#FFF9C4"))
+                    item = QTableWidgetItem(display)
+                    item.setBackground(bg)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self._tbl_circuit_prob.setItem(i, j, item)
+
+        self._tbl_circuit_prob.resizeColumnsToContents()
+        self._tbl_circuit_prob.horizontalHeader().setStretchLastSection(True)
+
+    # ── 📊 Perf Corr テーブル ────────────────────────────────────────
+    def _build_perf_corr_tables(self, pc_cache: tuple, rider_f: str | None, round_f: str | None):
+        """PERFORMANCE_CORRELATION の per-run と FAST/SLOW 比較をテーブル表示。"""
+        run_hdrs, run_data, cmp_hdrs, cmp_data = pc_cache
+
+        # ── per-run テーブル ──
+        display_run_cols = [
+            "RUN_ID", "Rider", "Circuit", "Date", "Session", "Run",
+            "Best Lap", "Avg Lap", "N Laps",
+            "APEX SusF (mm)", "APEX SusR (mm)",
+            "APEX WhlF (N)", "APEX WhlR (N)",
+            "APEX Spd (km/h)", "APEX ax (m/s²)",
+            "Brk SusF (mm)", "Brk SusR (mm)", "Brk Spd (km/h)",
+            "Rank", "Gap (s)", "Tier",
+        ]
+        # run_hdrs のキーマッピング (header → friendly name)
+        hdr_map = {}
+        if run_hdrs:
+            for h in run_hdrs:
+                clean = h.replace("\n", " ").strip()
+                hdr_map[clean] = clean
+
+        # フィルタリング
+        filtered = run_data
+        if rider_f:
+            filtered = [d for d in filtered if d.get("Rider") == rider_f]
+        if round_f:
+            filtered = [d for d in filtered
+                        if round_f.upper() in str(d.get(run_hdrs[1] if run_hdrs else "RUN_ID", "")).upper()]
+
+        # テーブル構築
+        raw_cols = run_hdrs[1:] if run_hdrs else []  # skip col0 (stale)
+        friendly = [c.replace("\n", " ").strip() for c in raw_cols]
+        self._tbl_perf_corr.setSortingEnabled(False)
+        self._tbl_perf_corr.setColumnCount(len(friendly))
+        self._tbl_perf_corr.setHorizontalHeaderLabels(friendly)
+        self._tbl_perf_corr.setRowCount(len(filtered))
+
+        tier_colors = {"FAST": "#E8F5E9", "MED": "#FFF9C4", "SLOW": "#FFEBEE"}
+        for i, d in enumerate(filtered):
+            tier = str(d.get("Tier") or "")
+            bg = tier_colors.get(tier.upper(), None)
+            for j, col in enumerate(raw_cols):
+                v = d.get(col)
+                # 数値型の場合 2桁小数
+                if col in ("Best Lap", "Avg Lap"):
+                    display = str(v) if v else "—"
+                elif isinstance(v, float):
+                    display = f"{v:.2f}"
+                else:
+                    display = str(v) if v is not None else "—"
+                item = QTableWidgetItem(display)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if bg:
+                    item.setBackground(QColor(bg))
+                self._tbl_perf_corr.setItem(i, j, item)
+
+        self._tbl_perf_corr.resizeColumnsToContents()
+        self._tbl_perf_corr.horizontalHeader().setStretchLastSection(True)
+        self._tbl_perf_corr.setSortingEnabled(True)
+
+        # ── FAST/SLOW 比較テーブル ──
+        cmp_filtered = cmp_data
+        if rider_f:
+            cmp_filtered = [d for d in cmp_data
+                            if d.get(cmp_hdrs[2] if len(cmp_hdrs) > 2 else "Rider") == rider_f]
+
+        cmp_raw = cmp_hdrs[2:] if len(cmp_hdrs) > 2 else cmp_hdrs
+        cmp_friendly = [c.replace("\n", " ").strip() for c in cmp_raw]
+        self._tbl_perf_cmp.setSortingEnabled(False)
+        self._tbl_perf_cmp.setColumnCount(len(cmp_friendly))
+        self._tbl_perf_cmp.setHorizontalHeaderLabels(cmp_friendly)
+        self._tbl_perf_cmp.setRowCount(len(cmp_filtered))
+
+        for i, d in enumerate(cmp_filtered):
+            rider = d.get(cmp_hdrs[2] if len(cmp_hdrs) > 2 else "", "")
+            bc = self._RIDER_COLORS.get(rider)
+            for j, col in enumerate(cmp_raw):
+                v = d.get(col)
+                if isinstance(v, float):
+                    display = f"{v:.2f}"
+                else:
+                    display = str(v) if v is not None else "—"
+                item = QTableWidgetItem(display)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if bc:
+                    item.setBackground(QColor(bc).lighter(215))
+                self._tbl_perf_cmp.setItem(i, j, item)
+
+        self._tbl_perf_cmp.resizeColumnsToContents()
+        self._tbl_perf_cmp.horizontalHeader().setStretchLastSection(True)
+
+    # ── 📝 Session Notes ─────────────────────────────────────────────
+    def _build_session_notes(self, notes_data: dict, rider_f: str | None):
+        """問題タグサマリー + エンジニアノートを表示。"""
+        # ── 左: 問題タグテーブル ──
+        tags = notes_data.get("tags", [])
+        rider_tags = notes_data.get("rider_tags", {})
+
+        # 全タグ + ライダー別件数を統合表示
+        combined: dict = {}
+        for tag, cnt, phase, meaning in tags:
+            combined[tag] = {"total": cnt, "phase": phase, "meaning": meaning,
+                             "DA77": 0, "JA52": 0}
+        for rider, rtags in rider_tags.items():
+            for tag, cnt, circuits in rtags:
+                if tag not in combined:
+                    combined[tag] = {"total": 0, "phase": "", "meaning": "",
+                                     "DA77": 0, "JA52": 0}
+                combined[tag][rider] = cnt
+                combined[tag]["circuits_" + rider] = circuits
+
+        # ライダーフィルター適用
+        if rider_f:
+            sorted_tags = sorted(
+                [(t, d) for t, d in combined.items() if d.get(rider_f, 0) > 0],
+                key=lambda x: -x[1].get(rider_f, 0)
+            )
+        else:
+            sorted_tags = sorted(combined.items(), key=lambda x: -x[1].get("total", 0))
+
+        tag_cols = ["Tag", "Phase", "Total", "DA77", "JA52", "Meaning"]
+        self._tbl_tag_summary.setSortingEnabled(False)
+        self._tbl_tag_summary.setColumnCount(len(tag_cols))
+        self._tbl_tag_summary.setHorizontalHeaderLabels(tag_cols)
+        self._tbl_tag_summary.setRowCount(len(sorted_tags))
+
+        for i, (tag, d) in enumerate(sorted_tags):
+            total = d.get("total", 0)
+            bg = "#FFCDD2" if total >= 8 else "#FFE0B2" if total >= 5 else "#FFF9C4" if total >= 3 else None
+            values = [tag, d.get("phase", ""), str(total),
+                      str(d.get("DA77", 0)), str(d.get("JA52", 0)), d.get("meaning", "")]
+            for j, v in enumerate(values):
+                item = QTableWidgetItem(str(v))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if bg:
+                    item.setBackground(QColor(bg))
+                self._tbl_tag_summary.setItem(i, j, item)
+
+        self._tbl_tag_summary.resizeColumnsToContents()
+        self._tbl_tag_summary.horizontalHeader().setStretchLastSection(True)
+        self._tbl_tag_summary.setSortingEnabled(True)
+
+        # ── 右: エンジニアノートHTML ──
+        notes = notes_data.get("notes", [])
+        if rider_f:
+            notes = [(k, v) for k, v in notes if rider_f in k.upper()]
+
+        html_parts = ["<html><body style='font-family:Arial;font-size:11px;'>"]
+        for session_key, note_text in sorted(notes, reverse=True):
+            if not note_text:
+                continue
+            # セッションキー色分け
+            if "ROUND4" in session_key: hdr_col = "#1565C0"
+            elif "ROUND3" in session_key: hdr_col = "#2E7D32"
+            elif "ROUND2" in session_key: hdr_col = "#6A1B9A"
+            elif "ROUND1" in session_key: hdr_col = "#BF360C"
+            else: hdr_col = "#424242"
+
+            # ライダー色
+            if "DA77" in session_key: rider_col = "#0078D4"
+            elif "JA52" in session_key: rider_col = "#E86C00"
+            else: rider_col = "#666"
+
+            html_parts.append(
+                f"<div style='margin-bottom:12px; border-left:4px solid {hdr_col}; "
+                f"padding-left:8px;'>"
+                f"<div style='font-weight:bold; color:{rider_col}; margin-bottom:4px;'>"
+                f"📋 {session_key}</div>"
+                f"<div style='color:#333; white-space:pre-wrap;'>"
+                f"{note_text.replace('<', '&lt;').replace('>', '&gt;')}</div>"
+                f"</div>"
+            )
+        html_parts.append("</body></html>")
+        self._txt_notes.setHtml("".join(html_parts))
+
+
+# ════════════════════════════════════════════════════════════════════
 # メインウィンドウ
 # ════════════════════════════════════════════════════════════════════
 
@@ -1613,7 +2819,7 @@ def main():
         )
         sys.exit(1)
 
-    db = WorkbenchDB(DB_PATH)
+    db = WorkbenchDB(DB_PATH, XL_PATH)
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")

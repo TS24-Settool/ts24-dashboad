@@ -32,16 +32,19 @@ import time
 from pathlib import Path
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
-DATA_ROOT    = SCRIPT_DIR.parent
-LOG_FILE     = SCRIPT_DIR / "watcher.log"
+# DATA_ROOTは常に固定パス（スクリプトをどこから実行しても正しく動作する）
+DATA_ROOT    = Path.home() / "Desktop" / "Data TS24 Claude"
+# インポートスクリプトは常に05_SCRIPTSフォルダを参照
+SCRIPTS_DIR  = DATA_ROOT / "05_SCRIPTS"
+LOG_FILE     = Path("/tmp/ts24_watcher.log")
 PLIST_LABEL  = "com.ts24.watcher"
 PLIST_PATH   = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 
 # 監視ディレクトリ定義: (dir, extension, importer_script, extra_args)
 WATCH_RULES: list[tuple[Path, str, Path, list[str]]] = [
-    (DATA_ROOT / "04_MES",     ".MES",  SCRIPT_DIR / "mes_importer.py",          []),
-    (DATA_ROOT / "01_REPORTS", ".xlsx", SCRIPT_DIR / "report_importer.py",       []),
-    (DATA_ROOT / "07_RESULTS", ".pdf",  SCRIPT_DIR / "pdf_result_extractor.py",  []),
+    (DATA_ROOT / "DATA 2D",    ".MES",  SCRIPTS_DIR / "mes_importer.py",          []),
+    (DATA_ROOT / "01_REPORTS", ".xlsx", SCRIPTS_DIR / "report_importer.py",       []),
+    (DATA_ROOT / "07_RESULTS", ".pdf",  SCRIPTS_DIR / "pdf_result_extractor.py",  []),
 ]
 
 # クールダウン: 同一ファイルの多重発火を防ぐ（秒）

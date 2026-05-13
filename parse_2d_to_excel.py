@@ -275,10 +275,10 @@ def _infer_round(folder_name):
     name = folder_name.upper()
     m = re.search(r"ROUND\s*(\d+)", name)
     if m:
-        return f"ROUND{m.group(1)}"
+        return f"ROUND{int(m.group(1))}"   # ROUND04 → ROUND4 (ゼロ埋め除去)
     m = re.search(r"R(\d+)", name)
     if m:
-        return f"ROUND{m.group(1)}"
+        return f"ROUND{int(m.group(1))}"   # R04 → ROUND4
     return folder_name
 
 
@@ -678,7 +678,9 @@ def build_excel(root_folder, excel_path, cache_path=None):
 
     # ── 5. Load existing Excel (for RUN_LOG etc.) ─────────────────
     keep_sheets = ["RUN_LOG", "DB_LOG", "TREND_ANALYSIS",
-                   "SOLUTION_SEARCH", "REPORT"]
+                   "SOLUTION_SEARCH", "REPORT",
+                   "LAP_SUSPENSION", "PERFORMANCE_CORRELATION",
+                   "DYNAMICS_ANALYSIS", "PROBLEM_LIBRARY"]
     src_wb = None
     if excel_path.exists():
         print(f"\nLoading existing Excel: {excel_path.name}")
