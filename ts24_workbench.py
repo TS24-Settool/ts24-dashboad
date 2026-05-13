@@ -1248,15 +1248,56 @@ class TrendAnalysisTab(QWidget):
             import pyqtgraph as pg
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
-            self._pw_best = pg.PlotWidget(title="Best Lap per Run")
+
+            class _LapAxis(pg.AxisItem):
+                """秒数を M'SS.00 形式で表示するカスタム軸。"""
+                def tickStrings(self, values, scale, spacing):
+                    out = []
+                    for v in values:
+                        try:
+                            s = float(v)
+                            if s <= 0:
+                                out.append("")
+                                continue
+                            m = int(s) // 60
+                            out.append(f"{m}'{s - m*60:05.2f}")
+                        except Exception:
+                            out.append("")
+                    return out
+
+            self._pw_best = pg.PlotWidget(
+                title="Best Lap per Run",
+                axisItems={"left": _LapAxis(orientation="left")},
+            )
             self._pw_best.showGrid(x=True, y=True, alpha=0.3)
-            self._pw_best.setLabel("left", "Lap Time (s)")
+            self._pw_best.setLabel("left", "Lap Time")
             self._pw_best.addLegend(offset=(-10, 10))
-            self._pw_all = pg.PlotWidget(title="All Laps — Scatter (outlap除く)")
+            self._pw_all = pg.PlotWidget(
+                title="All Laps — Scatter (outlap除く)",
+                axisItems={"left": _LapAxis(orientation="left")},
+            )
             self._pw_all.showGrid(x=True, y=True, alpha=0.3)
-            self._pw_all.setLabel("left", "Lap Time (s)")
-            lt_layout.addWidget(self._pw_best, 3)
-            lt_layout.addWidget(self._pw_all, 2)
+            self._pw_all.setLabel("left", "Lap Time")
+            lt_layout.addWidget(_make_help_panel(
+                self._pw_best,
+                "Best Lap per Run",
+                "Best Lap per Run（ランごとベストラップ）\n\n"
+                "縦軸: ベストラップタイム (M'SS.00 形式)\n"
+                "横軸: Run（Session + Run番号 + Rider）\n\n"
+                "各ランのベストラップを折れ線で結んで\n"
+                "ラウンド内のペース推移を確認できます。\n"
+                "DA77 (青) / JA52 (橙) を色分け表示。",
+            ), 3)
+            lt_layout.addWidget(_make_help_panel(
+                self._pw_all,
+                "All Laps Scatter",
+                "All Laps Scatter（全ラップ散布図）\n\n"
+                "縦軸: ラップタイム (M'SS.00 形式)\n"
+                "横軸: Run（outlap除く）\n\n"
+                "全ラップを散布点で表示します。\n"
+                "点が縦に広がるほど lap-to-lap ばらつきが大きく、\n"
+                "集まるほどペースが安定しています。",
+            ), 2)
             self._has_pg = True
         except ImportError:
             lt_layout.addWidget(QLabel("pyqtgraph が未インストールです。"))
@@ -2381,6 +2422,40 @@ class TrendAnalysisTab(QWidget):
 
 
 # ════════════════════════════════════════════════════════════════════
+# グラフ共通ユーティリティ
+# ════════════════════════════════════════════════════════════════════
+
+def _make_help_panel(plot_widget: QWidget, title: str, help_text: str) -> QWidget:
+    """PlotWidget を ? ヘルプボタン付きパネルでラップする。"""
+    panel = QWidget()
+    vbox = QVBoxLayout(panel)
+    vbox.setContentsMargins(0, 0, 0, 0)
+    vbox.setSpacing(0)
+
+    hdr = QHBoxLayout()
+    hdr.setContentsMargins(4, 2, 4, 0)
+    lbl = QLabel(f"<b style='font-size:10px;color:#333;'>{title}</b>")
+    hdr.addWidget(lbl)
+    hdr.addStretch()
+
+    btn = QPushButton("?")
+    btn.setFixedSize(18, 18)
+    btn.setToolTip(help_text)
+    btn.setStyleSheet(
+        "QPushButton{background:#EBF3FF;border:1px solid #4A90D9;"
+        "border-radius:9px;color:#1A73E8;font-weight:bold;font-size:10px;}"
+        "QPushButton:hover{background:#D2E3FC;}"
+    )
+    _t, _h = title, help_text
+    btn.clicked.connect(lambda: QMessageBox.information(panel, _t, _h))
+    hdr.addWidget(btn)
+
+    vbox.addLayout(hdr)
+    vbox.addWidget(plot_widget, stretch=1)
+    return panel
+
+
+# ════════════════════════════════════════════════════════════════════
 # メインウィンドウ
 # ════════════════════════════════════════════════════════════════════
 
@@ -2495,24 +2570,90 @@ class PostureAnalysisTab(QWidget):
         pg.setConfigOption("background", "w")
         pg.setConfigOption("foreground", "k")
 
+        # ── カスタム軸: 秒 → M'SS.00 ─────────────────────────────────
+        class _LapAxis(pg.AxisItem):
+            def tickStrings(self, values, scale, spacing):
+                out = []
+                for v in values:
+                    try:
+                        s = float(v)
+                        if s <= 0:
+                            out.append("")
+                            continue
+                        m = int(s) // 60
+                        out.append(f"{m}'{s - m*60:05.2f}")
+                    except Exception:
+                        out.append("")
+                return out
+
         # 2×2 グリッド: QSplitter 縦 × (横スプリッタ 上/下)
         vsplit = QSplitter(Qt.Orientation.Vertical)
 
         # 上段スプリッタ
         top = QSplitter(Qt.Orientation.Horizontal)
-        self._pw_scatter = pg.PlotWidget(title="Pitch vs Lap Time")
-        self._pw_phase   = pg.PlotWidget(title="Phase Space (SusF vs SusR)")
-        top.addWidget(self._pw_scatter)
-        top.addWidget(self._pw_phase)
+        self._pw_scatter = pg.PlotWidget(
+            axisItems={"bottom": _LapAxis(orientation="bottom")})
+        self._pw_phase   = pg.PlotWidget()
+        top.addWidget(_make_help_panel(
+            self._pw_scatter,
+            "Pitch vs Lap Time",
+            "Pitch vs Lap Time（散布図）\n\n"
+            "縦軸: Pitch = ApexSusF − ApexSusR (mm)\n"
+            "　正値 → ノーズUP（フロントが高い）\n"
+            "　負値 → ノーズDOWN（良好なターンイン姿勢）\n\n"
+            "横軸: ラップタイム (M'SS.00 形式)\n\n"
+            "散布点が左下（速いラップ × 小さいPitch）に\n"
+            "集まるほど理想的なセットアップ。\n"
+            "DA77 (青) / JA52 (橙) を色分け表示。\n\n"
+            "※ §0 参考値（推定データ使用）",
+        ))
+        top.addWidget(_make_help_panel(
+            self._pw_phase,
+            "Phase Space (SusF vs SusR)",
+            "Phase Space（位相空間図）\n\n"
+            "縦軸: Apex SusR (mm) — リアサス沈み込み\n"
+            "横軸: Apex SusF (mm) — フロントサス沈み込み\n"
+            "点線: SusF = SusR（前後バランス均等ライン）\n\n"
+            "点が対角線より上 → リア荷重多め\n"
+            "点が対角線より下 → フロント荷重多め\n\n"
+            "DA77 (●) / JA52 (▼) で形を分けて表示。\n"
+            "※ §0 参考値（推定データ使用）",
+        ))
         top.setStretchFactor(0, 1)
         top.setStretchFactor(1, 1)
 
         # 下段スプリッタ
         bot = QSplitter(Qt.Orientation.Horizontal)
-        self._pw_radar = pg.PlotWidget(title="Rider Fingerprint")
-        self._pw_trend = pg.PlotWidget(title="Pitch / Heave Lap推移")
-        bot.addWidget(self._pw_radar)
-        bot.addWidget(self._pw_trend)
+        self._pw_radar = pg.PlotWidget()
+        self._pw_trend = pg.PlotWidget()
+        bot.addWidget(_make_help_panel(
+            self._pw_radar,
+            "Rider Fingerprint",
+            "Rider Fingerprint（レーダーチャート）\n\n"
+            "各ライダーの平均特性を5指標で可視化します。\n"
+            "すべての軸で「外側 = 良好」に正規化済み。\n\n"
+            "・Pitch     : 小さいほど良（ノーズDOWN）\n"
+            "・Heave     : 小さいほど良（沈み込み小）\n"
+            "・BRK SusF  : 小さいほど良（制動安定）\n"
+            "・Apex Speed: 大きいほど良（コーナー速度高）\n"
+            "・Lap Time  : 小さいほど良（速いほど外側）\n\n"
+            "DA77 (青) / JA52 (橙) を色分け表示。\n"
+            "※ §0 参考値（推定データ使用）",
+        ))
+        bot.addWidget(_make_help_panel(
+            self._pw_trend,
+            "Pitch / Heave Lap推移",
+            "Pitch / Heave Lap推移（折れ線）\n\n"
+            "縦軸: mm  横軸: ラップ番号\n\n"
+            "━ 実線 (Pitch = SusF − SusR):\n"
+            "  値が小さい → ノーズDOWN傾向（良）\n\n"
+            "┈ 破線 (Heave = (SusF+SusR)/2):\n"
+            "  サスペンション全体の平均沈み込み量\n\n"
+            "最新ラウンドの全ラップを表示。\n"
+            "タイヤ摩耗による経時ドリフトも確認可能。\n"
+            "DA77 (青) / JA52 (橙) を色分け表示。\n\n"
+            "※ §0 参考値（推定データ使用）",
+        ))
         bot.setStretchFactor(0, 1)
         bot.setStretchFactor(1, 1)
 
@@ -2550,7 +2691,7 @@ class PostureAnalysisTab(QWidget):
         pw  = self._pw_scatter
         pw.clear()
         pw.setLabel("left", "Pitch (mm) = SusF - SusR")
-        pw.setLabel("bottom", "Lap Time (s)")
+        pw.setLabel("bottom", "Lap Time (M'SS.00)")
         if "pitch" not in df.columns or "lap_time_s" not in df.columns:
             return
         pw.addLegend()
