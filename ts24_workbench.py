@@ -2895,7 +2895,9 @@ class PostureAnalysisTab(QWidget):
         if not rider_vals:
             return
 
-        # 各軸を 0-1 正規化（全ライダー横断）
+        # 各軸を 0.2-1.0 正規化（全ライダー横断）
+        # ※ 最小値を 0.2 に設定 → どのライダーも多少は見える
+        _NORM_MIN = 0.2
         norm_vals: dict[str, list[float]] = {r: [] for r in rider_vals}
         for i, (col, _lbl, lower_better) in enumerate(METRICS):
             all_v = [rider_vals[r][i] for r in rider_vals if rider_vals[r]]
@@ -2903,10 +2905,11 @@ class PostureAnalysisTab(QWidget):
             span = mx - mn if mx != mn else 1.0
             for rider in rider_vals:
                 raw = rider_vals[rider][i]
-                norm = (raw - mn) / span  # 0=低, 1=高
-                # 「小さい=良い」指標は反転して 1=良い になるよう
+                norm = (raw - mn) / span          # 0=低, 1=高
                 if lower_better:
-                    norm = 1.0 - norm
+                    norm = 1.0 - norm             # 「小さい=良い」を反転
+                # 0.2〜1.0 にスケール（最低でも 20% 表示される）
+                norm = _NORM_MIN + norm * (1.0 - _NORM_MIN)
                 norm_vals[rider].append(norm)
 
         # グリッド円
@@ -2923,10 +2926,13 @@ class PostureAnalysisTab(QWidget):
             ti.setPos(math.cos(a) * 1.22, math.sin(a) * 1.22)
             pw.addItem(ti)
 
-        # ライダーポリゴン（DA77 → 塗りつぶし薄め, JA52 → 輪郭太め）
-        items = list(self._COLORS.items())
-        draw_order = [items[1], items[0]]   # JA52 を先に描いて DA77 を手前に
-        for rider, col in draw_order:
+        # ライダーポリゴン
+        # 描画順: DA77（塗り）→ JA52（塗り）→ DA77（輪郭）→ JA52（輪郭）
+        # 輪郭を最後に重ねることで両者が必ず視認できる
+        items = list(self._COLORS.items())  # [("DA77", blue), ("JA52", orange)]
+
+        # ① 塗りつぶしレイヤー（両者を薄く）
+        for rider, col in items:
             if rider not in norm_vals:
                 continue
             nv = norm_vals[rider]
@@ -2934,14 +2940,24 @@ class PostureAnalysisTab(QWidget):
                  [math.cos(angles[0]) * nv[0]]
             ys = [math.sin(angles[i]) * nv[i] for i in range(n)] + \
                  [math.sin(angles[0]) * nv[0]]
-            # 輪郭: 太め実線
             pw.plot(xs, ys,
-                    pen=pg.mkPen(col, width=2.8),
-                    name=rider,
+                    pen=pg.mkPen(col, width=0),   # 輪郭なし（後で描く）
                     fillLevel=0,
-                    brush=pg.mkBrush(col + "30"))   # 透明度 19%
+                    brush=pg.mkBrush(col + "28")) # 透明度 16%
 
-            # 頂点マーカー（各指標の位置を明示）
+        # ② 輪郭 + 頂点マーカーレイヤー（両者を上書き）
+        for rider, col in items:
+            if rider not in norm_vals:
+                continue
+            nv = norm_vals[rider]
+            xs = [math.cos(angles[i]) * nv[i] for i in range(n)] + \
+                 [math.cos(angles[0]) * nv[0]]
+            ys = [math.sin(angles[i]) * nv[i] for i in range(n)] + \
+                 [math.sin(angles[0]) * nv[0]]
+            pw.plot(xs, ys,
+                    pen=pg.mkPen(col, width=2.5),
+                    name=rider)
+
             vx = [math.cos(angles[i]) * nv[i] for i in range(n)]
             vy = [math.sin(angles[i]) * nv[i] for i in range(n)]
             pw.plot(vx, vy,
