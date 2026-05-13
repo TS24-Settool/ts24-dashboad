@@ -2670,7 +2670,23 @@ class PostureAnalysisTab(QWidget):
         # 下段スプリッタ
         bot = QSplitter(Qt.Orientation.Horizontal)
         self._pw_radar = pg.PlotWidget()
-        self._pw_trend = pg.PlotWidget()
+        # Pitch / Heave を上下2段で分けて見やすくする
+        trend_container = QWidget()
+        trend_v = QVBoxLayout(trend_container)
+        trend_v.setContentsMargins(0, 0, 0, 0)
+        trend_v.setSpacing(2)
+        self._pw_pitch_plot = pg.PlotWidget()
+        self._pw_heave_plot = pg.PlotWidget()
+        self._pw_heave_plot.setXLink(self._pw_pitch_plot)   # X 軸を連動
+        for _p in (self._pw_pitch_plot, self._pw_heave_plot):
+            _p.showGrid(x=True, y=True, alpha=0.3)
+            _p.addLegend(offset=(-10, 5))
+        self._pw_pitch_plot.setLabel("left", "Pitch (mm)  [↑ノーズDOWN]")
+        self._pw_heave_plot.setLabel("left", "Heave (mm)  [↑高荷重]")
+        self._pw_heave_plot.setLabel("bottom", "Lap No")
+        trend_v.addWidget(self._pw_pitch_plot, 1)
+        trend_v.addWidget(self._pw_heave_plot, 1)
+
         bot.addWidget(_make_help_panel(
             self._pw_radar,
             "Rider Fingerprint",
@@ -2693,7 +2709,7 @@ class PostureAnalysisTab(QWidget):
             "※ §0 参考値（推定データ使用）",
         ))
         bot.addWidget(_make_help_panel(
-            self._pw_trend,
+            trend_container,
             "Pitch / Heave Lap推移",
             "Pitch / Heave Lap推移（折れ線）\n\n"
             "【センサー定義】\n"
@@ -2724,7 +2740,7 @@ class PostureAnalysisTab(QWidget):
         vsplit.setStretchFactor(1, 1)
         root.addWidget(vsplit, stretch=1)
 
-        for _pw in (self._pw_scatter, self._pw_phase, self._pw_radar, self._pw_trend):
+        for _pw in (self._pw_scatter, self._pw_phase, self._pw_radar):
             _pw.showGrid(x=True, y=True, alpha=0.3)
             _pw.addLegend()
 
@@ -2907,8 +2923,10 @@ class PostureAnalysisTab(QWidget):
             ti.setPos(math.cos(a) * 1.22, math.sin(a) * 1.22)
             pw.addItem(ti)
 
-        # ライダーポリゴン
-        for rider, col in self._COLORS.items():
+        # ライダーポリゴン（DA77 → 塗りつぶし薄め, JA52 → 輪郭太め）
+        items = list(self._COLORS.items())
+        draw_order = [items[1], items[0]]   # JA52 を先に描いて DA77 を手前に
+        for rider, col in draw_order:
             if rider not in norm_vals:
                 continue
             nv = norm_vals[rider]
@@ -2916,22 +2934,37 @@ class PostureAnalysisTab(QWidget):
                  [math.cos(angles[0]) * nv[0]]
             ys = [math.sin(angles[i]) * nv[i] for i in range(n)] + \
                  [math.sin(angles[0]) * nv[0]]
-            pw.plot(xs, ys, pen=pg.mkPen(col, width=2.5), name=rider,
-                    fillLevel=0, brush=pg.mkBrush(col + "28"))
+            # 輪郭: 太め実線
+            pw.plot(xs, ys,
+                    pen=pg.mkPen(col, width=2.8),
+                    name=rider,
+                    fillLevel=0,
+                    brush=pg.mkBrush(col + "30"))   # 透明度 19%
+
+            # 頂点マーカー（各指標の位置を明示）
+            vx = [math.cos(angles[i]) * nv[i] for i in range(n)]
+            vy = [math.sin(angles[i]) * nv[i] for i in range(n)]
+            pw.plot(vx, vy,
+                    pen=None,
+                    symbol="o", symbolSize=7,
+                    symbolBrush=pg.mkBrush(col),
+                    symbolPen=pg.mkPen("w", width=1.0))
 
         pw.setXRange(-1.4, 1.4, padding=0)
         pw.setYRange(-1.4, 1.4, padding=0)
 
     def _draw_trend(self, df):
-        """Panel 4: Lap 推移 (Pitch / Heave)。最新ランを自動選択。"""
-        pg = self._pg
-        pw = self._pw_trend
-        pw.clear()
-        pw.setLabel("left",   "mm")
-        pw.setLabel("bottom", "Lap No")
-        pw.addLegend()
+        """Panel 4: Pitch / Heave を上下2段に分けて表示。"""
+        pg   = self._pg
+        pp   = self._pw_pitch_plot   # 上段: Pitch
+        ph   = self._pw_heave_plot   # 下段: Heave
+        pp.clear()
+        ph.clear()
+
         if "pitch" not in df.columns or "lap_no" not in df.columns:
             return
+
+        pitch_vals, heave_vals = [], []
         for rider, col in self._COLORS.items():
             if "rider" not in df.columns:
                 break
@@ -2942,24 +2975,46 @@ class PostureAnalysisTab(QWidget):
             if rs.empty:
                 continue
             laps = rs["lap_no"].values.tolist()
-            pw.plot(laps, rs["pitch"].values.tolist(),
-                    pen=pg.mkPen(col, width=2),
-                    symbol="o", symbolSize=5, symbolBrush=pg.mkBrush(col),
-                    name=f"{rider} Pitch")
-            pw.plot(laps, rs["heave"].values.tolist(),
-                    pen=pg.mkPen(col, width=1.5, style=Qt.PenStyle.DashLine),
-                    symbol="t", symbolSize=5, symbolBrush=pg.mkBrush(col + "80"),
-                    name=f"{rider} Heave")
-        # F/R 均等荷重時の Pitch 参考ライン
-        balance_pitch = self._SUS_F_MAX - self._SUS_R_MAX  # 60mm
-        pw.addItem(pg.InfiniteLine(
-            pos=balance_pitch, angle=0,
-            pen=pg.mkPen("#0078D4", width=1.2, style=Qt.PenStyle.DashLine),
-            label="均等荷重 ({value:.0f}mm)",
-            labelOpts={"color": "#0078D4", "position": 0.05},
+            pv   = rs["pitch"].values.tolist()
+            hv   = rs["heave"].values.tolist()
+            pitch_vals.extend(pv)
+            heave_vals.extend(hv)
+
+            # ── Pitch パネル ────────────────────────────────────────
+            pp.plot(laps, pv,
+                    pen=pg.mkPen(col, width=2.2),
+                    symbol="o", symbolSize=6,
+                    symbolBrush=pg.mkBrush(col),
+                    symbolPen=pg.mkPen("w", width=0.5),
+                    name=rider)
+
+            # ── Heave パネル ────────────────────────────────────────
+            ph.plot(laps, hv,
+                    pen=pg.mkPen(col, width=2.2),
+                    symbol="s", symbolSize=6,          # 四角でPitchと区別
+                    symbolBrush=pg.mkBrush(col),
+                    symbolPen=pg.mkPen("w", width=0.5),
+                    name=rider)
+
+        # Pitch パネル: F/R 均等荷重ライン
+        balance = self._SUS_F_MAX - self._SUS_R_MAX   # 60mm
+        pp.addItem(pg.InfiniteLine(
+            pos=balance, angle=0,
+            pen=pg.mkPen("#0078D4", width=1.5, style=Qt.PenStyle.DashLine),
+            label=f"F/R均等荷重 ({balance:.0f}mm)",
+            labelOpts={"color": "#0078D4", "position": 0.02},
         ))
-        # Y 軸: Pitch/Heave は全て正値（0〜F_MAX）
-        pw.setYRange(0, self._SUS_F_MAX, padding=0.04)
+
+        # Y 軸をデータ範囲に合わせて自動調整（余白 15mm）
+        pad = 15
+        if pitch_vals:
+            pp.setYRange(max(0, min(pitch_vals) - pad),
+                         min(self._SUS_F_MAX, max(pitch_vals) + pad),
+                         padding=0)
+        if heave_vals:
+            ph.setYRange(max(0, min(heave_vals) - pad),
+                         min(self._SUS_F_MAX, max(heave_vals) + pad),
+                         padding=0)
 
 
 class MainWindow(QMainWindow):
