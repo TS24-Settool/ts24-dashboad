@@ -1040,15 +1040,16 @@ class QuickLogTab(QWidget):
         title.setStyleSheet("color: #0078D4;")
         lay.addWidget(title)
 
-        # ── Run セレクタ ────────────────────────────────────────────────────────────
+        # ── Run 情報ラベル（_RunSelectorWidget より先に初期化する — 順序重要）────────
+        self._lbl_run_info = QLabel("Run未選択")
+        self._lbl_run_info.setStyleSheet("color: #888; font-size: 10px;")
+
+        # ── Run セレクタ（初期化中に _on_run_selected が呼ばれるため後で追加）────
         self._run_selector = _RunSelectorWidget(
             db=self._db,
             on_run_selected=self._on_run_selected,
         )
         lay.addWidget(self._run_selector)
-
-        self._lbl_run_info = QLabel("Run未選択")
-        self._lbl_run_info.setStyleSheet("color: #888; font-size: 10px;")
         lay.addWidget(self._lbl_run_info)
 
         # ── フォーム ────────────────────────────────────────────────────────────
