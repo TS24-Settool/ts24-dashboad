@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 from PyQt6.QtCore import Qt, QFileSystemWatcher
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
     QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
@@ -2832,6 +2832,24 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setFont(QFont("Arial", 10))
+
+    # macOS ダークモードでも常にライトテーマを使用する
+    pal = QPalette()
+    pal.setColor(QPalette.ColorRole.Window,           QColor(245, 245, 245))
+    pal.setColor(QPalette.ColorRole.WindowText,       QColor(20,  20,  20))
+    pal.setColor(QPalette.ColorRole.Base,             QColor(255, 255, 255))
+    pal.setColor(QPalette.ColorRole.AlternateBase,    QColor(233, 233, 233))
+    pal.setColor(QPalette.ColorRole.ToolTipBase,      QColor(255, 255, 220))
+    pal.setColor(QPalette.ColorRole.ToolTipText,      QColor(0,   0,   0))
+    pal.setColor(QPalette.ColorRole.Text,             QColor(20,  20,  20))
+    pal.setColor(QPalette.ColorRole.Button,           QColor(240, 240, 240))
+    pal.setColor(QPalette.ColorRole.ButtonText,       QColor(20,  20,  20))
+    pal.setColor(QPalette.ColorRole.BrightText,       QColor(255, 0,   0))
+    pal.setColor(QPalette.ColorRole.Link,             QColor(0,   100, 200))
+    pal.setColor(QPalette.ColorRole.Highlight,        QColor(42,  130, 218))
+    pal.setColor(QPalette.ColorRole.HighlightedText,  QColor(255, 255, 255))
+    pal.setColor(QPalette.ColorRole.PlaceholderText,  QColor(160, 160, 160))
+    app.setPalette(pal)
 
     window = MainWindow(db)
     window.show()
