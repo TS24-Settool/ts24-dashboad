@@ -2519,13 +2519,32 @@ class PostureAnalysisTab(QWidget):
             if hasattr(self, "_lbl_status"):
                 self._lbl_status.setText(f"❌ 読み込みエラー: {e}")
 
+    # サスペンション物理限界（これを超えるデータは計測誤差として除外）
+    _SUS_F_MAX = 130.0   # mm
+    _SUS_R_MAX = 70.0    # mm
+    _LAP_TIME_MIN = 60.0   # s（1分未満はアウトラップ / 計測エラー）
+    _LAP_TIME_MAX = 300.0  # s（5分超は明らかな異常値）
+
     def _filtered_df(self):
         if self._df is None:
             return None
         df = self._df
+        # サーキットフィルター
         circ = self._combo_circ.currentText()
         if circ and circ != "全サーキット" and "circuit" in df.columns:
             df = df[df["circuit"] == circ]
+        # ── 物理限界フィルター ──────────────────────────────────────
+        # F Sus 最大 130mm / R Sus 最大 70mm を超えるデータは計測誤差
+        if "apex_susf_avg" in df.columns:
+            df = df[df["apex_susf_avg"].between(0, self._SUS_F_MAX, inclusive="both")]
+        if "apex_susr_avg" in df.columns:
+            df = df[df["apex_susr_avg"].between(0, self._SUS_R_MAX, inclusive="both")]
+        if "brk_susf_avg" in df.columns:
+            df = df[df["brk_susf_avg"].between(0, self._SUS_F_MAX, inclusive="both")]
+        # ラップタイム異常値除外（アウトラップ・セーフティカーラップ等）
+        if "lap_time_s" in df.columns:
+            df = df[df["lap_time_s"].between(
+                self._LAP_TIME_MIN, self._LAP_TIME_MAX, inclusive="both")]
         return df
 
     # ── UI 構築 ────────────────────────────────────────────────────
@@ -2611,11 +2630,13 @@ class PostureAnalysisTab(QWidget):
             self._pw_phase,
             "Phase Space (SusF vs SusR)",
             "Phase Space（位相空間図）\n\n"
-            "縦軸: Apex SusR (mm) — リアサス沈み込み\n"
-            "横軸: Apex SusF (mm) — フロントサス沈み込み\n"
-            "点線: SusF = SusR（前後バランス均等ライン）\n\n"
-            "点が対角線より上 → リア荷重多め\n"
-            "点が対角線より下 → フロント荷重多め\n\n"
+            "横軸: Apex SusR (mm) — リアサス沈み込み [0-70mm]\n"
+            "縦軸: Apex SusF (mm) — フロントサス沈み込み [0-130mm]\n\n"
+            "軸範囲はサスペンション物理限界で固定:\n"
+            "  F Sus 最大 130mm / R Sus 最大 70mm\n\n"
+            "点線: F/R の最大使用比率ライン\n"
+            "点が右上 → F/R 同時に大きく沈む（荷重大）\n"
+            "点が左寄り → リア沈み込み小（フロント優先）\n\n"
             "DA77 (●) / JA52 (▼) で形を分けて表示。\n"
             "※ §0 参考値（推定データ使用）",
         ))
@@ -2714,17 +2735,19 @@ class PostureAnalysisTab(QWidget):
         # ゼロライン
         pw.addItem(pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen("#888", width=1,
                                    style=Qt.PenStyle.DotLine)))
+        # Y 軸: Pitch の有効範囲 = SusR_MAX の負値 〜 SusF_MAX
+        pw.setYRange(-self._SUS_R_MAX, self._SUS_F_MAX, padding=0.05)
 
     def _draw_phase_space(self, df):
-        """Panel 2: SusF vs SusR Phase Space。速いラップ=青、遅い=赤。"""
+        """Panel 2: SusR (X) vs SusF (Y) Phase Space。物理限界軸固定。"""
         pg = self._pg
         pw = self._pw_phase
         pw.clear()
-        pw.setLabel("left",   "Apex SusR (mm)")
-        pw.setLabel("bottom", "Apex SusF (mm)")
+        # X = SusR (0-70mm), Y = SusF (0-130mm)
+        pw.setLabel("bottom", "Apex SusR (mm)")
+        pw.setLabel("left",   "Apex SusF (mm)")
         sf_col = "apex_susf_avg"
         sr_col = "apex_susr_avg"
-        lt_col = "lap_time_s"
         if sf_col not in df.columns or sr_col not in df.columns:
             return
         sub = df.dropna(subset=[sf_col, sr_col])
@@ -2739,18 +2762,20 @@ class PostureAnalysisTab(QWidget):
                 continue
             symbol = "o" if rider == "DA77" else "t"
             pw.plot(
-                x=rs[sf_col].values.tolist(),
-                y=rs[sr_col].values.tolist(),
+                x=rs[sr_col].values.tolist(),   # X = SusR
+                y=rs[sf_col].values.tolist(),   # Y = SusF
                 pen=None,
                 symbol=symbol, symbolSize=7,
                 symbolBrush=pg.mkBrush(col + "A0"),
                 symbolPen=pg.mkPen(col, width=0.5),
                 name=rider,
             )
-        # 対角線（SusF=SusR）
-        lim = max(sub[sf_col].max(), sub[sr_col].max()) * 1.05
-        pw.plot([0, lim], [0, lim], pen=pg.mkPen("#CCC", width=1,
-                style=Qt.PenStyle.DotLine))
+        # 物理限界ラインを表示（赤破線）
+        pw.plot([0, self._SUS_R_MAX], [0, self._SUS_F_MAX],
+                pen=pg.mkPen("#DDD", width=1, style=Qt.PenStyle.DotLine))
+        # 固定レンジ: X=SusR 0-70mm, Y=SusF 0-130mm
+        pw.setXRange(0, self._SUS_R_MAX, padding=0.02)
+        pw.setYRange(0, self._SUS_F_MAX, padding=0.02)
 
     def _draw_radar(self, df):
         """Panel 3: ライダー指紋レーダーチャート（5軸）。"""
@@ -2866,6 +2891,8 @@ class PostureAnalysisTab(QWidget):
         # Pitch=0 ライン
         pw.addItem(pg.InfiniteLine(pos=0, angle=0,
                    pen=pg.mkPen("#888", width=1, style=Qt.PenStyle.DotLine)))
+        # Y 軸固定: Pitch/Heave の有効範囲
+        pw.setYRange(-self._SUS_R_MAX, self._SUS_F_MAX, padding=0.05)
 
 
 class MainWindow(QMainWindow):
