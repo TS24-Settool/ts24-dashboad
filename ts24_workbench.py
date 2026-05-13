@@ -2762,10 +2762,65 @@ class PostureAnalysisTab(QWidget):
         self._draw_radar(df)
         self._draw_trend(df)
 
+    # ── ラップ詳細ポップアップ ────────────────────────────────────
+    def _on_pt_click(self, points):
+        """ScatterPlotItem クリック → ラップ詳細ダイアログ。"""
+        if not points:
+            return
+        d = points[0].data()
+        if not isinstance(d, dict):
+            return
+        lt  = d.get("lap_time_s") or 0
+        try:
+            lt = float(lt)
+        except (TypeError, ValueError):
+            lt = 0.0
+        m = int(lt) // 60
+        lap_fmt = f"{m}'{lt - m*60:05.2f}" if lt > 0 else "—"
+        def _fmt(v, unit="mm", dec=1):
+            try:
+                return f"{float(v):.{dec}f} {unit}"
+            except (TypeError, ValueError):
+                return "—"
+        lines = [
+            f"🏍  Rider   : {d.get('rider','—')}",
+            f"📍  Circuit : {d.get('circuit','—')}  /  {d.get('session','—')}  ({d.get('round','—')})",
+            f"📅  Date    : {d.get('date','—')}",
+            "",
+            f"⏱  Lap {d.get('lap_no','—')}  →  {lap_fmt}",
+            "",
+            f"↕  Pitch    : {_fmt(d.get('pitch'))}",
+            f"⬇  Heave    : {_fmt(d.get('heave'))}",
+            f"🔵  Apex SusF: {_fmt(d.get('apex_susf_avg'))}",
+            f"🟠  Apex SusR: {_fmt(d.get('apex_susr_avg'))}",
+            "",
+            f"🔑  Run ID  : {d.get('run_id','—')}",
+        ]
+        QMessageBox.information(self, "ラップ詳細", "\n".join(lines))
+
+    # ── 散布図共通ヘルパー: ScatterPlotItem スポットリスト作成 ───
+    @staticmethod
+    def _make_spots(pg, grp, col, pen_col, sz, alpha, info_cols):
+        """クラスタ別 spots リストを生成（クリック用データ付き）。"""
+        avail = [c for c in info_cols if c in grp.columns]
+        records = grp[avail].where(grp[avail].notna(), other=None).to_dict("records")
+        xs = grp.iloc[:, 0].values   # x は grp の第1列
+        ys = grp.iloc[:, 1].values   # y は grp の第2列
+        brush = pg.mkBrush(col + alpha)
+        pen   = pg.mkPen(pen_col, width=1.5)
+        return [{"pos": (float(x), float(y)),
+                 "brush": brush, "pen": pen, "size": sz, "data": d}
+                for x, y, d in zip(xs, ys, records)
+                if x == x and y == y]   # NaN 除外
+
     def _draw_pitch_scatter(self, df):
-        """Panel 1: Pitch vs Lap Time散布図。
+        """Panel 1: Pitch vs Lap Time 散布図（クラスタ色分け付き）。
         Pitch = SusF - SusR (mm)  正値 = ノーズDOWN（フロント荷重優位）
-        F_Sus 130mm = Full Stroke / R_Sus 70mm = Full Stroke
+        ─ クラスタ凡例 ─────────────────────────
+        🟢 緑枠 (大) = Fast lap  (全体 Q25 以下)
+        ⬜ 灰枠 (中) = Mid  lap  (Q25〜Q75)
+        🔴 赤枠 (小) = Slow lap  (Q75 以上)
+        ─────────────────────────────────────────
         """
         pg  = self._pg
         pw  = self._pw_scatter
@@ -2774,38 +2829,61 @@ class PostureAnalysisTab(QWidget):
         pw.setLabel("bottom", "Lap Time (M'SS.00)")
         if "pitch" not in df.columns or "lap_time_s" not in df.columns:
             return
+
+        # ── ラップタイム四分位（全ライダー統合）──────────────────
+        all_t = df["lap_time_s"].dropna()
+        q25 = float(all_t.quantile(0.25)) if len(all_t) >= 4 else float("inf")
+        q75 = float(all_t.quantile(0.75)) if len(all_t) >= 4 else float("-inf")
+
         pw.addLegend()
+        _INFO = ["run_id","lap_id","rider","round","circuit","session",
+                 "lap_no","date","lap_time_s","pitch","heave",
+                 "apex_susf_avg","apex_susr_avg"]
+
         for rider, col in self._COLORS.items():
             if "rider" not in df.columns:
                 break
-            sub = df[df["rider"] == rider].dropna(subset=["pitch", "lap_time_s"])
+            sub = df[df["rider"] == rider].dropna(subset=["pitch","lap_time_s"])
             if sub.empty:
                 continue
-            pw.plot(
-                x=sub["lap_time_s"].values.tolist(),
-                y=sub["pitch"].values.tolist(),
-                pen=None,
-                symbol="o", symbolSize=6,
-                symbolBrush=pg.mkBrush(col),
-                symbolPen=pg.mkPen(col, width=0.5),
-                name=rider,
-            )
-        # F/R 均等荷重ライン（Pitch = F_MAX - R_MAX = 60mm → 均等使用時の基準）
-        # SusF_% = SusR_% → SusF = (130/70)*SusR → Pitch = SusF-SusR は一定でなく
-        # 均等荷重時の Pitch 期待値を参考線として表示
-        balance_pitch = self._SUS_F_MAX - self._SUS_R_MAX  # = 60mm
+            # ダミーエントリ（凡例にライダー名を表示）
+            pw.plot([], [], pen=None, symbol="o",
+                    symbolBrush=pg.mkBrush(col), name=rider)
+
+            # クラスタ定義: (mask, 枠色, サイズ, alpha hex)
+            # Slow を先に描き Fast を最前面に
+            clusters = [
+                (sub["lap_time_s"] >= q75, "#CC2200", 5, "55"),  # Slow: 赤枠・小
+                ((sub["lap_time_s"] > q25) & (sub["lap_time_s"] < q75),
+                 "#777777", 6, "88"),                              # Mid: 灰枠・中
+                (sub["lap_time_s"] <= q25, "#00BB44", 8, "FF"),   # Fast: 緑枠・大
+            ]
+            for mask, pen_col, sz, alpha in clusters:
+                grp = sub[mask][["lap_time_s","pitch"] +
+                                [c for c in _INFO if c in sub.columns and
+                                 c not in ("lap_time_s","pitch")]]
+                if grp.empty:
+                    continue
+                spots = self._make_spots(pg, grp, col, pen_col, sz, alpha, _INFO)
+                if not spots:
+                    continue
+                sc = pg.ScatterPlotItem(spots=spots, hoverable=True)
+                sc.sigPointsClicked.connect(
+                    lambda item, pts, ev, s=self: s._on_pt_click(pts))
+                pw.addItem(sc)
+
+        # F/R 均等荷重ライン
+        balance_pitch = self._SUS_F_MAX - self._SUS_R_MAX   # = 60mm
         pw.addItem(pg.InfiniteLine(
             pos=balance_pitch, angle=0,
             pen=pg.mkPen("#0078D4", width=1.2, style=Qt.PenStyle.DashLine),
             label="F/R 均等荷重 ({value:.0f}mm)",
             labelOpts={"color": "#0078D4", "position": 0.9},
         ))
-        # Pitch=0 ライン（リア > フロント圧縮 = テールDOWN）
         pw.addItem(pg.InfiniteLine(
             pos=0, angle=0,
             pen=pg.mkPen("#888", width=0.8, style=Qt.PenStyle.DotLine),
         ))
-        # Y 軸: 実データの有効範囲（F/Rともに正値で Pitch は通常 0〜130mm）
         pw.setYRange(-10, self._SUS_F_MAX, padding=0.04)
 
     def _draw_phase_space(self, df):
@@ -2823,6 +2901,16 @@ class PostureAnalysisTab(QWidget):
         sub = df.dropna(subset=[sf_col, sr_col])
         if sub.empty:
             return
+        # ── Phase Space クラスタ（ラップタイム四分位）────────────────
+        all_t = sub["lap_time_s"].dropna() if "lap_time_s" in sub.columns else pd.Series([], dtype=float)
+        q25 = float(all_t.quantile(0.25)) if len(all_t) >= 4 else float("inf")
+        q75 = float(all_t.quantile(0.75)) if len(all_t) >= 4 else float("-inf")
+        has_time = "lap_time_s" in sub.columns
+
+        _INFO = ["run_id","lap_id","rider","round","circuit","session",
+                 "lap_no","date","lap_time_s","pitch","heave",
+                 "apex_susf_avg","apex_susr_avg"]
+
         pw.addLegend()
         for rider, col in self._COLORS.items():
             if "rider" not in df.columns:
@@ -2830,16 +2918,32 @@ class PostureAnalysisTab(QWidget):
             rs = sub[sub["rider"] == rider]
             if rs.empty:
                 continue
-            symbol = "o" if rider == "DA77" else "t"
-            pw.plot(
-                x=rs[sr_col].values.tolist(),   # X = SusR
-                y=rs[sf_col].values.tolist(),   # Y = SusF
-                pen=None,
-                symbol=symbol, symbolSize=7,
-                symbolBrush=pg.mkBrush(col + "A0"),
-                symbolPen=pg.mkPen(col, width=0.5),
-                name=rider,
-            )
+            # ダミーレジェンドエントリ
+            pw.plot([], [], pen=None, symbol="o",
+                    symbolBrush=pg.mkBrush(col), name=rider)
+
+            clusters = [
+                (rs["lap_time_s"] >= q75 if has_time else pd.Series([False]*len(rs), index=rs.index),
+                 "#CC2200", 5, "55"),
+                ((rs["lap_time_s"] > q25) & (rs["lap_time_s"] < q75)
+                 if has_time else pd.Series([True]*len(rs), index=rs.index),
+                 "#777777", 7, "A0"),
+                (rs["lap_time_s"] <= q25 if has_time else pd.Series([False]*len(rs), index=rs.index),
+                 "#00BB44", 9, "FF"),
+            ]
+            for mask, pen_col, sz, alpha in clusters:
+                grp = rs[mask][[sr_col, sf_col] +
+                               [c for c in _INFO if c in rs.columns and
+                                c not in (sr_col, sf_col)]]
+                if grp.empty:
+                    continue
+                spots = self._make_spots(pg, grp, col, pen_col, sz, alpha, _INFO)
+                if not spots:
+                    continue
+                sc = pg.ScatterPlotItem(spots=spots, hoverable=True)
+                sc.sigPointsClicked.connect(
+                    lambda item, pts, ev, s=self: s._on_pt_click(pts))
+                pw.addItem(sc)
         # F/R 均等荷重ライン: SusF/130 = SusR/70 → SusF = (130/70)*SusR
         # この線上では F/R ストローク使用率が等しい（ピッチ0°相当）
         ratio = self._SUS_F_MAX / self._SUS_R_MAX   # ≈ 1.857
@@ -2895,22 +2999,27 @@ class PostureAnalysisTab(QWidget):
         if not rider_vals:
             return
 
-        # 各軸を 0.2-1.0 正規化（全ライダー横断）
-        # ※ 最小値を 0.2 に設定 → どのライダーも多少は見える
+        # ── 物理的分布パーセンタイル正規化 ──────────────────────────
+        # 各指標で「全ラップ分布の中でライダー平均がどの位置か」を計算。
+        # 2ライダーの値比較ではなく、実データ分布に対するスコアなので
+        # サーキット混在でも意味のある比較が可能。
+        # スコアは 0.2〜1.0 にスケール（最低20%で非表示を防ぐ）。
         _NORM_MIN = 0.2
         norm_vals: dict[str, list[float]] = {r: [] for r in rider_vals}
         for i, (col, _lbl, lower_better) in enumerate(METRICS):
-            all_v = [rider_vals[r][i] for r in rider_vals if rider_vals[r]]
-            mn, mx = min(all_v), max(all_v)
-            span = mx - mn if mx != mn else 1.0
+            # 全ラップの分布（df = _filtered_df 結果）
+            full_dist = df[col].dropna() if col in df.columns else pd.Series([], dtype=float)
             for rider in rider_vals:
                 raw = rider_vals[rider][i]
-                norm = (raw - mn) / span          # 0=低, 1=高
+                if len(full_dist) > 1 and not pd.isna(raw):
+                    # ライダー平均が全分布の何パーセンタイルか
+                    pct = float((full_dist < raw).mean())  # 0.0=最低, 1.0=最高
+                else:
+                    pct = 0.5   # データ不足は中央値扱い
                 if lower_better:
-                    norm = 1.0 - norm             # 「小さい=良い」を反転
-                # 0.2〜1.0 にスケール（最低でも 20% 表示される）
-                norm = _NORM_MIN + norm * (1.0 - _NORM_MIN)
-                norm_vals[rider].append(norm)
+                    pct = 1.0 - pct   # 「小さい=良い」指標は反転
+                # 0.2〜1.0 にスケール
+                norm_vals[rider].append(_NORM_MIN + pct * (1.0 - _NORM_MIN))
 
         # グリッド円
         for r in [0.25, 0.5, 0.75, 1.0]:
