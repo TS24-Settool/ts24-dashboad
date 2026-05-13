@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 # ── パス設定 ──────────────────────────────────────────────────────────
 SCRIPT_DIR   = Path(__file__).parent
 DB_PATH      = SCRIPT_DIR.parent / "02_DATABASE" / "ts24_unified.db"
+XL_PATH      = SCRIPT_DIR.parent / "02_DATABASE" / "TS24 DB Master.xlsx"
 
 # ── 定数 ─────────────────────────────────────────────────────────────
 PROBLEM_TAGS = [
