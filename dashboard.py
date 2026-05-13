@@ -1500,6 +1500,9 @@ with _content_col:
         "rider":         sel_rider,
         "data_snapshot": "\n".join(_snap_lines),
     }
+    # Defensive guard: ensure race_memory is always available
+    if "race_memory" not in st.session_state:
+        st.session_state["race_memory"] = load_race_memory()
     render_float_chat_component(
         api_key  = st.session_state.get("claude_api_key", ""),
         memory   = st.session_state["race_memory"],
