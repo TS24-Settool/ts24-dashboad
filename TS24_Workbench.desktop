@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=TS24 Engineer Workbench
+Comment=Puccetti Racing TS24 Setup & Problem Log Tool
+Exec=/usr/local/bin/python3 /home/user/ts24-dashboad/ts24_workbench.py
+Icon=utilities-terminal
+Terminal=false
+StartupNotify=true
+Categories=Utility;Science;

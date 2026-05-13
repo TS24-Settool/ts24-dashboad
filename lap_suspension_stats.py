@@ -494,9 +494,76 @@ def analyze_mes_per_lap(mes_path: Path, event_meta: dict) -> list[dict]:
             "lap_susF_min":  lap_susF_min,
             "lap_susF_max":  lap_susF_max,
             "lap_susR_mean": lap_susR_mean,
+            # WheelForce Proxy — _apply_wheelforce_proxy() で後処理
+            "wf_f_apex_n":   None,
+            "wf_r_apex_n":   None,
+            "wf_f_brk_n":    None,
+            "wf_r_brk_n":    None,
         })
 
     return results
+
+
+# ─────────────────────────────────────────────────────────
+#  WheelForce Proxy — スプリングレート × サスペンション変位
+# ─────────────────────────────────────────────────────────
+# Link Ratio LR=2.0 (DATA 2D/T02_Jerez/JA52/Link ratio.csv 確認済み)
+# Motion Ratio MR = 1/LR = 0.5
+# Front: 2本フォーク Kf_eff = (F_SPR_L + F_SPR_R) / 2  [N/mm]
+# WF_F = SUSP_F_mm × Kf_eff                              [N]
+# WF_R = SUSP_R_mm × R_SPR × 0.5                         [N]
+_MR_REAR = 0.5
+
+
+def _load_spring_rates(db_path: Path) -> dict:
+    """runs テーブルから run_id → {kf_eff, kr} を返す。欠損は None。"""
+    if not db_path.exists():
+        return {}
+    try:
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT run_id, f_spr_l, f_spr_r, r_spr FROM runs"
+            " WHERE f_spr_l IS NOT NULL OR f_spr_r IS NOT NULL OR r_spr IS NOT NULL"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    rates = {}
+    for run_id, f_l, f_r, r_spr in rows:
+        if f_l is not None and f_r is not None:
+            kf = (float(f_l) + float(f_r)) / 2.0
+        elif f_l is not None:
+            kf = float(f_l)
+        elif f_r is not None:
+            kf = float(f_r)
+        else:
+            kf = None
+        kr = float(r_spr) if r_spr is not None else None
+        rates[run_id] = {"kf_eff": kf, "kr": kr}
+    return rates
+
+
+def _apply_wheelforce_proxy(all_rows: list, spring_rates: dict) -> int:
+    """all_rows に WheelForce Proxy 列を追加する (in-place)。追加できた行数を返す。"""
+    filled = 0
+    for row in all_rows:
+        sr = spring_rates.get(row.get("run_id", ""), {})
+        kf = sr.get("kf_eff")
+        kr = sr.get("kr")
+
+        def _wf_f(mm):
+            return round(mm * kf, 1) if mm is not None and kf is not None else None
+
+        def _wf_r(mm):
+            return round(mm * kr * _MR_REAR, 1) if mm is not None and kr is not None else None
+
+        row["wf_f_apex_n"] = _wf_f(row.get("apex_susF_avg"))
+        row["wf_r_apex_n"] = _wf_r(row.get("apex_susR_avg"))
+        row["wf_f_brk_n"]  = _wf_f(row.get("brk_susF_avg"))
+        row["wf_r_brk_n"]  = _wf_r(row.get("brk_susR_avg"))
+        if row["wf_f_apex_n"] is not None or row["wf_r_apex_n"] is not None:
+            filled += 1
+    return filled
 
 
 # ─────────────────────────────────────────────────────────
@@ -512,6 +579,8 @@ HEADERS = [
     "FULLBRK_CNT", "FULLBRK_SUSF",    "FULLBRK_SUSR",
     # LAP OVERALL
     "LAP_SUSF_MEAN", "LAP_SUSF_MIN", "LAP_SUSF_MAX", "LAP_SUSR_MEAN",
+    # WheelForce Proxy (Level 1 — spring × displacement)
+    "WF_F_APEX_N", "WF_R_APEX_N", "WF_F_BRK_N", "WF_R_BRK_N",
 ]
 
 FIELDS = [
@@ -524,6 +593,8 @@ FIELDS = [
     "fullbrk_count", "fullbrk_susF",    "fullbrk_susR",
     # LAP
     "lap_susF_mean", "lap_susF_min", "lap_susF_max", "lap_susR_mean",
+    # WheelForce Proxy
+    "wf_f_apex_n", "wf_r_apex_n", "wf_f_brk_n", "wf_r_brk_n",
 ]
 
 HDR_BG = "1F3864"   # ダークネイビー
@@ -641,6 +712,11 @@ CREATE TABLE lap_suspension (
     lap_susF_min     REAL,
     lap_susF_max     REAL,
     lap_susR_mean    REAL,
+    -- WheelForce Proxy (Level 1: spring × displacement, MR=0.5 rear)
+    wf_f_apex_n      REAL,
+    wf_r_apex_n      REAL,
+    wf_f_brk_n       REAL,
+    wf_r_brk_n       REAL,
     updated_at       TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_lapsus_run     ON lap_suspension(run_id);
@@ -656,6 +732,7 @@ INSERT OR REPLACE INTO lap_suspension (
     brk_count,   brk_spd_avg,   brk_susF_avg,   brk_susR_avg,
     fullbrk_count, fullbrk_susF, fullbrk_susR,
     lap_susF_mean, lap_susF_min, lap_susF_max, lap_susR_mean,
+    wf_f_apex_n, wf_r_apex_n, wf_f_brk_n, wf_r_brk_n,
     updated_at
 ) VALUES (
     :lap_id, :run_id, :round, :circuit, :session, :rider, :run_no, :lap_no, :date,
@@ -664,6 +741,7 @@ INSERT OR REPLACE INTO lap_suspension (
     :brk_count,   :brk_spd_avg,   :brk_susF_avg,   :brk_susR_avg,
     :fullbrk_count, :fullbrk_susF, :fullbrk_susR,
     :lap_susF_mean, :lap_susF_min, :lap_susF_max, :lap_susR_mean,
+    :wf_f_apex_n, :wf_r_apex_n, :wf_f_brk_n, :wf_r_brk_n,
     datetime('now')
 )
 """
@@ -754,6 +832,20 @@ def main():
     ))
 
     print(f"\n  解析完了: {len(all_rows)} ラップ ({len(mes_list)-skip_cnt} MES ファイル)")
+
+    # ── WheelForce Proxy 付与 ────────────────────────────
+    print("\n  WheelForce Proxy 計算中 (runs テーブルからスプリングレート取得)...")
+    spring_rates = _load_spring_rates(UNIFIED_DB)
+    if spring_rates:
+        wf_filled = _apply_wheelforce_proxy(all_rows, spring_rates)
+        print(f"  スプリングレート取得: {len(spring_rates)} ラン | WF列追加: {wf_filled} ラップ")
+    else:
+        print("  [INFO] runs テーブルにスプリングレートなし — WF列は NULL で書き込みます")
+        for row in all_rows:
+            row["wf_f_apex_n"] = None
+            row["wf_r_apex_n"] = None
+            row["wf_f_brk_n"]  = None
+            row["wf_r_brk_n"]  = None
 
     # ── 統計サマリー ─────────────────────────────────────
     print("\n  ── サマリー ──────────────────────────────────")

@@ -95,6 +95,21 @@
       "run_no": null,
       "insight": "dashboard.py フローティングチャット(🤖FABボタン)修正: ts24Toggle/ts24Sendをwindow.parentに定義。anthropic-dangerous-allow-any-cors-originヘッダー追加。",
       "source": "claude_code_maintenance"
+    },
+    {
+      "date": "2026-05-01",
+      "circuit": "ALL",
+      "rider": "ALL",
+      "run_no": 0,
+      "insight": "pseudo_corner_id 実装完了。brake_peak_progress ベースのクラスタリングで同一コーナーを識別。cluster_confidence（高/中/低）付与。ChatGPT監査#1対応。corner_phase_analysis.py に assign_pseudo_corner_ids() 追加、dashboard.py Corner Phase ページにも信頼度フィルター・Y軸ラベル更新・Section Cテーブル列追加。",
+      "source": "claude_code"
+    },
+    {
+      "date": "2026-05-12",
+      "circuit": "ALL",
+      "rider": "ALL",
+      "insight": "ts24_workbench.py に workbench_update_spec_v1.2 (Fix1/Fix2/Enhancement3) を実装完了。 Fix1: WaveformView 全5パネルにクロスヘア縦線（黄色破線）追加 — setXLink済みのX軸に InfiniteLine+SignalProxy で連動。 Fix2: ProblemLogTab/SetupDecisionTabに _RunSelectorWidget（Circuit→Run DB連動コンボ）追加 — CSVロード不要で過去Run参照・入力が可能。WorkbenchDB.get_run()追加。 Enhancement3: PostureAnalysisTab（🎯 姿勢分析）新タブ追加 — Pitch=SusF-SusR/Heave=(SusF+SusR)/2 を4パネルで可視化: Pitch-Laptime散布図・PhaseSpace・ライダー指紋レーダー・Lap推移グラフ。 データソース: lap_suspension_data.json (§0参考値)。",
+      "source": "claude_code"
     }
   ],
   "conversation_summaries": [
@@ -251,6 +266,27 @@
         "05_SCRIPTS/INSTRUCTION_laptime_and_lapsplit.md",
         "05_SCRIPTS/INSTRUCTION_distance_axis_and_db_schema.md"
       ]
+    },
+    {
+      "date": "2026-05-12",
+      "page": "workbench",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code作業: ts24_workbench.py へ3実装完了。(1)クロスヘアカーソル(Fix1) (2)DBベースRun選択UI(Fix2) (3)姿勢分析タブPostureAnalysisTab追加(Enhancement3)。構文チェックOK / コミット待ち。"
+    },
+    {
+      "date": "2026-05-13",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code v2.0リファクタリング: ts24_workbench.py から WaveformView / _ProblemRightPanel / CsvImportTab を完全削除。RunBrowserTab（DB全Run一覧・フィルタ・行クリック選択）と QuickLogTab（CSV不要・30秒Problem記録）を新規追加。タブ構成: [🗺️ Run Browser] [⚡ Quick Log] [📋 Problem Log] [🔧 Setup Decision] [📈 Trend Analysis]。create_workbench_tables.py に analysis_note / result_validation / knowledge_cases テーブルを追加（べき等）。ファイル行数: 2796→1594行。"
+    },
+    {
+      "date": "2026-05-13",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code 自動化デーモン実装: (1) ts24_watcher.py — watchdog監視デーモン(04_MES/*.MES / 01_REPORTS/*.xlsx / 07_RESULTS/*.pdf を監視)、LaunchAgent plist生成(--install/--uninstall/--status)、クールダウン10秒で多重発火防止。(2) mes_importer.py — lap_suspension_stats.py呼び出しオーケストレーター(--mes/--dir/--all/--dry-run)。(3) report_importer.py — excel_parser.py CLI化、pending_sessions/pending_lap_times テーブルへ書き込み、重複防止(source_fileチェック)。(4) pdf_result_extractor.py — pdfplumber でWorldSSP公式PDF解析、race_results テーブルへ書き込み、DA77(#77)/JA52(#52)絞り込み(--all-ridersで全体)、ファイル名からメタ情報推測。(5) create_workbench_tables.py に race_results / pending_sessions / pending_lap_times テーブル追加。(6) ts24_workbench.py に QFileSystemWatcher追加(DB変更時に全タブ自動refresh)、全5タブにrefresh()メソッド追加。全ファイル python3 -m py_compile チェック OK。"
     }
   ]
 }
