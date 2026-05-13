@@ -100,7 +100,11 @@ def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
     if recent:
         lines.append("[Recent analysis sessions]")
         for s in recent[-3:]:
-            lines.append(f"  • [{s['date']}] {s['summary']}")
+            summary = s.get("summary") or s.get("session_title") or ""
+            if not summary and s.get("key_outcomes"):
+                summary = " / ".join(str(k) for k in s["key_outcomes"][:2])
+            if summary:
+                lines.append(f"  • [{s.get('date', '?')}] {summary}")
 
     if not lines:
         return ""
