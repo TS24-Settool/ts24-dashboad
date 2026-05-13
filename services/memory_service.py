@@ -95,16 +95,21 @@ def build_memory_context(memory: dict, circuit: str, rider: str) -> str:
     summaries = memory.get("conversation_summaries", [])
     recent = [
         s for s in summaries[-6:]
-        if circuit == "All" or s.get("circuit") in ("All", circuit)
+        if isinstance(s, dict) and (circuit == "All" or s.get("circuit") in ("All", circuit))
     ]
     if recent:
         lines.append("[Recent analysis sessions]")
         for s in recent[-3:]:
-            summary = s.get("summary") or s.get("session_title") or ""
-            if not summary and s.get("key_outcomes"):
-                summary = " / ".join(str(k) for k in s["key_outcomes"][:2])
-            if summary:
-                lines.append(f"  • [{s.get('date', '?')}] {summary}")
+            try:
+                summary = s.get("summary") or s.get("session_title") or ""
+                if not summary and s.get("key_outcomes"):
+                    summary = " / ".join(str(k) for k in s["key_outcomes"][:2])
+                if not summary and s.get("work_done"):
+                    summary = str(s["work_done"][0])[:80] if s["work_done"] else ""
+                if summary:
+                    lines.append(f"  • [{s.get('date', '?')}] {summary}")
+            except Exception:
+                pass
 
     if not lines:
         return ""

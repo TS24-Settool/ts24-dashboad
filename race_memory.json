@@ -397,7 +397,8 @@
         "Run build_unified_db.py after Excel update",
         "Run lap_suspension_stats.py to process ROUND4 MES files",
         "JA52 ROUND4 CSVs not yet in 06_CSV (only DA77 has 4 CSVs)"
-      ]
+      ],
+      "summary": "Added BALATON PARK->BALATON normalization to _CIRC_NORM in 4 scripts: parse_2d_channels.py, lap_susp"
     }
   ]
 }
