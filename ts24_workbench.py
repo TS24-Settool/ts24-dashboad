@@ -2498,8 +2498,17 @@ class PostureAnalysisTab(QWidget):
             sf = "apex_susf_avg"
             sr = "apex_susr_avg"
             if sf in self._df.columns and sr in self._df.columns:
+                # Pitch (mm): 正値 = ノーズDOWN（フロントより圧縮）
+                # F 130mm / R 70mm = Full Stroke
                 self._df["pitch"] = self._df[sf] - self._df[sr]
+                # Heave (mm): 車体全体の平均沈み込み = コーナリングG の代理指標
                 self._df["heave"] = (self._df[sf] + self._df[sr]) / 2.0
+                # Pitch_pct: ストローク使用率の差（F% - R%）
+                # 0% = F/R 均等荷重, 正 = フロント荷重優位, 負 = リア荷重優位
+                self._df["pitch_pct"] = (
+                    self._df[sf] / self._SUS_F_MAX
+                    - self._df[sr] / self._SUS_R_MAX
+                ) * 100.0
             if hasattr(self, "_lbl_status"):
                 n = len(self._df)
                 riders = self._df["rider"].unique().tolist() if "rider" in self._df.columns else []
@@ -2616,27 +2625,42 @@ class PostureAnalysisTab(QWidget):
         top.addWidget(_make_help_panel(
             self._pw_scatter,
             "Pitch vs Lap Time",
-            "Pitch vs Lap Time（散布図）\n\n"
-            "縦軸: Pitch = ApexSusF − ApexSusR (mm)\n"
-            "　正値 → ノーズUP（フロントが高い）\n"
-            "　負値 → ノーズDOWN（良好なターンイン姿勢）\n\n"
-            "横軸: ラップタイム (M'SS.00 形式)\n\n"
-            "散布点が左下（速いラップ × 小さいPitch）に\n"
-            "集まるほど理想的なセットアップ。\n"
-            "DA77 (青) / JA52 (橙) を色分け表示。\n\n"
+            "Pitch vs Lap Time（アペックス散布図）\n\n"
+            "【センサー定義】\n"
+            "  F_Sus 130mm = Full Stroke（最大圧縮）\n"
+            "  R_Sus  70mm = Full Stroke（最大圧縮）\n\n"
+            "【Pitch の定義】\n"
+            "  Pitch (mm) = ApexSusF − ApexSusR\n"
+            "  正値（大）→ フロント荷重優位 → ノーズDOWN\n"
+            "  正値（小）→ F/R バランス良好\n"
+            "  負値     → リア荷重優位 → テールDOWN\n\n"
+            "【青破線：F/R 均等荷重ライン (60mm)】\n"
+            "  SusF使用率 = SusR使用率 の基準。\n"
+            "  この線より上 = フロント相対過荷重（ノーズDIVE）\n"
+            "  この線より下 = リア相対過荷重（テールDOWN）\n\n"
+            "【アペックスでの理想状態】\n"
+            "  ブレーキング残りが少なく均等荷重に近い\n"
+            "  = 青破線付近に散布点が集中\n\n"
+            "DA77 (青) / JA52 (橙) を色分け表示。\n"
             "※ §0 参考値（推定データ使用）",
         ))
         top.addWidget(_make_help_panel(
             self._pw_phase,
             "Phase Space (SusF vs SusR)",
             "Phase Space（位相空間図）\n\n"
-            "横軸: Apex SusR (mm) — リアサス沈み込み [0-70mm]\n"
-            "縦軸: Apex SusF (mm) — フロントサス沈み込み [0-130mm]\n\n"
-            "軸範囲はサスペンション物理限界で固定:\n"
-            "  F Sus 最大 130mm / R Sus 最大 70mm\n\n"
-            "点線: F/R の最大使用比率ライン\n"
-            "点が右上 → F/R 同時に大きく沈む（荷重大）\n"
-            "点が左寄り → リア沈み込み小（フロント優先）\n\n"
+            "【センサー定義】\n"
+            "  F_Sus 130mm / R_Sus 70mm = Full Stroke\n\n"
+            "【軸】\n"
+            "  横軸: Apex SusR (mm) [0–70mm = R Full Stroke]\n"
+            "  縦軸: Apex SusF (mm) [0–130mm = F Full Stroke]\n\n"
+            "【青破線：F/R 均等荷重ライン】\n"
+            "  SusF/130 = SusR/70 となる線（傾き ≈ 1.857）\n"
+            "  この線上 = F/R ストローク使用率が等しい\n\n"
+            "【各ゾーンの意味】\n"
+            "  線より上（Y方向）→ F相対過荷重（ノーズDIVE）\n"
+            "  線より下（X方向）→ R相対過荷重（テールDOWN）\n"
+            "  右上方向 → 全体高荷重（高コーナリングG）\n"
+            "  左下方向 → 全体低荷重（低速 / 荷重不足）\n\n"
             "DA77 (●) / JA52 (▼) で形を分けて表示。\n"
             "※ §0 参考値（推定データ使用）",
         ))
@@ -2651,13 +2675,20 @@ class PostureAnalysisTab(QWidget):
             self._pw_radar,
             "Rider Fingerprint",
             "Rider Fingerprint（レーダーチャート）\n\n"
-            "各ライダーの平均特性を5指標で可視化します。\n"
-            "すべての軸で「外側 = 良好」に正規化済み。\n\n"
-            "・Pitch     : 小さいほど良（ノーズDOWN）\n"
-            "・Heave     : 小さいほど良（沈み込み小）\n"
-            "・BRK SusF  : 小さいほど良（制動安定）\n"
-            "・Apex Speed: 大きいほど良（コーナー速度高）\n"
-            "・Lap Time  : 小さいほど良（速いほど外側）\n\n"
+            "各ライダーのアペックス平均特性を5指標で比較。\n"
+            "全軸「外側 = 相対的に良好」に正規化済み。\n\n"
+            "【各指標の物理的意味】\n"
+            "・Pitch (SusF−SusR)\n"
+            "  外側 = 均等荷重に近い（ブレーキング残り小）\n"
+            "  内側 = ノーズDIVE過大 or テールDOWN\n\n"
+            "・Heave = (SusF+SusR)/2\n"
+            "  外側 = 沈み込み小（軽荷重 or ソフトセット）\n"
+            "  内側 = 沈み込み大（高荷重 or ハードブレーキ）\n\n"
+            "・BRK SusF（制動時フロント圧縮）\n"
+            "  外側 = 制動中の沈み込み小 → 安定制動\n"
+            "  内側 = 過大なノーズDIVE → 不安定\n\n"
+            "・Apex Speed: 外側 = コーナー速度高（速い）\n\n"
+            "・Lap Time: 外側 = ラップタイム小（速い）\n\n"
             "DA77 (青) / JA52 (橙) を色分け表示。\n"
             "※ §0 参考値（推定データ使用）",
         ))
@@ -2665,14 +2696,23 @@ class PostureAnalysisTab(QWidget):
             self._pw_trend,
             "Pitch / Heave Lap推移",
             "Pitch / Heave Lap推移（折れ線）\n\n"
-            "縦軸: mm  横軸: ラップ番号\n\n"
-            "━ 実線 (Pitch = SusF − SusR):\n"
-            "  値が小さい → ノーズDOWN傾向（良）\n\n"
-            "┈ 破線 (Heave = (SusF+SusR)/2):\n"
-            "  サスペンション全体の平均沈み込み量\n\n"
-            "最新ラウンドの全ラップを表示。\n"
-            "タイヤ摩耗による経時ドリフトも確認可能。\n"
-            "DA77 (青) / JA52 (橙) を色分け表示。\n\n"
+            "【センサー定義】\n"
+            "  F_Sus 130mm / R_Sus 70mm = Full Stroke\n\n"
+            "【縦軸 (mm) / 横軸: ラップ番号】\n\n"
+            "━ 実線: Pitch = SusF − SusR\n"
+            "  正値（大）→ ノーズDOWN（フロント荷重優位）\n"
+            "  青破線(60mm) = F/R 均等荷重の基準\n"
+            "  理想: 均等荷重ライン付近で安定推移\n\n"
+            "┈ 破線: Heave = (SusF + SusR) / 2\n"
+            "  車体全体の平均沈み込み量\n"
+            "  ラップが進むにつれ増加 → タイヤ摩耗で\n"
+            "  グリップ低下 → ライダーが荷重を増やす傾向\n\n"
+            "【ラップ間変動の読み方】\n"
+            "  Pitch がラップごとに大きく変動\n"
+            "  → ブレーキポイントが安定していない\n"
+            "  Pitch がフラットに推移\n"
+            "  → 一貫したライディングスタイル\n\n"
+            "DA77 (青) / JA52 (橙) を色分け表示。\n"
             "※ §0 参考値（推定データ使用）",
         ))
         bot.setStretchFactor(0, 1)
@@ -2707,19 +2747,21 @@ class PostureAnalysisTab(QWidget):
         self._draw_trend(df)
 
     def _draw_pitch_scatter(self, df):
-        """Panel 1: Pitch vs Lap Time散布図。"""
+        """Panel 1: Pitch vs Lap Time散布図。
+        Pitch = SusF - SusR (mm)  正値 = ノーズDOWN（フロント荷重優位）
+        F_Sus 130mm = Full Stroke / R_Sus 70mm = Full Stroke
+        """
         pg  = self._pg
         pw  = self._pw_scatter
         pw.clear()
-        pw.setLabel("left", "Pitch (mm) = SusF - SusR")
+        pw.setLabel("left",   "Pitch (mm) = SusF − SusR  [↑ノーズDOWN]")
         pw.setLabel("bottom", "Lap Time (M'SS.00)")
         if "pitch" not in df.columns or "lap_time_s" not in df.columns:
             return
         pw.addLegend()
         for rider, col in self._COLORS.items():
-            sub = df[df.get("rider", pd.Series(dtype=str)) == rider] if "rider" in df.columns else df
-            if rider not in df.get("rider", pd.Series(dtype=str)).values:
-                continue
+            if "rider" not in df.columns:
+                break
             sub = df[df["rider"] == rider].dropna(subset=["pitch", "lap_time_s"])
             if sub.empty:
                 continue
@@ -2732,11 +2774,23 @@ class PostureAnalysisTab(QWidget):
                 symbolPen=pg.mkPen(col, width=0.5),
                 name=rider,
             )
-        # ゼロライン
-        pw.addItem(pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen("#888", width=1,
-                                   style=Qt.PenStyle.DotLine)))
-        # Y 軸: Pitch の有効範囲 = SusR_MAX の負値 〜 SusF_MAX
-        pw.setYRange(-self._SUS_R_MAX, self._SUS_F_MAX, padding=0.05)
+        # F/R 均等荷重ライン（Pitch = F_MAX - R_MAX = 60mm → 均等使用時の基準）
+        # SusF_% = SusR_% → SusF = (130/70)*SusR → Pitch = SusF-SusR は一定でなく
+        # 均等荷重時の Pitch 期待値を参考線として表示
+        balance_pitch = self._SUS_F_MAX - self._SUS_R_MAX  # = 60mm
+        pw.addItem(pg.InfiniteLine(
+            pos=balance_pitch, angle=0,
+            pen=pg.mkPen("#0078D4", width=1.2, style=Qt.PenStyle.DashLine),
+            label="F/R 均等荷重 ({value:.0f}mm)",
+            labelOpts={"color": "#0078D4", "position": 0.9},
+        ))
+        # Pitch=0 ライン（リア > フロント圧縮 = テールDOWN）
+        pw.addItem(pg.InfiniteLine(
+            pos=0, angle=0,
+            pen=pg.mkPen("#888", width=0.8, style=Qt.PenStyle.DotLine),
+        ))
+        # Y 軸: 実データの有効範囲（F/Rともに正値で Pitch は通常 0〜130mm）
+        pw.setYRange(-10, self._SUS_F_MAX, padding=0.04)
 
     def _draw_phase_space(self, df):
         """Panel 2: SusR (X) vs SusF (Y) Phase Space。物理限界軸固定。"""
@@ -2770,9 +2824,17 @@ class PostureAnalysisTab(QWidget):
                 symbolPen=pg.mkPen(col, width=0.5),
                 name=rider,
             )
-        # 物理限界ラインを表示（赤破線）
-        pw.plot([0, self._SUS_R_MAX], [0, self._SUS_F_MAX],
-                pen=pg.mkPen("#DDD", width=1, style=Qt.PenStyle.DotLine))
+        # F/R 均等荷重ライン: SusF/130 = SusR/70 → SusF = (130/70)*SusR
+        # この線上では F/R ストローク使用率が等しい（ピッチ0°相当）
+        ratio = self._SUS_F_MAX / self._SUS_R_MAX   # ≈ 1.857
+        pw.plot(
+            [0, self._SUS_R_MAX],
+            [0, self._SUS_F_MAX],
+            pen=pg.mkPen("#0078D4", width=1.5, style=Qt.PenStyle.DashLine),
+        )
+        ti = pg.TextItem("F/R 均等荷重ライン", anchor=(0, 1), color="#0078D4")
+        ti.setPos(self._SUS_R_MAX * 0.55, self._SUS_F_MAX * 0.55)
+        pw.addItem(ti)
         # 固定レンジ: X=SusR 0-70mm, Y=SusF 0-130mm
         pw.setXRange(0, self._SUS_R_MAX, padding=0.02)
         pw.setYRange(0, self._SUS_F_MAX, padding=0.02)
@@ -2888,11 +2950,16 @@ class PostureAnalysisTab(QWidget):
                     pen=pg.mkPen(col, width=1.5, style=Qt.PenStyle.DashLine),
                     symbol="t", symbolSize=5, symbolBrush=pg.mkBrush(col + "80"),
                     name=f"{rider} Heave")
-        # Pitch=0 ライン
-        pw.addItem(pg.InfiniteLine(pos=0, angle=0,
-                   pen=pg.mkPen("#888", width=1, style=Qt.PenStyle.DotLine)))
-        # Y 軸固定: Pitch/Heave の有効範囲
-        pw.setYRange(-self._SUS_R_MAX, self._SUS_F_MAX, padding=0.05)
+        # F/R 均等荷重時の Pitch 参考ライン
+        balance_pitch = self._SUS_F_MAX - self._SUS_R_MAX  # 60mm
+        pw.addItem(pg.InfiniteLine(
+            pos=balance_pitch, angle=0,
+            pen=pg.mkPen("#0078D4", width=1.2, style=Qt.PenStyle.DashLine),
+            label="均等荷重 ({value:.0f}mm)",
+            labelOpts={"color": "#0078D4", "position": 0.05},
+        ))
+        # Y 軸: Pitch/Heave は全て正値（0〜F_MAX）
+        pw.setYRange(0, self._SUS_F_MAX, padding=0.04)
 
 
 class MainWindow(QMainWindow):
