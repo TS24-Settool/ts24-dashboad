@@ -261,6 +261,7 @@ class WorkbenchDB:
                 return [dict(r) for r in rows]
         except Exception:
             return []
+
 # ════════════════════════════════════════════════════════════════════
 # Problem Log タブ
 # ════════════════════════════════════════════════════════════════════
@@ -846,10 +847,12 @@ class SetupDecisionTab(QWidget):
 class RunBrowserTab(QWidget):
     """🗺️ Run Browser — DB全Run一覧。Circuit / Rider / Session フィルタ + 行クリックで選択。"""
 
+    run_selected = None  # will be set to a callable
+
     def __init__(self, db: WorkbenchDB, parent=None):
         super().__init__(parent)
         self._db = db
-        self._on_run_selected = None
+        self._on_run_selected = None  # callback(run_id, meta)
         self._setup_ui()
         self._refresh()
 
@@ -861,6 +864,7 @@ class RunBrowserTab(QWidget):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
+        # ── フィルタ行 ────────────────────────────────────────────────
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("Circuit:"))
         self._combo_circ = QComboBox()
@@ -894,6 +898,7 @@ class RunBrowserTab(QWidget):
         filter_row.addWidget(self._lbl_count)
         lay.addLayout(filter_row)
 
+        # ── テーブル ──────────────────────────────────────────────────
         self._table = QTableWidget()
         self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels(
@@ -946,14 +951,16 @@ class RunBrowserTab(QWidget):
             runs = []
         self._populate_table(runs)
 
-    def _populate_table(self, runs: list):
+    def _populate_table(self, runs: list[dict]):
         rider_f   = self._combo_rider.currentText()
         session_f = self._combo_session.currentText()
+
         filtered = [
             r for r in runs
             if (rider_f   == "ALL" or r.get("rider")   == rider_f)
             and (session_f == "ALL" or r.get("session") == session_f)
         ]
+
         self._table.setRowCount(len(filtered))
         for row, r in enumerate(filtered):
             best = r.get("perf_best_lap")
@@ -970,6 +977,7 @@ class RunBrowserTab(QWidget):
                 item = QTableWidgetItem(v)
                 item.setData(Qt.ItemDataRole.UserRole, r.get("run_id", ""))
                 self._table.setItem(row, col, item)
+
         self._table.resizeColumnsToContents()
         self._lbl_count.setText(f"{len(filtered)} runs")
 
@@ -998,16 +1006,11 @@ class QuickLogTab(QWidget):
     def __init__(self, db: WorkbenchDB, parent=None):
         super().__init__(parent)
         self._db = db
-        self._current_run_id: str = ""
-        self._current_meta: dict = {}
         self._setup_ui()
 
     def set_run(self, run_id: str, meta: dict) -> None:
-        self._current_run_id = run_id
-        self._current_meta = meta
+        """RunBrowserからの選択を反映する。"""
         self._run_selector.select_run_id(run_id)
-        self._update_run_info(meta)
-        self._lbl_result.setText("")
 
     def _setup_ui(self):
         lay = QVBoxLayout(self)
@@ -1019,6 +1022,7 @@ class QuickLogTab(QWidget):
         title.setStyleSheet("color: #0078D4;")
         lay.addWidget(title)
 
+        # ── Run セレクタ ────────────────────────────────────────────────────────────
         self._run_selector = _RunSelectorWidget(
             db=self._db,
             on_run_selected=self._on_run_selected,
@@ -1029,6 +1033,7 @@ class QuickLogTab(QWidget):
         self._lbl_run_info.setStyleSheet("color: #888; font-size: 10px;")
         lay.addWidget(self._lbl_run_info)
 
+        # ── フォーム ────────────────────────────────────────────────────────────
         form = QFormLayout()
         form.setSpacing(6)
 
@@ -1062,6 +1067,7 @@ class QuickLogTab(QWidget):
 
         lay.addLayout(form)
 
+        # ── ボタン行 ────────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_save = QPushButton("💾  Save Problem")
         btn_save.setFixedHeight(36)
@@ -1085,14 +1091,8 @@ class QuickLogTab(QWidget):
 
         lay.addStretch()
 
-    def _update_run_info(self, meta: dict) -> None:
-        circuit = meta.get("circuit", "")
-        rider   = meta.get("rider", "")
-        run_no  = meta.get("run_no", "")
-        session = meta.get("session", "")
-        self._lbl_run_info.setText(
-            f"✅ {circuit}  |  {rider}  |  {session}  Run #{run_no}"
-        )
+        self._current_run_id: str = ""
+        self._current_meta: dict = {}
 
     def _on_run_selected(self, run_id: str) -> None:
         self._current_run_id = run_id
@@ -1101,7 +1101,13 @@ class QuickLogTab(QWidget):
         except Exception:
             meta = {}
         self._current_meta = meta
-        self._update_run_info(meta)
+        circuit  = meta.get("circuit", "")
+        rider    = meta.get("rider", "")
+        run_no   = meta.get("run_no", "")
+        session  = meta.get("session", "")
+        self._lbl_run_info.setText(
+            f"✅ {circuit}  |  {rider}  |  {session}  Run #{run_no}"
+        )
         self._lbl_result.setText("")
 
     def _save(self) -> None:
@@ -1131,7 +1137,8 @@ class QuickLogTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "DB Error", str(e))
             return
-        self._lbl_result.setText(f"✅ 保存完了: {data['problem_tag']}")
+        tag = data["problem_tag"]
+        self._lbl_result.setText(f"✅ 保存完了: {tag}")
         self._clear_form()
 
     def _clear_form(self) -> None:
@@ -1141,6 +1148,8 @@ class QuickLogTab(QWidget):
         self._combo_tag.setCurrentIndex(0)
         self._txt_desc.clear()
         self._combo_sev.setCurrentIndex(0)
+
+
 # ════════════════════════════════════════════════════════════════════
 # メインウィンドウ
 # ════════════════════════════════════════════════════════════════════
@@ -1484,12 +1493,6 @@ class PostureAnalysisTab(QWidget):
                    pen=pg.mkPen("#888", width=1, style=Qt.PenStyle.DotLine)))
 
 
-
-
-# ════════════════════════════════════════════════════════════════════
-# メインウィンドウ
-# ════════════════════════════════════════════════════════════════════
-
 class MainWindow(QMainWindow):
     def __init__(self, db: WorkbenchDB):
         super().__init__()
@@ -1505,6 +1508,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # ── 上部ツールバー ────────────────────────────────────────────────────────────
         toolbar = QWidget()
         toolbar.setFixedHeight(40)
         toolbar.setStyleSheet("background: #1E1E1E; border-bottom: 1px solid #333;")
@@ -1523,6 +1527,7 @@ class MainWindow(QMainWindow):
 
         root.addWidget(toolbar)
 
+        # ── タブエリア ────────────────────────────────────────────────────────────
         self._tabs = QTabWidget()
 
         self._tab_browser = RunBrowserTab(db=self._db)
@@ -1531,6 +1536,7 @@ class MainWindow(QMainWindow):
         self._tab_setup   = SetupDecisionTab(db=self._db)
         self._tab_posture = PostureAnalysisTab(db=self._db)
 
+        # Run Browser → Quick Log / Problem Log / Setup Decision に連携
         self._tab_browser.set_on_run_selected(self._on_run_selected)
 
         self._tabs.addTab(self._tab_browser, "🗺️ Run Browser")
@@ -1542,6 +1548,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self._tabs)
 
     def _on_run_selected(self, run_id: str, meta: dict) -> None:
+        """RunBrowserでRunが選択されたとき全タブに伝播する。"""
         self._tab_quick.set_run(run_id, meta)
         self._tab_problem.set_run(run_id, meta)
         self._tab_setup.set_run(run_id, meta)
@@ -1550,6 +1557,8 @@ class MainWindow(QMainWindow):
             f"Run#{meta.get('run_no','')}"
         )
         self._tabs.setCurrentWidget(self._tab_problem)
+
+
 
 
 # ════════════════════════════════════════════════════════════════════
