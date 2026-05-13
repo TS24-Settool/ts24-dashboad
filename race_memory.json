@@ -136,6 +136,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "Claude Code作業: ts24_workbench.py へ3実装完了。(1)クロスヘアカーソル(Fix1) (2)DBベースRun選択UI(Fix2) (3)姿勢分析タブPostureAnalysisTab追加(Enhancement3)。構文チェックOK / コミット待ち。"
+    },
+    {
+      "date": "2026-05-13",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code v2.0リファクタリング: ts24_workbench.py から WaveformView / _ProblemRightPanel / CsvImportTab を完全削除。RunBrowserTab（DB全Run一覧・フィルタ・行クリック選択）と QuickLogTab（CSV不要・30秒Problem記録）を新規追加。タブ構成: [🗺️ Run Browser] [⚡ Quick Log] [📋 Problem Log] [🔧 Setup Decision] [📈 Trend Analysis]。create_workbench_tables.py に analysis_note / result_validation / knowledge_cases テーブルを追加（べき等）。ファイル行数: 2796→1594行。"
     }
   ]
 }

@@ -1,5 +1,5 @@
 """
-ts24_unified.db に PROBLEM_LOG と SETUP_DECISION_LOG テーブルを追加する。
+ts24_unified.db に PROBLEM_LOG / SETUP_DECISION_LOG / v2.0テーブルを追加する。
 既存テーブルは変更しない。べき等（何度実行しても同じ結果）。
 
 実行方法:
@@ -56,6 +56,53 @@ CREATE TABLE IF NOT EXISTS setup_decision_log (
 """
 
 
+SQL_ANALYSIS_NOTE = """
+CREATE TABLE IF NOT EXISTS analysis_note (
+    note_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        TEXT    NOT NULL,
+    circuit       TEXT,
+    rider         TEXT,
+    session       TEXT,
+    note_type     TEXT    DEFAULT 'GENERAL',
+    title         TEXT,
+    body          TEXT,
+    data_source   TEXT,
+    created_at    TEXT    DEFAULT (datetime('now','localtime')),
+    updated_at    TEXT    DEFAULT (datetime('now','localtime'))
+)
+"""
+
+SQL_RESULT_VALIDATION = """
+CREATE TABLE IF NOT EXISTS result_validation (
+    validation_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id     INTEGER,
+    run_id_validate TEXT,
+    circuit         TEXT,
+    rider           TEXT,
+    hypothesis      TEXT,
+    observed        TEXT,
+    conclusion      TEXT,
+    verdict         TEXT    DEFAULT 'PENDING',
+    created_at      TEXT    DEFAULT (datetime('now','localtime')),
+    updated_at      TEXT    DEFAULT (datetime('now','localtime'))
+)
+"""
+
+SQL_KNOWLEDGE_CASES = """
+CREATE TABLE IF NOT EXISTS knowledge_cases (
+    case_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    circuit       TEXT,
+    symptom_tag   TEXT,
+    root_cause    TEXT,
+    solution      TEXT,
+    confidence    TEXT    DEFAULT 'LOW',
+    evidence_runs TEXT,
+    created_at    TEXT    DEFAULT (datetime('now','localtime')),
+    updated_at    TEXT    DEFAULT (datetime('now','localtime'))
+)
+"""
+
+
 def create_tables():
     if not DB_PATH.exists():
         print(f"❌ DB not found: {DB_PATH}")
@@ -63,6 +110,9 @@ def create_tables():
     conn = sqlite3.connect(DB_PATH)
     conn.execute(SQL_PROBLEM_LOG)
     conn.execute(SQL_SETUP_DECISION_LOG)
+    conn.execute(SQL_ANALYSIS_NOTE)
+    conn.execute(SQL_RESULT_VALIDATION)
+    conn.execute(SQL_KNOWLEDGE_CASES)
     conn.commit()
 
     # 確認
@@ -70,7 +120,7 @@ def create_tables():
     tables = [r[0] for r in cur.fetchall()]
     conn.close()
     print(f"✅ Tables in {DB_PATH.name}: {tables}")
-    print("   problem_log and setup_decision_log are ready.")
+    print("   problem_log, setup_decision_log, analysis_note, result_validation, knowledge_cases ready.")
 
 
 if __name__ == "__main__":
