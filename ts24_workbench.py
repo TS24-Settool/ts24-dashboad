@@ -496,6 +496,8 @@ class ProblemLogTab(QWidget):
 
     def _on_db_run_selected(self, run_id: str):
         """Run セレクタから呼ばれる。DB からメタを取得して set_run() へ渡す。"""
+        if not hasattr(self, '_lbl_run'):   # UI 初期化中の呼び出しは無視
+            return
         try:
             meta = self._db.get_run(run_id)
         except Exception:
@@ -768,6 +770,8 @@ class SetupDecisionTab(QWidget):
         layout.addLayout(btn_row)
 
     def _on_db_run_selected(self, run_id: str):
+        if not hasattr(self, '_lbl_run_from'):  # UI 初期化中の呼び出しは無視
+            return
         try:
             meta = self._db.get_run(run_id)
         except Exception:
@@ -1114,6 +1118,8 @@ class QuickLogTab(QWidget):
         self._current_meta: dict = {}
 
     def _on_run_selected(self, run_id: str) -> None:
+        if not hasattr(self, '_lbl_result'):  # UI 初期化中の呼び出しは無視
+            return
         self._current_run_id = run_id
         try:
             meta = self._db.get_run(run_id)
