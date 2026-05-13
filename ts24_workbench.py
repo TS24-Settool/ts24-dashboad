@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QFileSystemWatcher
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
@@ -641,6 +641,10 @@ class ProblemLogTab(QWidget):
         self._combo_sev.setCurrentText("MEDIUM")
         self._combo_src.setCurrentIndex(0)
 
+    def refresh(self):
+        """DB変更時に外部から呼び出される。テーブルを再読み込みする。"""
+        self._refresh_table()
+
     def _delete_selected(self):
         rows = self._table.selectedItems()
         if not rows:
@@ -828,6 +832,10 @@ class SetupDecisionTab(QWidget):
         self._clear_form()
         self._refresh_table()
 
+    def refresh(self):
+        """DB変更時に外部から呼び出される。テーブルを再読み込みする。"""
+        self._refresh_table()
+
     def _clear_form(self):
         self._combo_chg_type.setCurrentIndex(0)
         self._combo_comp.setCurrentIndex(0)
@@ -836,7 +844,6 @@ class SetupDecisionTab(QWidget):
         self._txt_rationale.clear()
         self._txt_expected.clear()
         self._combo_result.setCurrentText("UNKNOWN")
-
 
 
 
@@ -858,6 +865,10 @@ class RunBrowserTab(QWidget):
 
     def set_on_run_selected(self, cb):
         self._on_run_selected = cb
+
+    def refresh(self):
+        """DB変更時に外部から呼び出される。Run一覧を再読み込みする。"""
+        self._refresh()
 
     def _setup_ui(self):
         lay = QVBoxLayout(self)
@@ -1011,6 +1022,11 @@ class QuickLogTab(QWidget):
     def set_run(self, run_id: str, meta: dict) -> None:
         """RunBrowserからの選択を反映する。"""
         self._run_selector.select_run_id(run_id)
+
+    def refresh(self):
+        """DB変更時に外部から呼び出される。Run選択コンボを再読み込みする。"""
+        if hasattr(self, "_run_selector"):
+            self._run_selector._load_circuits()
 
     def _setup_ui(self):
         lay = QVBoxLayout(self)
@@ -1173,6 +1189,10 @@ class PostureAnalysisTab(QWidget):
         self._load_data()
 
     # ── データ読み込み ──────────────────────────────────────────────
+
+    def refresh(self):
+        """DB/JSON変更時に外部から呼び出される。データを再読み込みする。"""
+        self._load_data()
 
     def _load_data(self):
         if not self._LAP_SUS.exists():
@@ -1546,6 +1566,24 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._tab_posture, "📈 Trend Analysis")
 
         root.addWidget(self._tabs)
+
+        # ── DB ファイル監視 ──────────────────────────────────────────────────────
+        self._fs_watcher = QFileSystemWatcher([str(DB_PATH)])
+        self._fs_watcher.fileChanged.connect(self._on_db_changed)
+
+    def _on_db_changed(self, _path: str) -> None:
+        """DB ファイルが更新されたとき全タブを自動リフレッシュする。"""
+        self._lbl_status.setText("🔄 DB更新検出 — リフレッシュ中…")
+        for tab in (self._tab_browser, self._tab_quick,
+                    self._tab_problem, self._tab_setup, self._tab_posture):
+            try:
+                tab.refresh()
+            except Exception:
+                pass
+        # watchdog が rename-replace でファイルを再作成する場合、パスが消える
+        if str(DB_PATH) not in self._fs_watcher.files():
+            self._fs_watcher.addPath(str(DB_PATH))
+        self._lbl_status.setText("✅ リフレッシュ完了")
 
     def _on_run_selected(self, run_id: str, meta: dict) -> None:
         """RunBrowserでRunが選択されたとき全タブに伝播する。"""

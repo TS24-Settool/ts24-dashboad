@@ -102,6 +102,84 @@ CREATE TABLE IF NOT EXISTS knowledge_cases (
 )
 """
 
+SQL_RACE_RESULTS = """
+CREATE TABLE IF NOT EXISTS race_results (
+    result_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    round         TEXT,
+    circuit       TEXT,
+    session_type  TEXT,
+    date          TEXT,
+    position      INTEGER,
+    rider_num     INTEGER,
+    rider_name    TEXT,
+    nationality   TEXT,
+    team          TEXT,
+    bike          TEXT,
+    laps          INTEGER,
+    race_time     TEXT,
+    gap           TEXT,
+    best_lap      TEXT,
+    best_lap_s    REAL,
+    sector1       TEXT,
+    sector2       TEXT,
+    sector3       TEXT,
+    source_file   TEXT,
+    imported_at   TEXT    DEFAULT (datetime('now','localtime'))
+)
+"""
+
+SQL_PENDING_SESSIONS = """
+CREATE TABLE IF NOT EXISTS pending_sessions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    submitted_by  TEXT,
+    session_date  TEXT,
+    circuit       TEXT,
+    session_type  TEXT,
+    rider         TEXT,
+    bike_model    TEXT,
+    track_temp    REAL,
+    air_temp      REAL,
+    f_tyre        TEXT,
+    r_tyre        TEXT,
+    best_lap      TEXT,
+    fork_type     TEXT,
+    f_spring      TEXT,
+    f_preload     REAL,
+    f_comp        INTEGER,
+    f_reb         INTEGER,
+    shock_type    TEXT,
+    r_spring      REAL,
+    r_preload     REAL,
+    r_comp        INTEGER,
+    r_reb         INTEGER,
+    ride_height   REAL,
+    swing_arm     INTEGER,
+    status        TEXT    DEFAULT 'pending',
+    source_file   TEXT,
+    imported_at   TEXT    DEFAULT (datetime('now','localtime'))
+)
+"""
+
+SQL_PENDING_LAP_TIMES = """
+CREATE TABLE IF NOT EXISTS pending_lap_times (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    submitted_by  TEXT,
+    round_id      TEXT,
+    circuit       TEXT,
+    session_type  TEXT,
+    rider_num     INTEGER,
+    rider_name    TEXT,
+    lap_no        INTEGER,
+    lap_time      REAL,
+    speed         REAL,
+    flag          TEXT,
+    is_valid      INTEGER DEFAULT 1,
+    status        TEXT    DEFAULT 'pending',
+    source_file   TEXT,
+    imported_at   TEXT    DEFAULT (datetime('now','localtime'))
+)
+"""
+
 
 def create_tables():
     if not DB_PATH.exists():
@@ -113,6 +191,9 @@ def create_tables():
     conn.execute(SQL_ANALYSIS_NOTE)
     conn.execute(SQL_RESULT_VALIDATION)
     conn.execute(SQL_KNOWLEDGE_CASES)
+    conn.execute(SQL_RACE_RESULTS)
+    conn.execute(SQL_PENDING_SESSIONS)
+    conn.execute(SQL_PENDING_LAP_TIMES)
     conn.commit()
 
     # 確認
@@ -120,7 +201,7 @@ def create_tables():
     tables = [r[0] for r in cur.fetchall()]
     conn.close()
     print(f"✅ Tables in {DB_PATH.name}: {tables}")
-    print("   problem_log, setup_decision_log, analysis_note, result_validation, knowledge_cases ready.")
+    print("   + race_results, pending_sessions, pending_lap_times ready.")
 
 
 if __name__ == "__main__":

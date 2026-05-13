@@ -143,6 +143,13 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "Claude Code v2.0リファクタリング: ts24_workbench.py から WaveformView / _ProblemRightPanel / CsvImportTab を完全削除。RunBrowserTab（DB全Run一覧・フィルタ・行クリック選択）と QuickLogTab（CSV不要・30秒Problem記録）を新規追加。タブ構成: [🗺️ Run Browser] [⚡ Quick Log] [📋 Problem Log] [🔧 Setup Decision] [📈 Trend Analysis]。create_workbench_tables.py に analysis_note / result_validation / knowledge_cases テーブルを追加（べき等）。ファイル行数: 2796→1594行。"
+    },
+    {
+      "date": "2026-05-13",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Claude Code 自動化デーモン実装: (1) ts24_watcher.py — watchdog監視デーモン(04_MES/*.MES / 01_REPORTS/*.xlsx / 07_RESULTS/*.pdf を監視)、LaunchAgent plist生成(--install/--uninstall/--status)、クールダウン10秒で多重発火防止。(2) mes_importer.py — lap_suspension_stats.py呼び出しオーケストレーター(--mes/--dir/--all/--dry-run)。(3) report_importer.py — excel_parser.py CLI化、pending_sessions/pending_lap_times テーブルへ書き込み、重複防止(source_fileチェック)。(4) pdf_result_extractor.py — pdfplumber でWorldSSP公式PDF解析、race_results テーブルへ書き込み、DA77(#77)/JA52(#52)絞り込み(--all-ridersで全体)、ファイル名からメタ情報推測。(5) create_workbench_tables.py に race_results / pending_sessions / pending_lap_times テーブル追加。(6) ts24_workbench.py に QFileSystemWatcher追加(DB変更時に全タブ自動refresh)、全5タブにrefresh()メソッド追加。全ファイル python3 -m py_compile チェック OK。"
     }
   ]
 }
