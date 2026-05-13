@@ -1,6 +1,6 @@
 # CLAUDE.md — TS24 Project Team Shared Context
 **Project:** TS24 SET-UP TOOL / Puccetti Racing WorldSSP Suspension Management System
-**Last Updated:** 2026-05-03
+**Last Updated:** 2026-05-05
 **Read this file at the start of every session — Claude Code, Cowork Claude, and ChatGPT both.**
 
 ---
@@ -78,13 +78,18 @@ Claude Code（コード修正・Git管理）
 ├── 03_TEMPLATES/                    ← イベントレポートテンプレート
 ├── 04_REFERENCE/
 │   ├── TS24_Knowledge_Base.md       ← サスペンション理論・ZX-636知識（必読）
-│   └── TS24_System_Architecture.md ← システム設計書
+│   ├── TS24_System_Architecture.md ← システム設計書
+│   ├── 2D_Software_Knowledge.md    ← 【NEW】2D Analyzer/CalcTool/GPSTracks 知識ベース（2026-05-05作成）
+│   └── 2D_Software/                ← 2D社PDFマニュアル原本
+│       ├── AC-DOC_Analyzer_e-000.pdf
+│       ├── AC-DOC_CalcTool.pdf
+│       └── AC-DOC_2D_GPSTracks.pdf
 ├── 05_SCRIPTS/                      ← Claude Codeが主管するディレクトリ
 │   ├── CLAUDE.md                    ← このファイル（必読）
 │   ├── dashboard.py                 ← Streamlitダッシュボード（本体）
 │   ├── parse_2d_channels.py         ← MESデータ解析（APEX検出アルゴリズム）
-│   ├── lap_suspension_stats.py      ← ラップサスペンション統計生成
-│   ├── lap_suspension_data.json     ← 615行・34列（Streamlit Cloud用）
+│   ├── lap_suspension_stats.py      ← ラップサスペンション統計生成（WF_F/R列含む）
+│   ├── lap_suspension_data.json     ← 615行・38列（WF_F_APEX_N等4列追加済）
 │   ├── dynamics_data.json           ← DYNAMICS_ANALYSIS（Streamlit Cloud用）
 │   ├── lap_times_data.json          ← ラップタイムデータ
 │   ├── race_memory.json             ← 【重要】AI分析知見の蓄積ファイル
@@ -120,7 +125,7 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 
 | ファイル | レコード数 | 主要列 | 更新タイミング |
 |---------|-----------|--------|---------------|
-| `lap_suspension_data.json` | 844行・26列 | APEX_CNT, APEX_SPD_AVG, APEX_SUSF_AVG, APEX_SUSR_AVG, BRK_CNT, BRK_SUSF_AVG, BRK_SUSR_AVG, FULLBRK_CNT, FULLBRK_SUSF, FULLBRK_SUSR, LAP_SUSF_MEAN, LAP_SUSF_MIN, LAP_SUSF_MAX, LAP_SUSR_MEAN | MES再処理時 |
+| `lap_suspension_data.json` | 844行・30列 | APEX_CNT, APEX_SPD_AVG, APEX_SUSF_AVG, APEX_SUSR_AVG, **WF_F_APEX_N, WF_R_APEX_N**, BRK_CNT, BRK_SUSF_AVG, BRK_SUSR_AVG, **WF_F_BRK_N, WF_R_BRK_N**, FULLBRK_CNT, FULLBRK_SUSF, FULLBRK_SUSR, LAP_SUSF_MEAN, LAP_SUSF_MIN, LAP_SUSF_MAX, LAP_SUSR_MEAN | MES再処理時 |
 | `corner_phase_data.json` | 17387行 | round, circuit, date, session_type, rider, run_no, lap_no, lap_time_s, corner_no, ph12_duration_ms, ph12_brake_peak_bar, ph12_susf_avg, ph3_duration_ms, ph3_speed_min, ph3_susf_avg, ph3_susr_avg, ph45_duration_ms, ph45_gas_avg, ph45_susf_avg, total_corner_ms | corner_phase_analysis.py 実行時 |
 | `lap_overlay_data.json` | 844ラップ | circuit, rider, session_type, run_no, lap_no, lap_time_s, n_points(200), **lap_distance_m(null/将来GPS)**, **distance_progress(null/将来GPS)**, channels{lap_progress, speed, brake, gas, sus_f, sus_r} | lap_overlay_extractor.py 実行時 |
 | `dynamics_data.json` | ラップ単位 | ACC_Y_PEAK, BOFF_SUSF, THRON_SUSF | MES再処理時 |
@@ -374,23 +379,38 @@ def dist_is_valid(df: pd.DataFrame) -> bool:
 | 4位 | SUSP_REAR | mm | オレンジ |
 | 5位（あれば）| SUSP_FRONT | mm | 紫 |
 
-### 目標UI構成（次期実装）
+### ✅ 現行UI構成（Phase 3 完了 — 2026-05-05）
 
 ```
-左パネル                        右パネル
-[CSV Importボタン]              ┌─ 波形タブ ──────────────────────┐
-                                │ [X軸: Time / Dist 切替]          │
-Circuit: [ASSEN▼]              │                                    │
-Session: [FP▼]                 │ Speed (km/h) ──────────────────── │
-Rider:   [JA52▼]               │ Brake (Bar)  ──────────────────── │
-Run:     [R1▼]                 │ Gas   (%)    ──────────────────── │
-                                │ SusR  (mm)   ──────────────────── │
-[Load CSV]                      └────────────────────────────────────┘
-                                ┌─ Problem Log ─┐ ┌─ Setup Decision ─┐
-[読み込み済み: X_R1-JA52-01]    │ 記録リスト     │ │  記録リスト       │
-                                │ [+ 追加]      │ │  [+ 追加]        │
-                                └───────────────┘ └──────────────────┘
+┌─ トップツールバー ──────────────────────────────────────┐
+│  Circuit: [ASSEN▼]   📂 CSVを開く   Run: ─             │
+└────────────────────────────────────────────────────────┘
+┌─ タブエリア ─────────────────────────────────────────────────────────┐
+│ [波形] [Problem Log] [Setup Decision]                                  │
+│                                                                         │
+│ ┌─ チャンネル選択 ──────────────────────────────────────────────────┐ │
+│ │ ☑Speed  ☑Brake  ☑Gas  ☑SUSP_F  ☑SUSP_R  (チェックで表示/非表示) │ │
+│ └──────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│ ┌─ 波形 (左) ──────────────────────┐ ┌─ Problem Log 入力パネル(右)─┐ │
+│ │ Speed (km/h) ─────────────────── │ │  Range: 48.0m → 958.8m      │ │
+│ │ Brake (Bar)  ─────────────────── │ │  Corner: [T1▼]              │ │
+│ │ Gas   (%)    ─────────────────── │ │  Phase:  [PH2▼]             │ │
+│ │ SusF  (mm)   ─────────────────── │ │  Tag:    [chattering▼]      │ │
+│ │ SusR  (mm)   ─────────────────── │ │  Severity: [Medium▼]        │ │
+│ │  [███ LinearRegionItem ████]     │ │  [追加]                     │ │
+│ └──────────────────────────────────┘ └─────────────────────────────┘ │
+│                          [Problem Log へ送る]                           │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Phase 3 実装内容（2026-05-05 完了）:**
+- 左サイドバー（DBランツリー）を廃止 → トップツールバーに移行
+- `QSplitter(Horizontal)`: 波形(左) + Problem Log 入力パネル(右) の分割表示
+- 個別 `PlotWidget` × 5（`GraphicsLayoutWidget` から置き換え） → 各チャンネル独立表示/非表示
+- `QCheckBox.toggled` → `PlotWidget.setVisible()` でチャンネルオン/オフ
+- `_ProblemRightPanel`: コンパクト入力フォーム（Corner/Phase/Tag/Desc/Severity/Source）
+- CSV直ロード: ファイルダイアログ → `_load_csv()` → `_send()` の一連フロー確定
 
 ### CSVファイル命名パターン（現在把握済み）
 
@@ -399,29 +419,28 @@ X_R1-JA52-01.csv  → セッション種別不明_Run1-JA52-ラップor連番01
 ```
 命名規則はTatsukiから都度確認すること。
 
-### 現在の実装状態 (2026-05-03)
+### 現在の実装状態 (2026-05-05)
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 左パネル階層表示（DB連携） | ✅ 完了 | ts24_unified.db から |
-| Waveform Tab（lap_overlay_data.json）| ✅ 動作確認済 | **→ CSV直読みに置き換え予定** |
-| Problem Log Tab | ✅ 動作確認済 | SQLite保存 |
-| Setup Decision Tab | ✅ 動作確認済 | SQLite保存 |
 | 2D CSV Import（CsvImportTab） | ✅ 完了 | 06_CSV/デフォルト・UTF-8/Shift-JIS自動検出・列マッピングUI |
-| Time軸表示 | ✅ 完了 | `x_mode="time"` でX軸=経過秒数・`enableAutoRange(axis="x")` |
-| Progress軸フォールバック | ✅ 完了 | Timeカラム未マッピング時は `x_mode="progress"` で0-1正規化 |
-| X軸ラベル切替 | ✅ 完了 | `"Time (s)"` / `"Lap Progress (0–1) [fallback]"` |
-| "Reference only"警告 | ✅ 完了 | `x_mode="time"` 時はスキップ・青背景インジケーター表示 |
-| Turn markers | ✅ 完了 | Time modeではスキップ（進捗位置基準のため無効） |
-| **WaveformView 5パネル** | ✅ **完了** | Speed→Brake→Gas→**SUSP_FRONT**→**SUSP_REAR** (`_all_plots`で一括管理) |
-| 自動チャンネルマッピング | ✅ 完了 | GAS_SMOOTH→gas / SUSP_FRONT→susp_front / SUSP_REAR→susp_rear 全て自動 |
-| Problem Log DB保存 | ✅ 完了 | INSERT/SELECT/DELETE 正常動作確認済み |
+| Time軸表示 | ✅ 完了 | `x_mode="time"` でX軸=経過秒数 |
+| Progress軸フォールバック | ✅ 完了 | Timeカラム未マッピング時は 0-1 正規化 |
+| **WaveformView 5パネル** | ✅ **完了** | 個別 `PlotWidget` × 5、Speed/Brake/Gas/SusF/SusR |
+| 自動チャンネルマッピング | ✅ 完了 | GAS_SMOOTH→gas / SUSP_FRONT→susp_front 全て自動 |
+| Problem Log DB保存（9列） | ✅ 完了 | INSERT/SELECT/DELETE 正常動作確認済み |
 | Setup Decision Log DB保存 | ✅ 完了 | INSERT/SELECT/UPDATE 正常動作確認済み |
-| Dist有効性チェック | ✅ 完了 | Dist全行0なら時間軸固定 |
-| TS24_Workbench.command | ✅ 完了 | macOSダブルクリック起動 |
-| **Distance軸表示** | 🔜 次期実装 | `x_mode="distance"` — Dist累積→Lap内0始まり変換 |
-| **波形範囲選択** | 🔜 Phase 2 | 選択範囲のdist_start/dist_end/time_start/time_endを取得 |
-| **選択→Problem Log** | 🔜 Phase 2 | 範囲選択からProblem Logへ自動入力（circuit/session/dist等） |
+| **DB駆動Lap分割** | ✅ 完了 | commit 8bc5973・最大誤差0.02s |
+| **LinearRegionItem 範囲選択** | ✅ **Phase 2完了** | 青ハイライト・ドラッグ可能・初期値[0,100] |
+| **範囲 → Problem Log 自動入力** | ✅ **Phase 2完了** | dist_start/end, time_start/end 自動pre-fill |
+| **"Problem Log へ送る" ボタン** | ✅ **Phase 2完了** | 波形下部ボタン → 右パネルを開いてRange表示 |
+| **トップツールバー** | ✅ **Phase 3完了** | Circuit ComboBox + 📂 CSVを開く（左サイドバー廃止） |
+| **QSplitter 分割ビュー** | ✅ **Phase 3完了** | 波形(左) + _ProblemRightPanel(右)・初期は右非表示 |
+| **チャンネル選択チェックボックス** | ✅ **Phase 3完了** | Speed/Brake/Gas/SUSP_F/SUSP_R の表示/非表示 |
+| **_ProblemRightPanel** | ✅ **Phase 3完了** | Corner/Phase/Tag/Desc/Severity/Source フォーム |
+| **WheelForce_Proxy DB列** | ✅ **完了** | WF_F_APEX_N/WF_R_APEX_N/WF_F_BRK_N/WF_R_BRK_N（MR=0.5） |
+| Distance軸表示 | 🔜 将来実装 | `x_mode="distance"` — Dist累積→Lap内0始まり変換 |
+| PH1〜PH5自動フェーズ検出 | 🔜 最重要・将来 | 波形上にフェーズ境界オーバーレイ |
 
 ### Claude Code への実装指示（2026-05-03 確定）
 
@@ -475,37 +494,67 @@ x_mode == "progress" → 表示
 - Problem Log記録時にフェーズを自動提案
 - **これが最強の武器になる（corner_phase_data.jsonとの統合も視野）**
 
-### Workbench フェーズ・ロードマップ（2026-05-03 確定）
+### Workbench フェーズ・ロードマップ（2026-05-05 更新）
 
-| Phase | 機能 | 優先 |
+| Phase | 機能 | 状態 |
 |-------|------|------|
-| **Phase 1** | Distance CSV Import / Distance X軸 / DB駆動Lap分割 / `format_laptime()` | ✅ 完了 |
-| **Phase 2** | 波形上での区間範囲選択 → Problem Logへ自動入力（dist/time/circuit等） | 🔜 |
-| **Phase 3** | Setup Decision Logとの接続・紐付け | 🔜 |
-| **Phase 4** | Knowledge Casesへの昇格（繰り返し問題→知見化） | 将来 |
+| **Phase 1** | CSV Import / Time軸 / DB駆動Lap分割 | ✅ 完了 |
+| **Phase 2** | LinearRegionItem 範囲選択 → Problem Log自動入力 | ✅ 完了 |
+| **Phase 3** | UX再設計: 左サイドバー廃止・分割ビュー・チャンネル選択 | ✅ 完了 |
+| **Phase 4** | Knowledge Cases昇格（繰り返し問題→知見化） | 将来 |
 | **Phase 5** | PH1-PH5自動フェーズ検出 → Problem Log提案（最重要武器） | 将来 |
 
-**Phase 2 技術メモ（範囲選択）:**
+**Phase 2 実装済み技術メモ:**
 ```python
-# pyqtgraph での範囲選択：LinearRegionItem を使用
-from pyqtgraph import LinearRegionItem
-
-region = LinearRegionItem([x_start, x_end], movable=True)
+# LinearRegionItem — 波形上の青ハイライト
+region = LinearRegionItem([0, 100], movable=True)
 region.sigRegionChanged.connect(self._on_region_changed)
-plot_obj.addItem(region)
+self._pw_speed.addItem(region)  # SpeedパネルにAdd
 
-def _on_region_changed(self):
-    x0, x1 = region.getRegion()
-    # x_mode == "distance" → dist_start_m, dist_end_m
-    # x_mode == "time"     → time_start_s, time_end_s
-    # 対応するtime/distを逆引きして両方取得
-    self._selection = {"dist_start": x0, "dist_end": x1, ...}
+# p.clear() 後に必ず再Add（データロード時のバグ対策）
+for p in self._all_plots:
+    p.clear()
+self._pw_speed.addItem(self._region)  # ← 必須
+
+# 初期値を _redraw() でデータ範囲の20-40%に設定
+lo = x_vals[0] + 0.2 * (x_vals[-1] - x_vals[0])
+hi = x_vals[0] + 0.4 * (x_vals[-1] - x_vals[0])
+self._region.setRegion([lo, hi])
+
+# "Problem Log へ送る" ボタン → prefill_from_waveform() 呼び出し
+# → QSplitter 右パネル (_ProblemRightPanel) を展開し Range 自動表示
 ```
 
-### 解決済みバグ（2026-05-03 Claude Code 修正・確認済み）
+**Phase 3 実装済み技術メモ:**
+```python
+# 個別 PlotWidget（GraphicsLayoutWidget から移行）
+self._pw_speed = pg.PlotWidget(title="Speed (km/h)")
+# X-link
+for _pw in [self._pw_brake, self._pw_gas, self._pw_suspf, self._pw_suspr]:
+    _pw.setXLink(self._pw_speed)
+
+# QSplitter — 波形左 / Problem入力右
+self._wave_splitter = QSplitter(Qt.Orientation.Horizontal)
+self._wave_splitter.addWidget(self._wave_scroll)
+self._wave_splitter.addWidget(self._right_panel)
+self._wave_splitter.setSizes([1, 0])  # 初期は右パネル非表示
+
+# layout に stretch=1 を必ず指定（グリーンバグ防止）
+layout.addWidget(self._wave_splitter, 1)
+
+# 各ラベルに固定高さ（QLabel が縦拡張しないよう）
+self._lbl_warn.setFixedHeight(24)
+self._lbl_xmode.setFixedHeight(22)
+```
+
+### 解決済みバグ（2026-05-05 まで 確認済み）
 - ✅ X軸正規化: `_normalize_x()` で各ラップ独立0-1正規化
 - ✅ Speed Y軸: `enableAutoRange(axis="y")` → `setXRange()` の順序
 - ✅ turn_templates: `isinstance()` でlist/dict両対応 + circuit名正規化
+- ✅ ProblemLogTab フリーズ: `SELECT *` + `cur.description` で列名動的取得
+- ✅ LinearRegionItem 選択不可: 初期値 [0.2, 0.4] が小さすぎ → [0, 100] に変更
+- ✅ LinearRegionItem 消滅: `p.clear()` 後に `self._pw_speed.addItem(self._region)` 再追加
+- ✅ レイアウト破損: `setFixedHeight()` + `layout.addWidget(splitter, 1)` で修正
 
 ### 起動方法
 ```bash
@@ -556,6 +605,83 @@ python3 ts24_workbench.py
 circuit_len_m = 4555  # Assen確定値（4555mで9ラップ完全検出）
 min_span = circuit_len_m * 0.5  # 50%未満はピットアーティファクトとして除外
 ```
+
+---
+
+## 6b. 2D Analyzer / CalcTool 知識ベース（2026-05-05 追加）
+
+**参照ファイル:** `04_REFERENCE/2D_Software_Knowledge.md`
+**元文書:** `04_REFERENCE/2D_Software/` 内 3冊のPDF（Analyzer / CalcTool / GPSTracks）
+
+### Workbench との接続ポイント
+
+| 項目 | 内容 |
+|------|------|
+| **CSV発生源** | `2D_DistanceAndTimeCH.CAL` が `Dist` 列（累積オドメーター）を生成する |
+| **Lap列** | 2D GPSトリガー(`CreateLapTriggerByLine`)から生成 → Lap分割Priority 1 |
+| **セパレータ** | `;`（セミコロン）または `,`。`_load_csv()` で両対応済み |
+| **エンコーディング** | UTF-8-sig または Shift-JIS。両対応済み |
+
+### 2D側でできること（将来の改善候補）
+
+| 機能 | 内容 | TS24への示唆 |
+|------|------|-------------|
+| **Section Times** | GPS座標でセクションを定義しタイムを自動計算 | Workbench DBに `section_times` テーブル追加で自動取込可能 |
+| **2D_Conditions.CAL** | コーナーフェーズ（PH1-5）をCAL定義 | CSV の `phase` 列として出力 → Workbench Phase 5 と統合 |
+| **CAL計算関数** | `AvgWhileTrue`, `MaxWhileTrue`, `CreateLapTriggerByLine` など | カスタム分析チャンネルをCSVに含めてExport可能 |
+
+---
+
+## 6c. WheelForce_Proxy — サスペンション力計算（2026-05-05 確定）
+
+### 確定パラメータ（ZX-636R）
+
+| パラメータ | 値 | 根拠 |
+|----------|---|------|
+| リアリンク比 LR | **2.0**（実走域 MR=0.5） | ZeroChassisデータ `Link ratio.csv`（SUSP_R 40-58mm範囲） |
+| フロント MR | **1.0**（テレスコピック直結） | 構造上の定義 |
+| センサーゼロ点 | 完全伸び切り（オフセット補正不要） | ライダー確認済み |
+
+### 計算式（Level 1 バネ成分のみ）
+
+```python
+# フロント
+WF_F_N = SUSP_FRONT_mm × (F_SPR_L + F_SPR_R) / 2   # [N]
+# 例: 71.8 × (9.0+9.0)/2 = 71.8 × 9.0 = 647N
+
+# リア（LR=2.0 → MR=0.5）
+WF_R_N = SUSP_REAR_mm × R_SPR × 0.5                  # [N]
+# 例: 16.2 × 84 × 0.5 = 682N
+```
+
+### ASSEN APEX の基準値（参照用）
+
+| ライダー | セッション | WF_F_N | WF_R_N | F/R 比 |
+|---------|---------|--------|--------|--------|
+| DA77 | FP（R1-R3平均） | ~604N | ~643N | **0.94**（均等） |
+| JA52 | FP（R1-R3平均） | ~618N | ~766N | **0.79**（リア重め） |
+| DA77 | RACE1 | 618N | 775N | 0.80 |
+
+DA77 は F/R ≈ 0.94、JA52 は F/R ≈ 0.79 が ASSEN の特徴的パターン。
+
+### CAL実装例（2D Analyzer用 / TS24_WheelForce_Proxy v1.0）
+
+```cal
+; FRONT
+C_Ff_filt = F(#SUSP_FRONT, F(10))
+Front_SpringLoad_Proxy = *(#C_Ff_filt, 9.5)       ; [N] ← per-run のバネレートを入力
+
+; REAR
+C_Fr_filt = F(#SUSP_REAR, F(10))
+C_Fr_shock_force = *(#C_Fr_filt, 84.0)             ; [N] ← per-run の R_SPR
+Rear_WheelForce_Proxy = *(#C_Fr_shock_force, 0.5)  ; wheel-position force [N]
+
+; VELOCITY (Level 2 準備)
+Front_Susp_Velocity = F'(#C_Ff_filt)               ; [mm/s]
+Rear_Susp_Velocity  = F'(#C_Fr_filt)               ; [mm/s]
+```
+
+**注意:** Level 1 = バネ成分のみ。ダンパー力・空力・慣性力は含まれない。
 
 ---
 
@@ -737,6 +863,7 @@ python lap_overlay_extractor.py      # → lap_overlay_data.json 更新（844ラ
 ### 解決済み ✅
 - pandas 2.2+ `groupby.apply` 非推奨 → 手動ループで対応
 - Setup Target: データソースをdynamics → LAP_SUSPENSION (THR_ON) に変更
+- **WheelForce_Proxy (Level 1) 実装完了（2026-05-05）**: WF_F_APEX_N/WF_R_APEX_N/WF_F_BRK_N/WF_R_BRK_N 4列を lap_suspension_stats.py / SQLite / JSON / Excel に追加。MR=0.5 (LR=2.0 ZX-636R確定値)、春レート = runs table から per-run JOIN。
 - フローティングチャット: URL変更によるページリセット問題 → DOM直接注入で解決
 - APEXチャート: Power BIスタイルの散布図実装
 - Δチャート: 折れ線+マーカー、サーキット間トレンド可視化

@@ -43,6 +43,14 @@
       "DA77": [
         "[2026-03-13] TEST4: chattering_brake・line_loss_exit。"
       ]
+    },
+    "BALATON": {
+      "JA52": [
+        "[2026-05-01] ROUND4 Balaton Park（ハンガリー）。全長3,937m、12コーナー（左7・右5）。MESデータ確認済：FP×2、QP×8、WU1×1、R1×1（計12ファイル）。Copiaファイルは複製のため処理除外。セットアップ・結果データ入力待ち（DB未登録）。"
+      ],
+      "DA77": [
+        "[2026-05-01] ROUND4 Balaton Park。MESデータ確認済：F1×2、SP×3、WU1+WU2×2、R1×1（計8ファイル）。06_CSVにQP-RUN1/2/3とRACE1の4ファイル出力済みでWorkbench対応確認済。セットアップ・結果データ入力待ち（DB未登録）。"
+      ]
     }
   },
   "global_insights": [
@@ -69,7 +77,12 @@
     "Lap分割の正しい優先順位: 1=Lap列 > 2=DBのlapsテーブル駆動 > 3=固定距離近似（⚠ズレ累積）> 4=時間ギャップ（セッション境界のみ）",
     "固定距離Lap分割は周回ごとに実走ライン誤差が累積するためfallback扱い。公式記録には2DからLap列付きCSVをExportする",
     "[2026-05-03] DB駆動Lap分割アルゴリズム確立: ts24_unified.db/lapsテーブルのlap_time_sを使いCSVを回路ラップに分割。gap lap検出（CSVギャップ秒数↔DBタイムをGAP_TOLERANCE=2sで照合）→ np.searchsorted で正確なCSV行番号変換。ROUND3_ASSEN_FP_DA77_R1で検証: 9ラップ×0→4554m、最大誤差0.02s ✅",
-    "[2026-05-03] Workbench DB駆動分割実装完了（Claude Code commit 8bc5973）: WorkbenchDB.get_laps() / CsvImportTab(db=...) / set_run(run_id) / MainWindowのset_run()通知。左パネルでRunを選択してCSVを送ると ✅DBラップで正確分割 が自動適用される"
+    "[2026-05-03] Workbench DB駆動分割実装完了（Claude Code commit 8bc5973）: WorkbenchDB.get_laps() / CsvImportTab(db=...) / set_run(run_id) / MainWindowのset_run()通知。左パネルでRunを選択してCSVを送ると ✅DBラップで正確分割 が自動適用される",
+    "[2026-05-05] Workbench Phase 2完了: LinearRegionItem（青ハイライト）でCSV波形上の区間をドラッグ選択→Problem Log自動入力（dist_start/end, time_start/end, data_source_file）。3バグ修正: ProblemLogTabフリーズ(SELECT *+cur.description)・初期値小さすぎ([0,100]に変更)・p.clear()後の消滅(addItem再実行)。INSTRUCTION_waveform_to_problemlog.md 9+1変更でClaude Code実装済み。",
+    "[2026-05-05] Workbench Phase 3完了（UX再設計）: 左サイドバー（DBランツリー）廃止→トップツールバー（Circuit ComboBox + 📂 CSVを開く）。QSplitter分割ビュー（波形左＋_ProblemRightPanel右）。GraphicsLayoutWidget→個別PlotWidget×5（QCheckBoxで表示/非表示）。INSTRUCTION_phase3_ux_redesign.md 7変更でClaude Code実装済み。layout.addWidget(splitter,1)とsetFixedHeight()でレイアウトバグも解消。",
+    "[2026-05-05] 2D Analyzer/CalcTool/GPSTracks PDFマニュアル3冊を04_REFERENCE/2D_Software/に格納。04_REFERENCE/2D_Software_Knowledge.mdとして知識を体系化（ソフト概要・Analyzerモジュール・CalcTool関数・GPSTrackスAPI・TS24連携ポイント）。Dist列は2D_DistanceAndTimeCH.CALが生成する累積オドメーターと確認。",
+    "[2026-05-05] ZX-636R リアリンク比確定: ZeroChassisデータ(Link ratio.csv)より LR=2.0（実走域40-58mm）、MR=0.5。WheelForce_Proxy(Level 1)計算式確立: WF_F=SUSP_F×(kL+kR)/2, WF_R=SUSP_R×R_SPR×0.5。ASSEN APEX値: DA77 F/R≈0.94(均等)、JA52 F/R≈0.79(リア重め)。",
+    "[2026-05-05] WheelForce_Proxy DB実装完了（Claude Code）: lap_suspension_stats.pyにspring rate loader追加(runs tableからkf/kr取得)。WF_F_APEX_N/WF_R_APEX_N/WF_F_BRK_N/WF_R_BRK_N 4列を SQLite/JSON/Excel に追加。python lap_suspension_stats.py 再実行で全データ更新可能。runs tableにspring rateなしのrun_idはNULL。"
   ],
   "setup_learnings": [
     {
@@ -287,6 +300,89 @@
       "rider": "ALL",
       "circuit": "ALL",
       "summary": "Claude Code 自動化デーモン実装: (1) ts24_watcher.py — watchdog監視デーモン(04_MES/*.MES / 01_REPORTS/*.xlsx / 07_RESULTS/*.pdf を監視)、LaunchAgent plist生成(--install/--uninstall/--status)、クールダウン10秒で多重発火防止。(2) mes_importer.py — lap_suspension_stats.py呼び出しオーケストレーター(--mes/--dir/--all/--dry-run)。(3) report_importer.py — excel_parser.py CLI化、pending_sessions/pending_lap_times テーブルへ書き込み、重複防止(source_fileチェック)。(4) pdf_result_extractor.py — pdfplumber でWorldSSP公式PDF解析、race_results テーブルへ書き込み、DA77(#77)/JA52(#52)絞り込み(--all-ridersで全体)、ファイル名からメタ情報推測。(5) create_workbench_tables.py に race_results / pending_sessions / pending_lap_times テーブル追加。(6) ts24_workbench.py に QFileSystemWatcher追加(DB変更時に全タブ自動refresh)、全5タブにrefresh()メソッド追加。全ファイル python3 -m py_compile チェック OK。"
+    },
+    {
+      "date": "2026-05-05",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Workbench Phase 2完了（INSTRUCTION_waveform_to_problemlog.md 9+1変更、Claude Code実装）: (1) LinearRegionItemで波形上の区間選択（青ハイライト、ドラッグ可）。(2) 「Problem Log へ送る」ボタン追加。(3) prefill_from_waveform()で dist_start_m/dist_end_m/time_start_s/time_end_s/data_source_file を自動pre-fill。(4) wave_info_box（選択区間の距離・時間・ライダー表示）。(5) INSERT SQL 6列拡張対応。(6) Problem Log テーブルを9列表示に拡張。(7) MainWindow配線。バグ修正3件: ProblemLogTabフリーズ(SELECT *+cur.description)・LinearRegionItem選択不可(初期値[0,100])・データロード後消滅(p.clear()後にaddItem再実行)。追加: Change 10 = .appバンドル+Pillowカスタムアイコン。",
+      "key_decisions": [
+        "LinearRegionItem 初期値は [0, 100] + _redraw()でデータ範囲20-40%に更新",
+        "p.clear() 後は必ず self._pw_speed.addItem(self._region) を再実行",
+        "problem_log INSERT は 全22列 を明示的に指定（SELECT * + cur.description で列名動的取得）"
+      ],
+      "files_modified": [
+        "05_SCRIPTS/INSTRUCTION_waveform_to_problemlog.md",
+        "05_SCRIPTS/ts24_workbench.py（Claude Code実装・git push済み）"
+      ]
+    },
+    {
+      "date": "2026-05-05",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "Workbench Phase 3完了（INSTRUCTION_phase3_ux_redesign.md 7変更、Claude Code実装）: (1) 左サイドバー（DBランツリー QTreeWidget）廃止 → トップツールバーに Circuit ComboBox + 📂 CSVを開く ボタン移行。(2) GraphicsLayoutWidget → 個別 PlotWidget × 5（X-link維持）。(3) QCheckBox × 5 でチャンネル表示/非表示（toggled→setVisible）。(4) QSplitter(Horizontal): 波形スクロール(左) + _ProblemRightPanel(右)。右パネル初期幅=0（非表示）。(5) CSV直ロード: ファイルダイアログ→_load_csv()→_send()。(6) WaveformView.set_circuit() メソッド追加。(7) MainWindow 接続修正。レイアウトバグ修正: layout.addWidget(splitter,1) + QLabel.setFixedHeight(24/22)。INSTRUCTION送付前に3か所の誤りをCowork Claudeが修正済み: ①_on_circuit_changed()削除vs簡略化矛盾 ②load_file()が_send()直呼び ③set_circuit()未定義。",
+      "key_decisions": [
+        "左サイドバー廃止: トップツールバーに機能移行（CSV直ロードがメインフロー）",
+        "QSplitter stretch=1 + QLabel.setFixedHeight() でグリーンバグ（QLabel縦拡張）解消",
+        "Phase 3の後もRun: — 表示（DBとの紐付けなし）は既知課題として残留"
+      ],
+      "files_modified": [
+        "05_SCRIPTS/INSTRUCTION_phase3_ux_redesign.md",
+        "05_SCRIPTS/ts24_workbench.py（Claude Code実装・git push済み）"
+      ]
+    },
+    {
+      "date": "2026-05-05",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "2D AnalyzerソフトウェアのPDFマニュアル3冊を解析・整理。ファイルを04_REFERENCE/2D_Software/に移動し、04_REFERENCE/2D_Software_Knowledge.mdとして知識を体系化。確認済み重要事項: (1) Dist列の発生源は2D_DistanceAndTimeCH.CAL（累積オドメーター）。(2) Lap列はCreateLapTriggerByLine(GPS座標)から生成 → Workbench Lap分割Priority 1として最も正確。(3) CalcTool関数: AvgWhileTrue/MaxWhileTrue/MakeLaptimeCh/CreateLapTriggerByLine など Workbench将来機能と接続可能。(4) GPSTracks Section Times機能 → 将来section_timesテーブルとして取込候補。",
+      "files_modified": [
+        "04_REFERENCE/2D_Software_Knowledge.md（新規作成）",
+        "04_REFERENCE/2D_Software/AC-DOC_Analyzer_e-000.pdf（移動）",
+        "04_REFERENCE/2D_Software/AC-DOC_CalcTool.pdf（移動）",
+        "04_REFERENCE/2D_Software/AC-DOC_2D_GPSTracks.pdf（移動）"
+      ]
+    },
+    {
+      "date": "2026-05-05",
+      "page": "system",
+      "rider": "ALL",
+      "circuit": "ALL",
+      "summary": "WheelForce_Proxy (Level 1) 設計・実装完了。(1) ZX-636R リンク比 LR=2.0（ZeroChassisデータ確認）→ MR=0.5確定。(2) ASSEN全18ランAPEX分析: WF_F=550-680N、WF_R=600-860N、F/R=0.79-0.97。DA77はF/R≈0.94（均等）、JA52はF/R≈0.79（リア重め）。物理的妥当性✅。(3) INSTRUCTION_wheelforce_proxy_db.md作成→Claude Code実装完了: lap_suspension_stats.pyにRUN_LOGからspring rate loader追加、WF_F_APEX_N/WF_R_APEX_N/WF_F_BRK_N/WF_R_BRK_N 4列をSQLite/JSON/Excel全DBに追加。(4) CAL設計(TS24_WheelForce_Proxy v1.0)も確定。次ステップ: Tatsukiが python lap_suspension_stats.py を実行して全DB更新。",
+      "key_decisions": [
+        "LR=2.0（実走域40-58mm、2D ZeroChassisデータより）→ MR=0.5で統一",
+        "前後バネレートはRUN_LOGから per-run でJOIN（runs tableのf_spr_l/f_spr_r/r_spr）",
+        "フロント effective rate = (kL + kR) / 2（2本の平均、合算ではない）",
+        "WheelForce_ProxyはLevel 1のみ（ダンパー・空力成分は含まない）",
+        "SUSP=0は完全伸び切り → オフセット補正不要"
+      ],
+      "files_modified": [
+        "05_SCRIPTS/INSTRUCTION_wheelforce_proxy_db.md（Cowork Claude作成）",
+        "05_SCRIPTS/lap_suspension_stats.py（Claude Code実装・git push済み）",
+        "04_REFERENCE/2D_Software_Knowledge.md（§9 リンク比データ追加）"
+      ]
+    },
+    {
+      "date": "2026-05-05",
+      "session_title": "ROUND4 Balaton確認 + Workbench自動検出 + WheelForce完成確認",
+      "key_outcomes": [
+        "lap_suspension_stats.py に import re を追加（構文エラー修正）、py_compile ✅",
+        "Workbench: _ROUND_FALLBACK辞書を追加。ROUND4→BALATON、ROUND1→PHILLIP ISLANDをDBなしでも自動検出",
+        "R04_BALATON.26 DATA 2D確認: JA52=12ファイル(FP×2/QP×8/WU1/R1)、DA77=8ファイル(F1×2/SP×3/WU1+WU2/R1)",
+        "CopiaファイルはMES複製のため処理除外（本体ファイルのみ使用）",
+        "DA77の06_CSV 4ファイル確認済み(QP×3+RACE1)、Workbench対応フォーマット ✅",
+        "DB未登録：ROUND4はExcel RUN_LOG入力 + イベントレポート・結果待ちのため一括更新予定",
+        "set_rocket_icon.command を05_SCRIPTSに作成（launch_workbench.commandにロケットアイコン設定用）",
+        "race_memory.jsonにBALATON circuit_insights追加（3,937m / 12コーナー）"
+      ],
+      "pending": [
+        "ROUND4 RUN_LOG Excel入力（セットアップデータ）→ build_unified_db.py → lap_suspension_stats.py",
+        "JA52 ROUND4 CSVエクスポート未完（MESは存在）",
+        "git push（ts24_workbench.py + race_memory.json変更）"
+      ]
     }
   ]
 }
