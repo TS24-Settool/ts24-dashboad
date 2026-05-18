@@ -1321,6 +1321,7 @@ with _nav_col:
         "📊  Problem Analysis",
         "🔍  Problem→Solution",
         "📋  Session Detail",
+        "📋  Report Review",
         "📊  Lap Sus Stats",
         "📉  Trend Analysis",
         "🗺  Heatmap",
@@ -2447,6 +2448,199 @@ with _content_col:
                             f'{next_act}</div>',
                             unsafe_allow_html=True
                         )
+
+    # ═══════════════════════════════════════════════════
+    # PAGE — Report Review
+    # ═══════════════════════════════════════════════════
+    elif _NAV == "📋  Report Review":
+        st.markdown('<p class="section-title">📋 Report Review</p>', unsafe_allow_html=True)
+        st.caption("Review approved report data from Supabase sessions/session_tags before using it for decisions.")
+
+        if df_s.empty:
+            st.info("No approved report data available for the current Rider / Circuit filter.")
+        else:
+            _reports = df_s.copy()
+            _report_tags = df_t.copy()
+
+            def _rv(val, fallback="—"):
+                try:
+                    if val is None or pd.isna(val):
+                        return fallback
+                except (TypeError, ValueError):
+                    pass
+                s = str(val).strip()
+                return s if s and s.lower() not in ("nan", "none", "") else fallback
+
+            def _has_report_text(row, cols):
+                return any(_rv(row.get(c), "") != "" for c in cols)
+
+            _phase_cols = [
+                ("ph1_braking", "PH1 Braking"),
+                ("ph2_entry", "PH2 Entry"),
+                ("ph3_mid", "PH3 Apex"),
+                ("ph4_exit", "PH4 Exit"),
+                ("ph5_speed", "PH5 Speed"),
+                ("ph_other", "Other"),
+            ]
+
+            _tag_by_session = {}
+            if not _report_tags.empty and {"session_id", "tag"}.issubset(_report_tags.columns):
+                _tag_by_session = (
+                    _report_tags.dropna(subset=["tag"])
+                    .groupby("session_id")["tag"]
+                    .apply(lambda s: ", ".join(sorted(set(str(x).strip() for x in s if str(x).strip()))))
+                    .to_dict()
+                )
+
+            if "tags" in _reports.columns:
+                _fallback_tags = _reports["tags"].fillna("")
+            else:
+                _fallback_tags = ""
+            _reports["_report_tags"] = _reports["session_id"].map(_tag_by_session).fillna(_fallback_tags)
+            _reports["_has_next_action"] = (
+                _reports["next_action"].apply(lambda v: _rv(v, "") != "")
+                if "next_action" in _reports.columns else False
+            )
+            _reports["_has_comments"] = _reports.apply(
+                lambda r: _has_report_text(r, [c for c, _ in _phase_cols]), axis=1
+            )
+            _reports["_has_note"] = (
+                _reports["engineer_note"].apply(lambda v: _rv(v, "") != "")
+                if "engineer_note" in _reports.columns else False
+            )
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Reports", len(_reports))
+            k2.metric("With Tags", int((_reports["_report_tags"].astype(str).str.strip() != "").sum()))
+            k3.metric("With Phase Comments", int(_reports["_has_comments"].sum()))
+            k4.metric("With Next Action", int(_reports["_has_next_action"].sum()))
+
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            f1, f2, f3 = st.columns([2, 2, 1])
+            _all_report_tags = sorted({
+                tg.strip()
+                for text in _reports["_report_tags"].dropna().astype(str)
+                for tg in text.split(",")
+                if tg.strip()
+            })
+            with f1:
+                _sel_tags = st.multiselect("Problem Tag", _all_report_tags, key="report_review_tags")
+            with f2:
+                _phase_options = [label for _, label in _phase_cols]
+                _sel_phases = st.multiselect("Phase With Comment", _phase_options, key="report_review_phases")
+            with f3:
+                _only_actions = st.toggle("Next Action only", value=False, key="report_review_next_only")
+
+            _view = _reports.copy()
+            if _sel_tags:
+                _view = _view[_view["_report_tags"].apply(
+                    lambda text: any(t in [x.strip() for x in str(text).split(",")] for t in _sel_tags)
+                )]
+            if _sel_phases:
+                _phase_lookup = {label: col for col, label in _phase_cols}
+                _phase_filter_cols = [_phase_lookup[p] for p in _sel_phases if p in _phase_lookup]
+                _view = _view[_view.apply(lambda r: _has_report_text(r, _phase_filter_cols), axis=1)]
+            if _only_actions:
+                _view = _view[_view["_has_next_action"]]
+
+            if "session_date" in _view.columns:
+                _view = _view.sort_values("session_date", ascending=False)
+
+            _summary_cols = [
+                c for c in ["session_date", "circuit", "session_type", "rider", "best_lap", "_report_tags"]
+                if c in _view.columns
+            ]
+            if _summary_cols:
+                _table = _view[_summary_cols + ["_has_comments", "_has_note", "_has_next_action"]].copy()
+                _table = _table.rename(columns={
+                    "session_date": "Date",
+                    "circuit": "Circuit",
+                    "session_type": "Session",
+                    "rider": "Rider",
+                    "best_lap": "Best Lap",
+                    "_report_tags": "Problem Tags",
+                    "_has_comments": "Phase Comments",
+                    "_has_note": "Engineer Note",
+                    "_has_next_action": "Next Action",
+                })
+                st.dataframe(_table.reset_index(drop=True), use_container_width=True, hide_index=True)
+
+            if _view.empty:
+                st.warning("No reports match the selected filters.")
+            else:
+                st.markdown("**Report Details**")
+                for _, row in _view.iterrows():
+                    _sid = _rv(row.get("session_id"))
+                    _label = (
+                        f"{_rv(row.get('session_date'))} | {_rv(row.get('circuit'))} | "
+                        f"{_rv(row.get('rider'))} | {_rv(row.get('session_type'))}"
+                    )
+                    with st.expander(f"{_label} — {_sid}", expanded=False):
+                        c_left, c_right = st.columns([1, 1], gap="medium")
+                        with c_left:
+                            st.markdown("**Problem Context**")
+                            _tag_text = _rv(row.get("_report_tags"))
+                            if _tag_text != "—":
+                                for tg in [x.strip() for x in _tag_text.split(",") if x.strip()]:
+                                    st.markdown(f"- `{tg}`")
+                            else:
+                                st.caption("No problem tags recorded.")
+
+                            st.markdown("**Phase Comments**")
+                            _any_phase = False
+                            for col, label in _phase_cols:
+                                v = _rv(row.get(col), "")
+                                if v:
+                                    st.markdown(f"**{label}:** {v}")
+                                    _any_phase = True
+                            if not _any_phase:
+                                st.caption("No phase comments recorded.")
+
+                        with c_right:
+                            st.markdown("**Setup / Result**")
+                            _setup_bits = []
+                            for col, label in [
+                                ("f_tyre", "F Tyre"), ("r_tyre", "R Tyre"),
+                                ("fork_type", "Fork"), ("f_spring", "F Spring"),
+                                ("shock_type", "Shock"), ("r_spring", "R Spring"),
+                                ("swing_arm", "Swing Arm"), ("ride_height", "Ride Height"),
+                                ("best_lap", "Best Lap"), ("race_result", "Race Result"),
+                            ]:
+                                v = _rv(row.get(col), "")
+                                if v:
+                                    _setup_bits.append(f"{label}: {v}")
+                            if _setup_bits:
+                                for item in _setup_bits:
+                                    st.markdown(f"- {item}")
+                            else:
+                                st.caption("No setup summary recorded.")
+
+                            _note = _rv(row.get("engineer_note"), "")
+                            _next = _rv(row.get("next_action"), "")
+                            if _note:
+                                st.markdown("**Engineer Note**")
+                                st.text_area(
+                                    "Engineer Note", value=_note, height=120, disabled=True,
+                                    label_visibility="collapsed", key=f"report_note_{_sid}"
+                                )
+                            if _next:
+                                st.markdown("**Next Action**")
+                                st.info(_next)
+
+            if not _report_tags.empty and {"tag", "phase"}.issubset(_report_tags.columns):
+                st.divider()
+                st.markdown("**Problem Tag Coverage**")
+                _tag_scope = _report_tags[_report_tags["session_id"].isin(_view["session_id"])].copy()
+                if not _tag_scope.empty:
+                    _tag_counts = _tag_scope.groupby(["tag", "phase"], dropna=False).size().reset_index(name="count")
+                    fig_report_tags = px.bar(
+                        _tag_counts.sort_values("count", ascending=False),
+                        x="tag", y="count", color="phase",
+                        barmode="group",
+                        title="Approved Report Problem Tags",
+                    )
+                    chart_layout(fig_report_tags, height=360)
+                    st.plotly_chart(fig_report_tags, use_container_width=True)
 
     # ═══════════════════════════════════════════════════
     # PAGE — Lap Sus Stats
