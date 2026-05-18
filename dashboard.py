@@ -459,6 +459,7 @@ def _load_dynamics_data():
 
 
 _JSON_LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
+_JSON_RUNS = SCRIPT_DIR / "runs_data.json"
 
 @st.cache_data(ttl=120)
 def _load_lap_suspension() -> pd.DataFrame:
@@ -475,6 +476,42 @@ def _load_lap_suspension() -> pd.DataFrame:
     except Exception:
         pass
     return load_lap_suspension_from_json(_JSON_LAP_SUS)
+
+@st.cache_data(ttl=120)
+def _load_runs_data() -> pd.DataFrame:
+    """Load run-level setup data exported from ts24_unified.db."""
+    try:
+        if DB_PATH is not None and DB_PATH.exists():
+            conn = sqlite3.connect(str(DB_PATH))
+            tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)["name"].tolist()
+            if "runs" in tables:
+                df = pd.read_sql("SELECT * FROM runs", conn)
+                conn.close()
+                if not df.empty:
+                    df = df.rename(columns={
+                        "session": "session_type",
+                        "date": "session_date",
+                        "r_spr": "r_spring",
+                        "ride_hgt": "ride_height",
+                        "tyre_front": "f_tyre",
+                        "tyre_rear": "r_tyre",
+                    })
+                    if "f_spring" not in df.columns and {"f_spr_l", "f_spr_r"}.issubset(df.columns):
+                        df["f_spring"] = df.apply(
+                            lambda r: f"{r['f_spr_l']}/{r['f_spr_r']}"
+                            if pd.notna(r["f_spr_l"]) or pd.notna(r["f_spr_r"]) else None,
+                            axis=1,
+                        )
+                    return df
+            conn.close()
+    except Exception:
+        pass
+    try:
+        if _JSON_RUNS.exists():
+            return pd.read_json(str(_JSON_RUNS), convert_dates=False)
+    except Exception:
+        pass
+    return pd.DataFrame()
 
 _JSON_CORNER_PHASE = SCRIPT_DIR / "corner_phase_data.json"
 
@@ -4084,6 +4121,8 @@ with _content_col:
             "f_comp":"F-Comp","f_reb":"F-Reb","r_comp":"R-Comp","r_reb":"R-Reb",
             "r_spring":"R-Spring","swing_arm":"SwingArm","ride_height":"Ride Height",
             "f_preload":"F-Preload","r_preload":"R-Preload",
+            "f_spring_l":"F-Spring L","f_spring_r":"F-Spring R",
+            "f_oil_lvl":"F-Oil Level","shock_len":"Shock Length",
         }
 
         # ── laps を正規化（一度だけ） ─────────────────────
@@ -4338,12 +4377,20 @@ with _content_col:
         # TAB 3 — Setup Correlation
         # ───────────────────────────────────────────────
         with perf_tab3:
-            if sessions.empty:
-                st.info("No session setup data available.")
+            _runs_setup = _load_runs_data()
+            if _runs_setup.empty and sessions.empty:
+                st.info("No run/setup data available.")
             else:
-                _sc = sessions.copy()
+                _using_runs = not _runs_setup.empty
+                _sc = _runs_setup.copy() if _using_runs else sessions.copy()
+                if sel_rider != "All" and "rider" in _sc.columns:
+                    _sc = _sc[_sc["rider"] == sel_rider]
+                if sel_circuit != "All" and "circuit" in _sc.columns:
+                    _sc = _sc[_sc["circuit"].astype(str).str.upper() == sel_circuit.upper()]
+
                 _num_cols = [c for c in ["f_comp","f_reb","r_comp","r_reb","r_spring",
-                                          "swing_arm","ride_height","f_preload","r_preload"]
+                                          "swing_arm","ride_height","f_preload","r_preload",
+                                          "f_spring_l","f_spring_r","f_oil_lvl","shock_len"]
                              if c in _sc.columns]
                 for c in _num_cols:
                     _sc[c] = pd.to_numeric(_sc[c], errors="coerce")
@@ -4356,59 +4403,54 @@ with _content_col:
                     try: return sid.split("-")[2]
                     except: return None
 
-                # 各セッションのベストラップを _laps_all から取得
-                if not _laps_all.empty:
-                    _laps_for_sc = _laps_all.copy()
-                    _rnum_to_rider = {"77": "DA77", "52": "JA52"}
-                    _laps_for_sc["_rider_str"] = _laps_for_sc["rider_id"].fillna("")
-
-                    _best_by_rnd = (_laps_for_sc
-                                    .groupby(["round_id","rider_id"], as_index=False)["lap_time"]
-                                    .min()
-                                    .rename(columns={"lap_time":"_best_lap_s"}))
-
-                    _sc["_rnd"]   = _sc["session_id"].apply(_sid_to_rnd)
-                    _sc["_rider"] = _sc["session_id"].apply(_sid_to_rider)
-                    _sc = _sc.merge(_best_by_rnd,
-                                    left_on=["_rnd","_rider"],
-                                    right_on=["round_id","rider_id"],
-                                    how="left")
+                if _using_runs:
+                    _sc["_best_lap_s"] = pd.to_numeric(_sc.get("perf_best_lap"), errors="coerce")
+                    df_ls_corr = _load_lap_suspension()
+                    if not df_ls_corr.empty and {"RUN_ID", "LAP_TIME_S"}.issubset(df_ls_corr.columns):
+                        _ls_best = (
+                            df_ls_corr.copy()
+                            .assign(LAP_TIME_S=lambda d: pd.to_numeric(d["LAP_TIME_S"], errors="coerce"))
+                            .dropna(subset=["LAP_TIME_S"])
+                            .groupby("RUN_ID", as_index=False)["LAP_TIME_S"].min()
+                            .rename(columns={"RUN_ID": "run_id", "LAP_TIME_S": "_ls_best_lap_s"})
+                        )
+                        _sc = _sc.merge(_ls_best, on="run_id", how="left")
+                        _sc["_best_lap_s"] = _sc["_best_lap_s"].fillna(_sc["_ls_best_lap_s"])
                 else:
-                    _sc["_best_lap_s"] = float("nan")
+                    # Report fallback: each session uses the best official lap for round/rider.
+                    if not _laps_all.empty:
+                        _laps_for_sc = _laps_all.copy()
+                        _best_by_rnd = (_laps_for_sc
+                                        .groupby(["round_id","rider_id"], as_index=False)["lap_time"]
+                                        .min()
+                                        .rename(columns={"lap_time":"_best_lap_s"}))
+
+                        _sc["_rnd"]   = _sc["session_id"].apply(_sid_to_rnd)
+                        _sc["_rider"] = _sc["session_id"].apply(_sid_to_rider)
+                        _sc = _sc.merge(_best_by_rnd,
+                                        left_on=["_rnd","_rider"],
+                                        right_on=["round_id","rider_id"],
+                                        how="left")
+                    else:
+                        _sc["_best_lap_s"] = float("nan")
 
                 _sc["_best_lap_s"] = pd.to_numeric(_sc["_best_lap_s"], errors="coerce")
                 _sc_with_lap = _sc.dropna(subset=["_best_lap_s"]).copy()
 
                 # ── セットアップテーブル（常時表示）──
-                st.markdown("**Report Setup Data — Approved Reports**")
-                st.caption("This table uses approved Report setup data from `sessions`; Race Results and lap-time data may extend to later rounds.")
+                st.markdown("**Run Setup Data — Current DB**" if _using_runs else "**Report Setup Data — Approved Reports**")
+                st.caption(
+                    "This table uses run-level setup data from the latest TS24 database export."
+                    if _using_runs
+                    else "Fallback: approved Report setup data from `sessions`."
+                )
 
-                _report_rounds = []
-                if "session_id" in _sc.columns:
-                    _report_rounds = sorted(
-                        {r for r in _sc["session_id"].apply(_sid_to_rnd).dropna().tolist()},
-                        key=_rnd_sort,
-                    )
-                _race_rounds = []
-                if not results.empty and "round_no" in results.columns:
-                    _race_rounds = sorted(
-                        results["round_no"].dropna().astype(str).unique().tolist(),
-                        key=_rnd_sort,
-                    )
-                _missing_setup_rounds = [r for r in _race_rounds if r not in _report_rounds]
-                if _missing_setup_rounds:
-                    st.warning(
-                        "Setup reports are not available for: "
-                        + ", ".join(_missing_setup_rounds)
-                        + ". Those rounds remain visible in Race Results / Race Pace, but cannot be used in setup correlation yet."
-                    )
-
-                _disp_cols = [c for c in ["session_id","rider","circuit","session_type",
+                _disp_cols = [c for c in ["run_id","session_id","round","rider","circuit","session_type","run_no",
                                           "fork_type","f_spring","f_comp","f_reb",
                                           "shock_type","r_spring","r_comp","r_reb",
-                                          "swing_arm","ride_height","f_tyre","r_tyre"]
-                              if c in sessions.columns]
-                _sc_display = sessions.copy()
+                                          "swing_arm","ride_height","f_tyre","r_tyre","_best_lap_s"]
+                              if c in _sc.columns]
+                _sc_display = _sc.copy()
                 if "session_date" in _sc_display.columns:
                     _sc_display = _sc_display.sort_values("session_date", ascending=False)
                 st.dataframe(_sc_display[_disp_cols].reset_index(drop=True),
@@ -4455,7 +4497,8 @@ with _content_col:
                             format_func=lambda c: _P_LABEL.get(c, c),
                             key="sc_x_param",
                         )
-                        _sdf = _sc_with_lap[[sel_param,"_best_lap_s","rider","session_id"]].dropna()
+                        _id_col = "run_id" if "run_id" in _sc_with_lap.columns else "session_id"
+                        _sdf = _sc_with_lap[[sel_param,"_best_lap_s","rider",_id_col]].dropna()
                         if not _sdf.empty:
                             _sdf = _sdf.copy()
                             _sdf["best_lap_str"] = _sdf["_best_lap_s"].apply(_fmt_t)
@@ -4463,7 +4506,7 @@ with _content_col:
                                 _sdf, x=sel_param, y="_best_lap_s",
                                 color="rider",
                                 color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
-                                hover_data={"session_id": True, "best_lap_str": True, "_best_lap_s": False},
+                                hover_data={_id_col: True, "best_lap_str": True, "_best_lap_s": False},
                                 labels={"_best_lap_s":"Best Lap (s)",
                                         sel_param: _P_LABEL.get(sel_param, sel_param)},
                                 height=320,
