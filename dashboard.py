@@ -401,6 +401,8 @@ ROUND_CIRCUIT_MAP = {
     "ROUND1":  "PI",
     "ROUND2":  "PORTIMAO",
     "ROUND3":  "ASSEN",
+    "ROUND4":  "BALATON",
+    "ROUND5":  "MOST",
     "ROUND11": "ESTORIL",
     "ROUND12": "JEREZ",
 }
@@ -2315,15 +2317,103 @@ with _content_col:
 
     # ═══════════════════════════════════════════════════
     elif _NAV == "📋  Session Detail":
-        session_list = df_s["session_id"].tolist()
-        if not session_list:
+        session_options = []
+        for _, _r in df_s.iterrows():
+            _sid = str(_r.get("session_id", ""))
+            if _sid:
+                session_options.append({
+                    "kind": "report",
+                    "id": _sid,
+                    "label": _sid,
+                    "date": str(_r.get("session_date") or ""),
+                    "sort": _rnd_sort(_sid.split("-")[1] if "-" in _sid else ""),
+                })
+
+        df_ls_detail = _load_lap_suspension()
+        if not df_ls_detail.empty and "RUN_ID" in df_ls_detail.columns:
+            _ls_group_cols = [c for c in ["RUN_ID", "DATE", "ROUND", "CIRCUIT", "SESSION", "RIDER", "RUN_NO"] if c in df_ls_detail.columns]
+            _ls_runs = df_ls_detail[_ls_group_cols].drop_duplicates("RUN_ID").copy()
+            if sel_rider != "All" and "RIDER" in _ls_runs.columns:
+                _ls_runs = _ls_runs[_ls_runs["RIDER"] == sel_rider]
+            if sel_circuit != "All" and "CIRCUIT" in _ls_runs.columns:
+                _ls_runs = _ls_runs[_ls_runs["CIRCUIT"].astype(str).str.upper() == sel_circuit.upper()]
+            for _, _r in _ls_runs.iterrows():
+                _rid = str(_r.get("RUN_ID", ""))
+                if _rid:
+                    session_options.append({
+                        "kind": "lap_suspension",
+                        "id": _rid,
+                        "label": f"{_rid}  [Lap Suspension]",
+                        "date": str(_r.get("DATE") or ""),
+                        "sort": _rnd_sort(str(_r.get("ROUND") or "")),
+                    })
+
+        if not session_options:
             st.info("No sessions for current filter.")
         else:
-            sel_session = st.selectbox(
-                "Session", session_list,
-                index=len(session_list) - 1,
+            session_options = sorted(session_options, key=lambda x: (x["date"], x["sort"], x["label"]))
+            option_labels = [o["label"] for o in session_options]
+            sel_label = st.selectbox(
+                "Session", option_labels,
+                index=len(option_labels) - 1,
                 label_visibility="visible"
             )
+            sel_option = session_options[option_labels.index(sel_label)]
+
+            if sel_option["kind"] == "lap_suspension":
+                df_run = df_ls_detail[df_ls_detail["RUN_ID"] == sel_option["id"]].copy()
+                df_run = df_run.sort_values("LAP_NO") if "LAP_NO" in df_run.columns else df_run
+                first = df_run.iloc[0]
+
+                i1, i2, i3, i4 = st.columns(4)
+                _best_lap = pd.to_numeric(df_run.get("LAP_TIME_S"), errors="coerce").min()
+                i1.metric("Best Lap", f"{int(_best_lap)//60}:{_best_lap%60:06.3f}" if pd.notna(_best_lap) else "—")
+                i2.metric("Laps", len(df_run))
+                i3.metric("Avg Apex SusF", f"{pd.to_numeric(df_run.get('APEX_SUSF_AVG'), errors='coerce').mean():.1f} mm")
+                i4.metric("Avg Brake SusF", f"{pd.to_numeric(df_run.get('BRK_SUSF_AVG'), errors='coerce').mean():.1f} mm")
+
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                c1, c2 = st.columns([1, 2], gap="medium")
+                with c1:
+                    st.markdown('<p class="section-title">Telemetry Session Info</p>', unsafe_allow_html=True)
+                    for label, val in [
+                        ("Date", first.get("DATE")),
+                        ("Round", first.get("ROUND")),
+                        ("Circuit", first.get("CIRCUIT")),
+                        ("Session", first.get("SESSION")),
+                        ("Rider", first.get("RIDER")),
+                        ("Run", first.get("RUN_NO")),
+                    ]:
+                        st.markdown(
+                            f'<div class="detail-row"><span class="detail-label">{label}</span>'
+                            f'<span class="detail-val">{val or "—"}</span></div>',
+                            unsafe_allow_html=True
+                        )
+                    st.caption("No approved Report setup/comment is linked to this telemetry run yet.")
+
+                with c2:
+                    st.markdown('<p class="section-title">Lap Suspension Trend</p>', unsafe_allow_html=True)
+                    _plot_cols = [c for c in ["APEX_SUSF_AVG", "BRK_SUSF_AVG", "LAP_SUSF_MEAN"] if c in df_run.columns]
+                    if _plot_cols and "LAP_NO" in df_run.columns:
+                        _plot_df = df_run[["LAP_NO"] + _plot_cols].copy()
+                        for c in _plot_cols:
+                            _plot_df[c] = pd.to_numeric(_plot_df[c], errors="coerce")
+                        _long = _plot_df.melt("LAP_NO", var_name="Metric", value_name="SusF")
+                        fig_ls_detail = px.line(_long, x="LAP_NO", y="SusF", color="Metric", markers=True)
+                        chart_layout(fig_ls_detail, height=300, title="Front Suspension by Lap")
+                        fig_ls_detail.update_layout(xaxis_title="Lap", yaxis_title="mm")
+                        st.plotly_chart(fig_ls_detail, use_container_width=True)
+
+                st.markdown('<p class="section-title">Lap Data</p>', unsafe_allow_html=True)
+                _show_cols = [c for c in [
+                    "LAP_NO", "LAP_TIME", "LAP_TIME_S", "APEX_CNT", "APEX_SPD_AVG",
+                    "APEX_SUSF_AVG", "APEX_SUSR_AVG", "BRK_CNT", "BRK_SPD_AVG",
+                    "BRK_SUSF_AVG", "BRK_SUSR_AVG", "FULLBRK_SUSF", "FULLBRK_SUSR",
+                ] if c in df_run.columns]
+                st.dataframe(df_run[_show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+                st.stop()
+
+            sel_session = sel_option["id"]
             row = df_s[df_s["session_id"] == sel_session].iloc[0]
             session_tag_rows = tags[tags["session_id"] == sel_session]
 
@@ -3001,7 +3091,11 @@ with _content_col:
             best_laps["best_lap_str"] = best_laps["best_lap_s"].apply(
                 lambda s: f"{int(s)//60}:{s%60:06.3f}" if pd.notna(s) else "—"
             )
-            best_laps["session_label"] = best_laps["round_id"] + " " + best_laps["session_type"]
+            _session_sort_map = {"FP": 1, "SP": 2, "QP": 2, "WUP": 3, "RACE1": 4, "RACE2": 5}
+            best_laps["round_sort"] = best_laps["round_id"].apply(_rnd_sort)
+            best_laps["session_sort"] = best_laps["session_type"].map(_session_sort_map).fillna(9)
+            best_laps["session_label"] = best_laps["round_id"] + "<br>" + best_laps["session_type"]
+            best_laps = best_laps.sort_values(["round_sort", "session_sort", "rider_id"])
 
             # ── Session filter ──
             session_types_avail = sorted(best_laps["session_type"].unique())
@@ -3016,7 +3110,7 @@ with _content_col:
             # ── Best lap trend chart ──
             if not best_laps.empty:
                 fig_bl = px.line(
-                    best_laps.sort_values("session_label"),
+                    best_laps,
                     x="session_label", y="best_lap_s",
                     color="rider_id",
                     markers=True,
@@ -3026,7 +3120,13 @@ with _content_col:
                 )
                 fig_bl.update_traces(marker=dict(size=9), line=dict(width=2.5))
                 chart_layout(fig_bl, height=320, title="Best Lap per Session")
-                fig_bl.update_layout(xaxis_tickangle=-35)
+                fig_bl.update_xaxes(
+                    categoryorder="array",
+                    categoryarray=best_laps["session_label"].drop_duplicates().tolist(),
+                    tickangle=0,
+                    automargin=True,
+                )
+                fig_bl.update_layout(margin=dict(t=50, b=80, l=70, r=20))
                 st.plotly_chart(fig_bl, use_container_width=True, config={"displayModeBar": False})
 
             # ── Lap count per round ──
@@ -3035,6 +3135,8 @@ with _content_col:
                 df_lap.groupby(["round_id", "rider_id"]).size().reset_index(name="lap_count")
             )
             if not lap_cnt.empty:
+                lap_cnt["round_sort"] = lap_cnt["round_id"].apply(_rnd_sort)
+                lap_cnt = lap_cnt.sort_values(["round_sort", "rider_id"])
                 fig_lc = px.bar(
                     lap_cnt, x="round_id", y="lap_count", color="rider_id",
                     barmode="group",
@@ -3042,6 +3144,7 @@ with _content_col:
                     labels={"round_id": "", "lap_count": "Laps", "rider_id": "Rider"},
                 )
                 chart_layout(fig_lc, height=260)
+                fig_lc.update_xaxes(categoryorder="array", categoryarray=lap_cnt["round_id"].drop_duplicates().tolist())
                 st.plotly_chart(fig_lc, use_container_width=True, config={"displayModeBar": False})
 
             # ── Lap time distribution by round ──
@@ -3049,7 +3152,7 @@ with _content_col:
             rider_trend = st.radio("Rider", ["DA77", "JA52"], horizontal=True, key="trend_rider")
             df_dist = df_lap[df_lap["rider_id"] == rider_trend]
             if not df_dist.empty:
-                rounds_avail = sorted(df_dist["round_id"].unique())
+                rounds_avail = sorted(df_dist["round_id"].unique(), key=_rnd_sort)
                 sel_rounds_t = st.multiselect("Rounds", rounds_avail, default=rounds_avail[-3:] if len(rounds_avail) >= 3 else rounds_avail, key="trend_rounds")
                 if sel_rounds_t:
                     df_dist = df_dist[df_dist["round_id"].isin(sel_rounds_t)]
@@ -3076,7 +3179,13 @@ with _content_col:
                     labels={"session_label": "", "gap": "Gap (s) — negative = DA77 faster"},
                 )
                 chart_layout(fig_gap, height=260, title="DA77 − JA52 Best Lap Gap")
-                fig_gap.update_layout(xaxis_tickangle=-35, showlegend=True)
+                fig_gap.update_xaxes(
+                    categoryorder="array",
+                    categoryarray=best_laps["session_label"].drop_duplicates().tolist(),
+                    tickangle=0,
+                    automargin=True,
+                )
+                fig_gap.update_layout(showlegend=True, margin=dict(t=50, b=80, l=70, r=20))
                 st.plotly_chart(fig_gap, use_container_width=True, config={"displayModeBar": False})
 
 
