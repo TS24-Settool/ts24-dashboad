@@ -458,6 +458,22 @@ def _load_dynamics_data():
 
 _JSON_LAP_SUS = SCRIPT_DIR / "lap_suspension_data.json"
 
+@st.cache_data(ttl=120)
+def _load_lap_suspension() -> pd.DataFrame:
+    """Load LAP_SUSPENSION data for the Lap Sus Stats page.
+
+    Streamlit Cloud normally uses the JSON cache. Local execution can use
+    SQLite when DB_PATH is available.
+    """
+    try:
+        if DB_PATH is not None and DB_PATH.exists():
+            df = load_lap_suspension_from_sqlite(DB_PATH)
+            if not df.empty:
+                return df
+    except Exception:
+        pass
+    return load_lap_suspension_from_json(_JSON_LAP_SUS)
+
 _JSON_CORNER_PHASE = SCRIPT_DIR / "corner_phase_data.json"
 
 @st.cache_data(ttl=120)
