@@ -2410,14 +2410,22 @@ with _content_col:
 
                 # Phase problems summary
                 st.markdown('<p class="section-title" style="margin-top:16px">Phase Comments</p>', unsafe_allow_html=True)
+                def _detail_text(val):
+                    try:
+                        if val is None or pd.isna(val):
+                            return ""
+                    except (TypeError, ValueError):
+                        pass
+                    s = str(val).strip()
+                    return "" if s.lower() in ("", "nan", "none") else s
+
                 for ph_col, ph_name in [
                     ("ph1_braking", "PH1"), ("ph2_entry", "PH2"),
                     ("ph3_mid", "PH3"), ("ph4_exit", "PH4"), ("ph5_speed", "PH5")
                 ]:
-                    val = row.get(ph_col) or row.get(ph_col.split("_")[0])
-                    # Try generic column name
+                    val = ""
                     for try_col in [ph_col, ph_col.split("_")[0]]:
-                        val = row.get(try_col)
+                        val = _detail_text(row.get(try_col))
                         if val:
                             break
                     if val:
@@ -2429,8 +2437,8 @@ with _content_col:
                         )
 
             # Engineer notes
-            note = row.get("engineer_note")
-            next_act = row.get("next_action")
+            note = _detail_text(row.get("engineer_note"))
+            next_act = _detail_text(row.get("next_action"))
 
             if note or next_act:
                 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -4104,7 +4112,21 @@ with _content_col:
                 # ── レース結果のみ（RACE1/RACE2）──
                 _rr_race = _rr[_rr["session_type"].isin(["RACE1","RACE2"])].copy()
                 if not _rr_race.empty:
-                    _rr_race["label"] = _rr_race["round_no"] + " " + _rr_race["session_type"]
+                    _rr_race["label"] = _rr_race["round_no"] + "<br>" + _rr_race["session_type"]
+                    _race_order = (
+                        _rr_race[["label", "round_sort", "session_type"]]
+                        .drop_duplicates()
+                        .assign(_session_sort=lambda d: d["session_type"].map({"RACE1": 1, "RACE2": 2}).fillna(9))
+                        .sort_values(["round_sort", "_session_sort"])["label"]
+                        .tolist()
+                    )
+                    _positions = sorted(pd.to_numeric(_rr_race["position"], errors="coerce").dropna().unique().astype(int).tolist())
+                    if _positions:
+                        _y_min_pos = max(min(_positions) - 1, 1)
+                        _y_max_pos = max(_positions) + 1
+                        _y_ticks = list(range(_y_min_pos, _y_max_pos + 1))
+                    else:
+                        _y_min_pos, _y_max_pos, _y_ticks = 1, 25, list(range(1, 26))
                     fig_pos = go.Figure()
                     for rider, color in [("DA77", DA77_COLOR), ("JA52", JA52_COLOR)]:
                         _rd2 = _rr_race[_rr_race["rider_id"] == rider]
@@ -4117,12 +4139,25 @@ with _content_col:
                             hovertemplate="<b>%{x}</b><br>Position: %{y}<br>Best Lap: %{text}<extra>" + rider + "</extra>",
                         ))
                     fig_pos.update_layout(
-                        yaxis=dict(title="Finishing Position", autorange="reversed",
-                                   tickmode="linear", tick0=1, dtick=1),
-                        xaxis_title="Race", legend=dict(orientation="h", y=1.12),
-                        height=360, margin=dict(t=50, b=80, l=60, r=20),
+                        yaxis=dict(
+                            title="Finishing Position",
+                            autorange=False,
+                            range=[_y_max_pos + 0.5, _y_min_pos - 0.5],
+                            tickmode="array",
+                            tickvals=_y_ticks,
+                        ),
+                        xaxis=dict(
+                            title="Race",
+                            categoryorder="array",
+                            categoryarray=_race_order,
+                            tickangle=0,
+                            automargin=True,
+                        ),
+                        legend=dict(orientation="h", y=1.14, x=1, xanchor="right"),
+                        height=430,
+                        margin=dict(t=60, b=90, l=70, r=20),
                     )
-                    fig_pos = chart_layout(fig_pos, height=360, title="Race Finishing Position — Season")
+                    fig_pos = chart_layout(fig_pos, height=430, title="Race Finishing Position — Season")
                     st.plotly_chart(fig_pos, use_container_width=True)
 
                     st.markdown("**Race Summary Table**")
@@ -4144,16 +4179,38 @@ with _content_col:
                 _rr_filt = _rr[_rr["session_type"].isin(sel_rr_types)] if sel_rr_types else _rr
                 if not _rr_filt.empty:
                     _rr_filt = _rr_filt.copy()
-                    _rr_filt["label"] = _rr_filt["round_no"] + " " + _rr_filt["session_type"]
+                    _rr_filt["label"] = _rr_filt["round_no"] + "<br>" + _rr_filt["session_type"]
+                    _all_order = (
+                        _rr_filt[["label", "round_sort", "session_type"]]
+                        .drop_duplicates()
+                        .assign(_session_sort=lambda d: d["session_type"].map(
+                            {"FP": 1, "SP": 2, "WUP": 3, "RACE1": 4, "RACE2": 5}
+                        ).fillna(9))
+                        .sort_values(["round_sort", "_session_sort"])["label"]
+                        .tolist()
+                    )
                     fig_all = px.scatter(
                         _rr_filt, x="label", y="position",
                         color="rider_id", symbol="session_type",
                         color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
                         labels={"label":"Round + Session","position":"Position","rider_id":"Rider"},
-                        height=300,
+                        height=360,
                     )
-                    fig_all.update_yaxes(autorange="reversed")
-                    fig_all = chart_layout(fig_all, height=300)
+                    _all_positions = sorted(pd.to_numeric(_rr_filt["position"], errors="coerce").dropna().unique().astype(int).tolist())
+                    if _all_positions:
+                        _all_y_min = max(min(_all_positions) - 1, 1)
+                        _all_y_max = max(_all_positions) + 1
+                        fig_all.update_yaxes(
+                            autorange=False,
+                            range=[_all_y_max + 0.5, _all_y_min - 0.5],
+                            tickmode="array",
+                            tickvals=list(range(_all_y_min, _all_y_max + 1)),
+                        )
+                    else:
+                        fig_all.update_yaxes(autorange="reversed")
+                    fig_all.update_xaxes(categoryorder="array", categoryarray=_all_order, tickangle=0, automargin=True)
+                    fig_all.update_layout(margin=dict(t=50, b=90, l=70, r=20))
+                    fig_all = chart_layout(fig_all, height=360)
                     st.plotly_chart(fig_all, use_container_width=True)
 
         # ───────────────────────────────────────────────
@@ -4202,13 +4259,38 @@ with _content_col:
                 _sc_with_lap = _sc.dropna(subset=["_best_lap_s"]).copy()
 
                 # ── セットアップテーブル（常時表示）──
-                st.markdown("**Full Setup Data — All Sessions**")
+                st.markdown("**Report Setup Data — Approved Reports**")
+                st.caption("This table uses approved Report setup data from `sessions`; Race Results and lap-time data may extend to later rounds.")
+
+                _report_rounds = []
+                if "session_id" in _sc.columns:
+                    _report_rounds = sorted(
+                        {r for r in _sc["session_id"].apply(_sid_to_rnd).dropna().tolist()},
+                        key=_rnd_sort,
+                    )
+                _race_rounds = []
+                if not results.empty and "round_no" in results.columns:
+                    _race_rounds = sorted(
+                        results["round_no"].dropna().astype(str).unique().tolist(),
+                        key=_rnd_sort,
+                    )
+                _missing_setup_rounds = [r for r in _race_rounds if r not in _report_rounds]
+                if _missing_setup_rounds:
+                    st.warning(
+                        "Setup reports are not available for: "
+                        + ", ".join(_missing_setup_rounds)
+                        + ". Those rounds remain visible in Race Results / Race Pace, but cannot be used in setup correlation yet."
+                    )
+
                 _disp_cols = [c for c in ["session_id","rider","circuit","session_type",
                                           "fork_type","f_spring","f_comp","f_reb",
                                           "shock_type","r_spring","r_comp","r_reb",
                                           "swing_arm","ride_height","f_tyre","r_tyre"]
                               if c in sessions.columns]
-                st.dataframe(sessions[_disp_cols].reset_index(drop=True),
+                _sc_display = sessions.copy()
+                if "session_date" in _sc_display.columns:
+                    _sc_display = _sc_display.sort_values("session_date", ascending=False)
+                st.dataframe(_sc_display[_disp_cols].reset_index(drop=True),
                              use_container_width=True, hide_index=True)
 
                 if _sc_with_lap.empty:
