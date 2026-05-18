@@ -556,6 +556,24 @@ def _dyn_norm_circuit(c):
         return "PHILLIP ISLAND"
     return c
 
+_ROUND_ORDER_P = [
+    "ROUND11", "ROUND12",
+    "TEST1", "TEST2", "TEST3", "TEST4", "TEST5",
+    "ROUND1", "ROUND2", "ROUND3", "ROUND4", "ROUND5",
+]
+
+def _rnd_sort(r):
+    """Stable chronological-ish order used across dashboard pages."""
+    r = str(r or "")
+    try:
+        return _ROUND_ORDER_P.index(r)
+    except ValueError:
+        import re
+        m = re.search(r"ROUND(\d+)", r)
+        if m:
+            return 100 + int(m.group(1))
+        return 999
+
 
 # _dyn_norm_circuit / _dyn_norm_session imported from domain.lap_analysis (aliases set above)
 
@@ -4045,12 +4063,6 @@ with _content_col:
         st.caption("Season-wide performance trends: lap times, race results, and setup correlations.")
 
         # ── ヘルパー ──────────────────────────────────────
-        _ROUND_ORDER_P = ["ROUND11","ROUND12","TEST1","TEST2","TEST3",
-                          "TEST4","TEST5","ROUND1","ROUND2","ROUND3"]
-        def _rnd_sort(r):
-            try:    return _ROUND_ORDER_P.index(r)
-            except: return 99
-
         def _to_rid(x):
             """rider_num (int/float/str 全対応) → 'DA77'/'JA52'/None"""
             try:
