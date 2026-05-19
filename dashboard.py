@@ -612,6 +612,79 @@ def _rnd_sort(r):
         return 999
 
 
+def _fmt_seconds(value) -> str:
+    try:
+        sec = float(value)
+    except Exception:
+        return "—"
+    if not np.isfinite(sec):
+        return "—"
+    m = int(sec // 60)
+    s = sec - 60 * m
+    return f"{m}'{s:06.3f}" if m else f"{s:.3f}"
+
+
+def _normalize_race_results_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize race_results from local DB and Supabase variants."""
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    out = df.copy()
+    if "rider_id" not in out.columns:
+        if "rider_num" in out.columns:
+            rider_num = pd.to_numeric(out["rider_num"], errors="coerce")
+            out["rider_id"] = rider_num.map({77: "DA77", 52: "JA52"}).fillna(out["rider_num"].astype(str))
+        elif "rider" in out.columns:
+            out["rider_id"] = out["rider"].astype(str)
+        elif "rider_name" in out.columns:
+            out["rider_id"] = out["rider_name"].astype(str)
+        else:
+            out["rider_id"] = ""
+
+    if "round_no" not in out.columns and "round" in out.columns:
+        out["round_no"] = out["round"]
+    if "round_id" not in out.columns and "round" in out.columns:
+        out["round_id"] = out["round"]
+    if "session_type" not in out.columns and "session" in out.columns:
+        out["session_type"] = out["session"]
+    if "circuit" in out.columns:
+        out["circuit"] = out["circuit"].astype(str)
+    if "event_date" not in out.columns and "date" in out.columns:
+        out["event_date"] = out["date"]
+    if "position" in out.columns:
+        out["position"] = pd.to_numeric(out["position"], errors="coerce")
+    if "best_lap_s" in out.columns:
+        out["best_lap_s"] = pd.to_numeric(out["best_lap_s"], errors="coerce")
+    if "gap_to_top" not in out.columns and {"round_no", "session_type", "best_lap_s"}.issubset(out.columns):
+        top = out.groupby(["round_no", "session_type"])["best_lap_s"].transform("min")
+        out["gap_to_top"] = out["best_lap_s"] - top
+    if "top_time" not in out.columns and {"round_no", "session_type", "best_lap_s"}.issubset(out.columns):
+        top = out.groupby(["round_no", "session_type"])["best_lap_s"].transform("min")
+        out["top_time"] = top.apply(lambda v: _fmt_seconds(v) if pd.notna(v) else "—")
+    return out
+
+
+def _ts24_race_results_view(df: pd.DataFrame) -> pd.DataFrame:
+    """Return one clean DA77/JA52 result row per round/session/rider."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = _normalize_race_results_columns(df)
+    if "rider_id" not in out.columns:
+        return pd.DataFrame()
+    out = out[out["rider_id"].isin(["DA77", "JA52"])].copy()
+    if out.empty:
+        return out
+    if "position" in out.columns:
+        out = out[out["position"].notna()]
+    sort_cols = [c for c in ["round_no", "session_type", "rider_id", "position", "best_lap_s"] if c in out.columns]
+    if sort_cols:
+        out = out.sort_values(sort_cols)
+    key_cols = [c for c in ["round_no", "session_type", "rider_id"] if c in out.columns]
+    if key_cols:
+        out = out.drop_duplicates(key_cols, keep="first")
+    return out.reset_index(drop=True)
+
+
 # _dyn_norm_circuit / _dyn_norm_session imported from domain.lap_analysis (aliases set above)
 
 # ── Color palette (Power BI style) ────────────────
@@ -1425,17 +1498,17 @@ with _nav_col:
         df_t_event = df_t_event[df_t_event["session_id"].isin(df_s_event["session_id"])]
 
     # ── Track session filter (for KPI / Race Results tabs) ──
-    # Each row in race_results = one session (FP/SP/WUP/RACE)
-    df_rr = results.copy() if not results.empty else pd.DataFrame()
+    # Dashboard view uses one official TS24 row per round/session/rider.
+    df_rr = _ts24_race_results_view(results)
     if not df_rr.empty:
         if sel_rider != "All":
             df_rr = df_rr[df_rr["rider_id"] == sel_rider]
         if sel_circuit != "All":
             df_rr = df_rr[df_rr["circuit"].str.upper() == sel_circuit.upper()]
 
-    n_track   = len(df_rr)
-    n_da77    = len(df_rr[df_rr["rider_id"] == "DA77"]) if not df_rr.empty else 0
-    n_ja52    = len(df_rr[df_rr["rider_id"] == "JA52"]) if not df_rr.empty else 0
+    n_track   = int(len(df_rr))
+    n_da77    = int((df_rr["rider_id"] == "DA77").sum()) if not df_rr.empty else 0
+    n_ja52    = int((df_rr["rider_id"] == "JA52").sum()) if not df_rr.empty else 0
     n_circuits = df_rr["circuit"].nunique() if not df_rr.empty else df_s["circuit"].nunique()
 
     st.caption(f"{n_track} track sessions / {len(df_s)} reports")
@@ -1796,7 +1869,10 @@ with _content_col:
             st.info("No official results data yet. Add PDFs to 07_RESULTS/ and run result_sync.py.")
         else:
             # Race Results tab uses df_rr (already filtered by sidebar)
-            df_r = df_rr.copy() if not df_rr.empty else results.copy()
+            df_r = df_rr.copy() if not df_rr.empty else _ts24_race_results_view(results)
+            if df_r.empty:
+                st.info("No DA77 / JA52 official race results available for the selected filters.")
+                st.stop()
 
             # ── KPI row ──
             st.markdown('<p class="section-title">Round Performance Overview</p>', unsafe_allow_html=True)
@@ -1845,7 +1921,9 @@ with _content_col:
             if sessions_avail:
                 cols = st.columns(len(sessions_avail))
                 for col, ses in zip(cols, sessions_avail):
-                    sub = df_r[df_r["session_type"] == ses]
+                    sub = df_r[df_r["session_type"] == ses].copy()
+                    if "position" in sub.columns:
+                        sub = sub.sort_values(["position", "rider_id"])
                     with col:
                         st.markdown(f'<p class="section-title">{ses}</p>', unsafe_allow_html=True)
                         for _, row in sub.iterrows():
@@ -1857,13 +1935,15 @@ with _content_col:
                             gpos  = row.get("grid_position")
                             r2g   = row.get("race2_grid")
                             color = DA77_COLOR if rid == "DA77" else JA52_COLOR
+                            pos_txt = f"{int(pos)}" if pd.notna(pos) else "?"
+                            gap_txt = f"+{float(gap):.3f}s" if pd.notna(gap) else "—"
                             st.markdown(
                                 f'<div style="background:#fff;border-left:4px solid {color};'
                                 f'padding:10px 14px;border-radius:4px;margin-bottom:8px;">'
                                 f'<b style="color:{color}">{rid}</b>'
-                                f'<span style="float:right;font-size:22px;font-weight:700;color:#111">P{pos or "?"}</span><br>'
+                                f'<span style="float:right;font-size:22px;font-weight:700;color:#111">P{pos_txt}</span><br>'
                                 f'<span style="font-size:13px;color:#333">Best: <b>{bl}</b></span><br>'
-                                f'<span style="font-size:12px;color:#666">Gap: +{gap or "—"}s &nbsp;|&nbsp; Top: {top}</span>'
+                                f'<span style="font-size:12px;color:#666">Gap: {gap_txt} &nbsp;|&nbsp; Top: {top}</span>'
                                 + (f'<br><span style="font-size:11px;color:#888">Grid: P{gpos}</span>' if gpos else '')
                                 + (f'&nbsp;<span style="font-size:11px;color:#0078D4">→ Race2 Grid: P{r2g}</span>' if r2g else '')
                                 + '</div>',
@@ -4264,7 +4344,7 @@ with _content_col:
             if results.empty:
                 st.info("No race results data available.")
             else:
-                _rr = results[results["rider_id"].isin(["DA77","JA52"])].copy()
+                _rr = _ts24_race_results_view(results)
                 _rr["position"] = pd.to_numeric(_rr["position"], errors="coerce")
                 _rr["round_sort"] = _rr["round_no"].apply(_rnd_sort)
                 _rr = _rr.sort_values(["round_sort","session_type"]).reset_index(drop=True)
