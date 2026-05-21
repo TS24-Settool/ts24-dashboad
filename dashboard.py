@@ -395,6 +395,35 @@ def load_data():
     # Fallback: local SQLite
     return _load_sqlite()
 
+def _scope_label(scope: str) -> str:
+    return {
+        "COMPANY": "Company",
+        "TS24_PRIVATE": "TS24 Private",
+        "ALL": "All",
+    }.get(scope, scope)
+
+def _scope_count(df: pd.DataFrame, scope: str) -> int:
+    if df.empty or "data_scope" not in df.columns:
+        return 0
+    return int(df["data_scope"].fillna("TS24_PRIVATE").eq(scope).sum())
+
+def _apply_data_scope(df: pd.DataFrame, scope: str) -> pd.DataFrame:
+    if scope == "ALL" or df.empty or "data_scope" not in df.columns:
+        return df.copy()
+    return df[df["data_scope"].fillna("TS24_PRIVATE").eq(scope)].copy()
+
+def _collect_filter_riders(sessions_df: pd.DataFrame,
+                           results_df: pd.DataFrame,
+                           laps_df: pd.DataFrame) -> list:
+    riders = set()
+    if not sessions_df.empty and "rider" in sessions_df.columns:
+        riders.update(str(v) for v in sessions_df["rider"].dropna().unique() if str(v).strip())
+    if not results_df.empty and "rider_id" in results_df.columns:
+        riders.update(str(v) for v in results_df["rider_id"].dropna().unique() if str(v).strip())
+    if not laps_df.empty and "rider_name" in laps_df.columns:
+        riders.update(str(v) for v in laps_df["rider_name"].dropna().unique() if str(v).strip())
+    return ["All"] + sorted(riders)
+
 # ── Run Log (setup data per run) ─────────────────
 # Maps round_id in lap_times/DB → CIRCUIT name in Data_Bace_TS24_ORIGINAL
 ROUND_CIRCUIT_MAP = {
@@ -1465,8 +1494,46 @@ with _nav_col:
 
     st.divider()
 
+    st.markdown("**Data Scope**")
+    _company_rows = (
+        _scope_count(sessions, "COMPANY") +
+        _scope_count(results, "COMPANY") +
+        _scope_count(laps, "COMPANY")
+    )
+    _private_rows = (
+        _scope_count(sessions, "TS24_PRIVATE") +
+        _scope_count(results, "TS24_PRIVATE") +
+        _scope_count(laps, "TS24_PRIVATE")
+    )
+    _scope_codes = ["COMPANY", "TS24_PRIVATE", "ALL"]
+    _scope_options = [
+        f"{_scope_label(code)} ({_scope_count(sessions, code) + _scope_count(results, code) + _scope_count(laps, code)})"
+        if code != "ALL" else "All"
+        for code in _scope_codes
+    ]
+    _default_scope_idx = 0 if _company_rows > 0 else 1
+    sel_scope_label = st.selectbox(
+        "",
+        _scope_options,
+        index=_default_scope_idx,
+        label_visibility="collapsed",
+        key="data_scope_filter",
+        help="Company / TS24 Private の表示データを切り替えます。",
+    )
+    sel_data_scope = _scope_codes[_scope_options.index(sel_scope_label)]
+    sessions = _apply_data_scope(sessions, sel_data_scope)
+    results  = _apply_data_scope(results,  sel_data_scope)
+    sectors  = _apply_data_scope(sectors,  sel_data_scope)
+    laps     = _apply_data_scope(laps,     sel_data_scope)
+    if sel_data_scope == "COMPANY" and _company_rows == 0:
+        st.caption("Company data: 0 rows. sync_to_supabase.pyでCompanyデータ同期後に表示されます。")
+    elif _company_rows == 0 and _private_rows == 0:
+        st.caption("data_scope未対応のデータです。")
+
+    st.divider()
+
     st.markdown("**Rider**")
-    all_riders = ["All", "DA77", "JA52"]
+    all_riders = _collect_filter_riders(sessions, results, laps)
     sel_rider  = st.radio("", all_riders, horizontal=True, label_visibility="collapsed")
 
     st.markdown("**Circuit**")
@@ -2031,7 +2098,14 @@ with _content_col:
             return f"{m}:{s:05.2f}"
 
         if laps.empty:
-            st.info("No lap time data. Run lap_sync.py first.")
+            if sel_data_scope == "COMPANY":
+                st.info(
+                    "Company lap-by-lap data is not available yet. "
+                    "Company sessions/results can be viewed from Performance and Race Results; "
+                    "Race Pace will appear after Company lap_times are synced."
+                )
+            else:
+                st.info("No lap time data. Run lap_sync.py first.")
         else:
             # ── Filter row 1: Round / Session / pit display ──
             fc1, fc2, fc3 = st.columns([2, 2, 1])
