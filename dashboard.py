@@ -1509,34 +1509,27 @@ with _nav_col:
     st.markdown(
         "<div style='text-align:center;padding:10px 0 4px'>"
         "<span style='font-size:26px'>🏍</span><br>"
-        "<span style='font-weight:800;font-size:16px;color:#0078D4;letter-spacing:1px'>TS24</span>"
-        "<span style='font-size:12px;color:#666'> Set-UP Tool</span></div>",
+        "<span style='font-weight:800;font-size:16px;color:#0078D4;letter-spacing:1px'>Company</span>"
+        "<span style='font-size:12px;color:#666'> BI</span></div>",
         unsafe_allow_html=True
     )
     st.markdown(
-        "<p style='text-align:center;font-size:11px;color:#999;margin:0 0 8px'>WorldSSP</p>",
+        "<p style='text-align:center;font-size:11px;color:#999;margin:0 0 8px'>Race Report Sharing</p>",
         unsafe_allow_html=True
     )
 
     # ── Navigation Menu ──────────────────────────────
     NAV_ITEMS = [
-        "🏆  Performance",
+        "🏢  Company Overview",
         "🏁  Race Results",
-        "⏱  Race Pace",
-        "📈  Season Trend",
-        "📊  Problem Analysis",
-        "🔍  Problem→Solution",
         "📋  Session Detail",
         "📋  Report Review",
-        "📊  Lap Sus Stats",
-        "📉  Trend Analysis",
-        "🗺  Heatmap",
-        "🤖  AI Advice",
-        "💬  Setup Chat",
         "📤  Submit Data",
         "✅  Approvals",
         "👤  Accounts",
     ]
+    if st.session_state.get("nav_menu") not in (None, *NAV_ITEMS):
+        st.session_state["nav_menu"] = NAV_ITEMS[0]
     nav_sel = st.radio("nav", NAV_ITEMS, label_visibility="collapsed", key="nav_menu")
 
     st.divider()
@@ -1552,30 +1545,14 @@ with _nav_col:
         _scope_count(results, "TS24_PRIVATE") +
         _scope_count(laps, "TS24_PRIVATE")
     )
-    _scope_codes = ["COMPANY", "TS24_PRIVATE", "ALL"]
-    _scope_options = [
-        f"{_scope_label(code)} ({_scope_count(sessions, code) + _scope_count(results, code) + _scope_count(laps, code)})"
-        if code != "ALL" else "All"
-        for code in _scope_codes
-    ]
-    _default_scope_idx = 0 if _company_rows > 0 else 1
-    sel_scope_label = st.selectbox(
-        "",
-        _scope_options,
-        index=_default_scope_idx,
-        label_visibility="collapsed",
-        key="data_scope_filter",
-        help="Company / TS24 Private の表示データを切り替えます。",
-    )
-    sel_data_scope = _scope_codes[_scope_options.index(sel_scope_label)]
+    sel_data_scope = "COMPANY"
+    st.caption(f"Company BI only ({_company_rows} rows)")
     sessions = _apply_data_scope(sessions, sel_data_scope)
     results  = _apply_data_scope(results,  sel_data_scope)
     sectors  = _apply_data_scope(sectors,  sel_data_scope)
     laps     = _apply_data_scope(laps,     sel_data_scope)
-    if sel_data_scope == "COMPANY" and _company_rows == 0:
+    if _company_rows == 0:
         st.caption("Company data: 0 rows. sync_to_supabase.pyでCompanyデータ同期後に表示されます。")
-    elif _company_rows == 0 and _private_rows == 0:
-        st.caption("data_scope未対応のデータです。")
 
     st.divider()
 
@@ -1736,7 +1713,7 @@ with _content_col:
     _cur_role  = get_user_role(_cur_user)
     _cur_rider = get_user_rider(_cur_user)
 
-    if _cur_role == "engineer" and _cur_rider:
+    if sel_data_scope != "COMPANY" and _cur_role == "engineer" and _cur_rider:
         df_s       = df_s[df_s["rider"] == _cur_rider]
         df_t       = df_t[df_t["session_id"].isin(df_s["session_id"])]
         df_s_event = df_s_event[df_s_event["rider"] == _cur_rider]
@@ -1771,9 +1748,135 @@ with _content_col:
     )
 
     # ═══════════════════════════════════════════════════
+    # PAGE 0 — Company BI Overview
+    # ═══════════════════════════════════════════════════
+    if _NAV == "🏢  Company Overview":
+        st.markdown('<p class="section-title">🏢 Company BI Overview</p>', unsafe_allow_html=True)
+        st.caption("Company report/result sharing dashboard. Workbench and DB Master are not modified by this view.")
+
+        _overview_reports = df_s.copy()
+        _overview_results = df_rr.copy()
+
+        ov1, ov2, ov3, ov4 = st.columns(4)
+        ov1.metric("Reports", len(_overview_reports))
+        ov2.metric("Official Results", len(_overview_results))
+        ov3.metric("Report Riders", len(report_riders))
+        ov4.metric("Circuits", n_circuits)
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        left, right = st.columns([1.15, 1], gap="medium")
+
+        with left:
+            st.markdown('<p class="section-title">Result Coverage by Rider</p>', unsafe_allow_html=True)
+            if _overview_results.empty:
+                st.info("No Company race result rows match the current filters.")
+            else:
+                _res_by_rider = (
+                    _overview_results.groupby("rider_id", dropna=False)
+                    .agg(
+                        Results=("rider_id", "size"),
+                        Best_Position=("position", "min"),
+                        Avg_Position=("position", "mean"),
+                    )
+                    .reset_index()
+                    .rename(columns={"rider_id": "Rider"})
+                )
+                fig_cov = px.bar(
+                    _res_by_rider.sort_values("Results", ascending=True),
+                    x="Results", y="Rider", orientation="h",
+                    color="Rider",
+                    color_discrete_map=_rider_color_map(_res_by_rider["Rider"]),
+                    text="Results",
+                )
+                fig_cov.update_traces(textposition="outside", showlegend=False)
+                chart_layout(fig_cov, height=320)
+                fig_cov.update_layout(xaxis_title="Result Rows", yaxis_title="")
+                st.plotly_chart(fig_cov, use_container_width=True, config={"displayModeBar": False})
+
+        with right:
+            st.markdown('<p class="section-title">Reports by Circuit</p>', unsafe_allow_html=True)
+            if _overview_reports.empty or "circuit" not in _overview_reports.columns:
+                st.info("No Company report rows match the current filters.")
+            else:
+                _rep_circ = (
+                    _overview_reports.groupby("circuit", dropna=False)
+                    .size().reset_index(name="Reports")
+                    .sort_values("Reports", ascending=True)
+                )
+                fig_rep = px.bar(
+                    _rep_circ, x="Reports", y="circuit",
+                    orientation="h", text="Reports",
+                    color_discrete_sequence=["#0078D4"],
+                    labels={"circuit": "Circuit"},
+                )
+                fig_rep.update_traces(textposition="outside")
+                chart_layout(fig_rep, height=320)
+                fig_rep.update_layout(xaxis_title="Reports", yaxis_title="")
+                st.plotly_chart(fig_rep, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown('<p class="section-title">Race Position Trend</p>', unsafe_allow_html=True)
+        if _overview_results.empty or "position" not in _overview_results.columns:
+            st.info("No position data available for the current filters.")
+        else:
+            _trend = _overview_results.copy()
+            _trend["position"] = pd.to_numeric(_trend["position"], errors="coerce")
+            _trend = _trend.dropna(subset=["position"])
+            if _trend.empty:
+                st.info("No valid position values available.")
+            else:
+                _trend["round_sort"] = _trend["round_no"].apply(_rnd_sort) if "round_no" in _trend.columns else 0
+                _trend["session_label"] = _trend["round_no"].astype(str) + " " + _trend["session_type"].astype(str)
+                _order = (
+                    _trend[["session_label", "round_sort", "session_type"]]
+                    .drop_duplicates()
+                    .assign(_session_sort=lambda d: d["session_type"].map(
+                        {"FP": 1, "QP": 2, "SP": 2, "WUP": 3, "SPRINT": 4, "RACE": 5, "RACE1": 5, "RACE2": 6}
+                    ).fillna(9))
+                    .sort_values(["round_sort", "_session_sort"])["session_label"].tolist()
+                )
+                fig_pos = px.scatter(
+                    _trend, x="session_label", y="position",
+                    color="rider_id", symbol="session_type",
+                    color_discrete_map=_rider_color_map(_trend["rider_id"].dropna().unique()),
+                    hover_data=[c for c in ["best_lap", "gap_to_top", "circuit"] if c in _trend.columns],
+                    labels={"session_label": "", "position": "Position", "rider_id": "Rider"},
+                )
+                fig_pos.update_traces(marker=dict(size=10))
+                _positions = sorted(_trend["position"].dropna().astype(int).unique().tolist())
+                if _positions:
+                    fig_pos.update_yaxes(
+                        autorange=False,
+                        range=[max(_positions) + 1, max(min(_positions) - 1, 1)],
+                        tickmode="array",
+                        tickvals=list(range(max(min(_positions) - 1, 1), max(_positions) + 2)),
+                    )
+                fig_pos.update_xaxes(categoryorder="array", categoryarray=_order, tickangle=-20)
+                chart_layout(fig_pos, height=360)
+                st.plotly_chart(fig_pos, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown('<p class="section-title">Latest Company Reports</p>', unsafe_allow_html=True)
+        if _overview_reports.empty:
+            st.info("No Company reports available.")
+        else:
+            _latest = _overview_reports.copy()
+            if "session_date" in _latest.columns:
+                _latest = _latest.sort_values("session_date", ascending=False)
+            _cols = [c for c in ["session_date", "circuit", "session_type", "rider", "best_lap", "track_temp", "air_temp"] if c in _latest.columns]
+            _latest = _latest[_cols].head(12).rename(columns={
+                "session_date": "Date",
+                "circuit": "Circuit",
+                "session_type": "Session",
+                "rider": "Rider",
+                "best_lap": "Best Lap",
+                "track_temp": "Track Temp",
+                "air_temp": "Air Temp",
+            })
+            st.dataframe(_latest.reset_index(drop=True), use_container_width=True, hide_index=True)
+
+    # ═══════════════════════════════════════════════════
     # PAGE 1 — Problem Analysis
     # ═══════════════════════════════════════════════════
-    if _NAV == "📊  Problem Analysis":
+    elif _NAV == "📊  Problem Analysis":
         col_l, col_r = st.columns(2, gap="medium")
 
         # ── Left: Tag frequency bar ──
