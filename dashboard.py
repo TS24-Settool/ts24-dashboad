@@ -412,16 +412,15 @@ def _apply_data_scope(df: pd.DataFrame, scope: str) -> pd.DataFrame:
         return df.copy()
     return df[df["data_scope"].fillna("TS24_PRIVATE").eq(scope)].copy()
 
-def _collect_filter_riders(sessions_df: pd.DataFrame,
-                           results_df: pd.DataFrame,
-                           laps_df: pd.DataFrame) -> list:
+def _collect_filter_riders(sessions_df: pd.DataFrame) -> list:
+    """Sidebar rider filter is based only on report/session riders.
+
+    Official PDF race results and lap-time sheets contain the whole field; those
+    competitors must not leak into the report rider filter.
+    """
     riders = set()
     if not sessions_df.empty and "rider" in sessions_df.columns:
         riders.update(str(v) for v in sessions_df["rider"].dropna().unique() if str(v).strip())
-    if not results_df.empty and "rider_id" in results_df.columns:
-        riders.update(str(v) for v in results_df["rider_id"].dropna().unique() if str(v).strip())
-    if not laps_df.empty and "rider_name" in laps_df.columns:
-        riders.update(str(v) for v in laps_df["rider_name"].dropna().unique() if str(v).strip())
     return ["All"] + sorted(riders)
 
 def _rider_num_from_code(rider) -> int:
@@ -1581,7 +1580,7 @@ with _nav_col:
     st.divider()
 
     st.markdown("**Rider**")
-    all_riders = _collect_filter_riders(sessions, results, laps)
+    all_riders = _collect_filter_riders(sessions)
     report_riders = [r for r in all_riders if r != "All"]
     sel_rider  = st.radio("", all_riders, horizontal=True, label_visibility="collapsed")
 
