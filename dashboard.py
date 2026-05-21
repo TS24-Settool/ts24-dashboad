@@ -424,6 +424,55 @@ def _collect_filter_riders(sessions_df: pd.DataFrame,
         riders.update(str(v) for v in laps_df["rider_name"].dropna().unique() if str(v).strip())
     return ["All"] + sorted(riders)
 
+def _rider_num_from_code(rider) -> int:
+    digits = "".join(ch for ch in str(rider) if ch.isdigit())
+    return int(digits) if digits else None
+
+def _rider_num_to_code_map(rider_codes: list) -> dict:
+    out = {}
+    for rider in rider_codes:
+        num = _rider_num_from_code(rider)
+        if num is not None:
+            out[num] = str(rider)
+    return out
+
+def _filter_race_results_to_report_riders(df: pd.DataFrame, rider_codes: list) -> pd.DataFrame:
+    """Keep official result rows only for riders present in the selected report scope."""
+    if df is None or df.empty or not rider_codes:
+        return pd.DataFrame() if df is None else df
+    out = df.copy()
+    codes = {str(r) for r in rider_codes}
+    nums = set(_rider_num_to_code_map(rider_codes).keys())
+    mask = pd.Series(False, index=out.index)
+    if "rider_id" in out.columns:
+        mask = mask | out["rider_id"].astype(str).isin(codes)
+    if "rider" in out.columns:
+        mask = mask | out["rider"].astype(str).isin(codes)
+    if "rider_num" in out.columns and nums:
+        rider_num = pd.to_numeric(out["rider_num"], errors="coerce")
+        mask = mask | rider_num.isin(nums)
+    out = out[mask].copy()
+    if not out.empty and "rider_num" in out.columns:
+        num_to_code = _rider_num_to_code_map(rider_codes)
+        mapped = pd.to_numeric(out["rider_num"], errors="coerce").map(num_to_code)
+        if "rider_id" in out.columns:
+            out["rider_id"] = mapped.fillna(out["rider_id"].astype(str))
+        else:
+            out["rider_id"] = mapped.fillna(out["rider_num"].astype(str))
+    return out
+
+def _rider_color(rider) -> str:
+    if rider == "DA77":
+        return DA77_COLOR
+    if rider == "JA52":
+        return JA52_COLOR
+    palette = ["#8E44AD", "#16A085", "#D35400", "#2C3E50", "#F39C12", "#1ABC9C"]
+    idx = sum(ord(ch) for ch in str(rider)) % len(palette)
+    return palette[idx]
+
+def _rider_color_map(riders) -> dict:
+    return {str(r): _rider_color(str(r)) for r in riders}
+
 # ── Run Log (setup data per run) ─────────────────
 # Maps round_id in lap_times/DB → CIRCUIT name in Data_Bace_TS24_ORIGINAL
 ROUND_CIRCUIT_MAP = {
@@ -694,13 +743,12 @@ def _normalize_race_results_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _ts24_race_results_view(df: pd.DataFrame) -> pd.DataFrame:
-    """Return one clean DA77/JA52 result row per round/session/rider."""
+    """Return one clean result row per round/session/rider."""
     if df is None or df.empty:
         return pd.DataFrame()
     out = _normalize_race_results_columns(df)
     if "rider_id" not in out.columns:
         return pd.DataFrame()
-    out = out[out["rider_id"].isin(["DA77", "JA52"])].copy()
     if out.empty:
         return out
     if "position" in out.columns:
@@ -1534,6 +1582,7 @@ with _nav_col:
 
     st.markdown("**Rider**")
     all_riders = _collect_filter_riders(sessions, results, laps)
+    report_riders = [r for r in all_riders if r != "All"]
     sel_rider  = st.radio("", all_riders, horizontal=True, label_visibility="collapsed")
 
     st.markdown("**Circuit**")
@@ -1548,25 +1597,28 @@ with _nav_col:
 
     # ── Setup session filter (for Session Detail tab) — rider + circuit ──
     df_s = sessions.copy()
-    df_t = tags.copy()
     if sel_rider != "All":
         df_s = df_s[df_s["rider"] == sel_rider]
-        df_t = df_t[df_t["session_id"].isin(df_s["session_id"])]
     if sel_circuit != "All":
         df_s = df_s[df_s["circuit"].str.upper() == sel_circuit.upper()]
+    df_t = tags.copy()
+    if not df_t.empty and "session_id" in df_t.columns and "session_id" in df_s.columns:
         df_t = df_t[df_t["session_id"].isin(df_s["session_id"])]
 
     # ── Whole-event filter (for Problem Analysis / Heatmap / Season Trend tabs) ──
     # Filter by circuit only — show all event tags regardless of rider selection
     df_s_event = sessions.copy()
-    df_t_event = tags.copy()
     if sel_circuit != "All":
         df_s_event = df_s_event[df_s_event["circuit"].str.upper() == sel_circuit.upper()]
+    df_t_event = tags.copy()
+    if not df_t_event.empty and "session_id" in df_t_event.columns and "session_id" in df_s_event.columns:
         df_t_event = df_t_event[df_t_event["session_id"].isin(df_s_event["session_id"])]
 
     # ── Track session filter (for KPI / Race Results tabs) ──
     # Dashboard view uses one official TS24 row per round/session/rider.
     df_rr = _ts24_race_results_view(results)
+    if sel_data_scope != "ALL":
+        df_rr = _filter_race_results_to_report_riders(df_rr, report_riders)
     if not df_rr.empty:
         if sel_rider != "All":
             df_rr = df_rr[df_rr["rider_id"] == sel_rider]
@@ -1574,8 +1626,11 @@ with _nav_col:
             df_rr = df_rr[df_rr["circuit"].str.upper() == sel_circuit.upper()]
 
     n_track   = int(len(df_rr))
-    n_da77    = int((df_rr["rider_id"] == "DA77").sum()) if not df_rr.empty else 0
-    n_ja52    = int((df_rr["rider_id"] == "JA52").sum()) if not df_rr.empty else 0
+    _metric_riders = report_riders[:2]
+    _mr1 = _metric_riders[0] if len(_metric_riders) > 0 else "Rider 1"
+    _mr2 = _metric_riders[1] if len(_metric_riders) > 1 else "Rider 2"
+    n_mr1 = int((df_rr["rider_id"] == _mr1).sum()) if not df_rr.empty and _mr1 in report_riders else 0
+    n_mr2 = int((df_rr["rider_id"] == _mr2).sum()) if not df_rr.empty and _mr2 in report_riders else 0
     n_circuits = df_rr["circuit"].nunique() if not df_rr.empty else df_s["circuit"].nunique()
 
     st.caption(f"{n_track} track sessions / {len(df_s)} reports")
@@ -1645,8 +1700,8 @@ with _content_col:
     # Track Sessions = race_results based (FP/SP/WUP/RACE track session units)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Track Sessions", n_track)
-    k2.metric("DA77 Sessions",  n_da77)
-    k3.metric("JA52 Sessions",  n_ja52)
+    k2.metric(f"{_mr1} Sessions", n_mr1)
+    k3.metric(f"{_mr2} Sessions", n_mr2)
     k4.metric("Problem Tags",   len(df_t_event))
     k5.metric("Circuits",       n_circuits)
 
@@ -1936,14 +1991,14 @@ with _content_col:
             st.info("No official results data yet. Add PDFs to 07_RESULTS/ and run result_sync.py.")
         else:
             # Race Results tab uses df_rr (already filtered by sidebar)
-            df_r = df_rr.copy() if not df_rr.empty else _ts24_race_results_view(results)
+            df_r = df_rr.copy()
             if df_r.empty:
-                st.info("No DA77 / JA52 official race results available for the selected filters.")
+                st.info("No official race results available for the selected data scope and rider filters.")
                 st.stop()
 
             # ── KPI row ──
             st.markdown('<p class="section-title">Round Performance Overview</p>', unsafe_allow_html=True)
-            rounds = sorted(results["round_no"].dropna().unique())
+            rounds = sorted(df_r["round_no"].dropna().unique())
 
             # Round display: "ROUND1 · 2026 | Phillip Island"
             CIRCUIT_DISP = {
@@ -1957,7 +2012,7 @@ with _content_col:
             def format_round(r):
                 if r == "All":
                     return "All"
-                sub = results[results["round_no"] == r]
+                sub = df_r[df_r["round_no"] == r]
                 year, circ = "", ""
                 if not sub.empty:
                     row0 = sub.iloc[0]
@@ -2001,7 +2056,7 @@ with _content_col:
                             top   = row.get("top_time", "—")
                             gpos  = row.get("grid_position")
                             r2g   = row.get("race2_grid")
-                            color = DA77_COLOR if rid == "DA77" else JA52_COLOR
+                            color = _rider_color(rid)
                             pos_txt = f"{int(pos)}" if pd.notna(pos) else "?"
                             gap_txt = f"+{float(gap):.3f}s" if pd.notna(gap) else "—"
                             st.markdown(
@@ -2027,7 +2082,7 @@ with _content_col:
                 fig_gap = px.bar(
                     gap_df, x="session_label", y="gap_to_top", color="rider_id",
                     barmode="group",
-                    color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
+                    color_discrete_map=_rider_color_map(gap_df["rider_id"].dropna().unique()),
                     labels={"session_label": "", "gap_to_top": "Gap to P1 (sec)", "rider_id": "Rider"},
                     text="gap_to_top",
                 )
@@ -2047,7 +2102,7 @@ with _content_col:
                         fig_sec = px.bar(
                             sec_pivot, x="sector", y="gap_to_sector_top", color="rider_id",
                             barmode="group",
-                            color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
+                            color_discrete_map=_rider_color_map(sec_pivot["rider_id"].dropna().unique()),
                             labels={"sector":"Sector","gap_to_sector_top":"Gap (sec)","rider_id":"Rider"},
                             text="gap_to_sector_top",
                         )
@@ -2059,7 +2114,7 @@ with _content_col:
                         fig_rnk = px.bar(
                             sec_pivot, x="sector", y="sector_rank", color="rider_id",
                             barmode="group",
-                            color_discrete_map={"DA77": DA77_COLOR, "JA52": JA52_COLOR},
+                            color_discrete_map=_rider_color_map(sec_pivot["rider_id"].dropna().unique()),
                             labels={"sector":"Sector","sector_rank":"Rank","rider_id":"Rider"},
                             text="sector_rank",
                         )
