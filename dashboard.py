@@ -447,17 +447,18 @@ def _filter_race_results_to_report_riders(df: pd.DataFrame, rider_codes: list) -
         mask = mask | out["rider_id"].astype(str).isin(codes)
     if "rider" in out.columns:
         mask = mask | out["rider"].astype(str).isin(codes)
-    if "rider_num" in out.columns and nums:
-        rider_num = pd.to_numeric(out["rider_num"], errors="coerce")
+    rider_no_col = "rider_num" if "rider_num" in out.columns else ("rider_no" if "rider_no" in out.columns else None)
+    if rider_no_col and nums:
+        rider_num = pd.to_numeric(out[rider_no_col], errors="coerce")
         mask = mask | rider_num.isin(nums)
     out = out[mask].copy()
-    if not out.empty and "rider_num" in out.columns:
+    if not out.empty and rider_no_col:
         num_to_code = _rider_num_to_code_map(rider_codes)
-        mapped = pd.to_numeric(out["rider_num"], errors="coerce").map(num_to_code)
+        mapped = pd.to_numeric(out[rider_no_col], errors="coerce").map(num_to_code)
         if "rider_id" in out.columns:
             out["rider_id"] = mapped.fillna(out["rider_id"].astype(str))
         else:
-            out["rider_id"] = mapped.fillna(out["rider_num"].astype(str))
+            out["rider_id"] = mapped.fillna(out[rider_no_col].astype(str))
     return out
 
 def _rider_color(rider) -> str:
@@ -711,6 +712,9 @@ def _normalize_race_results_columns(df: pd.DataFrame) -> pd.DataFrame:
         if "rider_num" in out.columns:
             rider_num = pd.to_numeric(out["rider_num"], errors="coerce")
             out["rider_id"] = rider_num.map({77: "DA77", 52: "JA52"}).fillna(out["rider_num"].astype(str))
+        elif "rider_no" in out.columns:
+            rider_num = pd.to_numeric(out["rider_no"], errors="coerce")
+            out["rider_id"] = rider_num.map({77: "DA77", 52: "JA52"}).fillna(out["rider_no"].astype(str))
         elif "rider" in out.columns:
             out["rider_id"] = out["rider"].astype(str)
         elif "rider_name" in out.columns:
