@@ -1540,3 +1540,24 @@ CLAUDE.mdに stale/deprecated・WorkbenchはDB優先を明記。④dashboard用J
   CODEX_*/TRN_*/DB_REBUILD_SPEC_v1.0.md) / parse_chrono_pdf_DRAFT.py・parse_race_pdf.py(draft) / _backup_susp_speed_*/。
 - pushはTatsukiがレビューしてからCLIで実施(自動pushしない)。
 
+---
+
+## 22. Phase 2 Extraction Pipeline 設計書 作成（2026-06-20 / 設計のみ）
+
+`db-rebuild-quality-20260620` の4コミットは受け入れ確定（PR#1 で main=`626abdf` にマージ済）。
+受入検証: origin同期OK / 4コミットで dashboard.py 不変 / 未追跡ファイル混入なし。
+
+次フェーズは**実装ではなく設計**から。**設計書 = `reports/phase2_extraction_pipeline_design_20260620.md`**。
+- 思想:「自動で入れる」より先に「自動で疑う」。Phase 2 が自動化するのは**検出・隔離・疑いの記録まで**で、
+  **正本DBには一切書かない**（書くのは管理4テーブル + scratch DB のみ）。正本反映は Phase3 Gate PASS + Tatsuki承認後。
+- 収録: 監視対象(DATA 2D/01_REPORTS/07_RESULTS) / ファイル種別検出ルール(2D tier=nested/copia/loose、
+  拡張子なしPDFは`%PDF`マジック判定必須) / source_file_registry運用(sha256で更新検出・冪等) /
+  import_queue状態機械(pending→processing→awaiting_gate→done/failed/skipped、done はPhase4承認後のみ) /
+  scratch DB生成(`/tmp`隔離・正本は読取のみ・決定論ゲートで既存値保護) / Gate単位(2D=outing/report=file/pdf=session) /
+  FAIL時の扱い(正本到達禁止・隔離・data_quality_log記録・Workbench表示) / Workbench「未処理データ」タブ / 既存実装の再利用方針 /
+  未決事項(Tatsuki確認6点)。
+- 実態調査: 複数エージェントで DATA 2D(nested/copia/loose・HED矛盾ゲート)・01_REPORTS(YYYYMMDD-ROUNDx-RIDER.xlsx)・
+  07_RESULTS(リザルト/クロノPDF・**拡張子なしPDF実在**)と既存抽出ロジック(discover_outings/report_importer/
+  pdf_result_extractor_v2/受入ゲート§8)を確認し、設計を実装と矛盾しないよう整合。
+- ブランチ: `phase2-extraction-design-20260620`(main基底・未push)。実装着手は Tatsuki 承認後。
+
