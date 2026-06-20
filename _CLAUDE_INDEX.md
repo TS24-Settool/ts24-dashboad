@@ -40,13 +40,13 @@ Data TS24 Claude/               ← ~/Desktop/Data TS24 Claude/  (iCloud synced)
 │   ├── dashboard.py            ← Streamlit dashboard (Power BI-style)
 │   ├── run_mac.sh              ← Mac launcher
 │   └── setup_mac.sh            ← First-time setup
-├── 06_DELTA/                   ← iPhone → iCloud drop folder
+├── 09_DELTA/                   ← iPhone → iCloud drop folder
 └── 07_RESULTS/                 ← Official WorldSSP result PDFs (per round)
     ├── DAILY_DELTA_TEMPLATE.txt ← Entry template
     ├── DELTA_SAMPLE_FP1_DA77.txt ← Sample entry
     └── DELTA_YYYYMMDD_SESSION_RIDER.txt  ← Actual delta files
 ```
-> Note: The 06_DELTA folder can be posted to directly from iPhone via iCloud.
+> Note: The 09_DELTA folder can be posted to directly from iPhone via iCloud.
 
 ---
 
@@ -262,9 +262,9 @@ Separate from the team CLAUDE_BRIEFING format — **private quick-report format 
 ### File Structure
 | File | Role |
 |------|------|
-| `06_DELTA/DAILY_DELTA_TEMPLATE.txt` | Entry template (open on iPhone, copy and fill in) |
-| `06_DELTA/DELTA_SAMPLE_FP1_DA77.txt` | Sample entry (ASSEN FP1 DA77 example) |
-| `06_DELTA/DELTA_YYYYMMDD_SESSION_RIDER.txt` | Actual posted files |
+| `09_DELTA/DAILY_DELTA_TEMPLATE.txt` | Entry template (open on iPhone, copy and fill in) |
+| `09_DELTA/DELTA_SAMPLE_FP1_DA77.txt` | Sample entry (ASSEN FP1 DA77 example) |
+| `09_DELTA/DELTA_YYYYMMDD_SESSION_RIDER.txt` | Actual posted files |
 | `05_SCRIPTS/read_delta.py` | Auto-displays new Delta files at session start |
 
 ### File Naming Convention
@@ -288,13 +288,13 @@ e.g.: DELTA_20260417_DAY0_DA77.txt   ← Thursday briefing (weekly target settin
 
 ### How to Post from iPhone
 1. Open the **Files app** on iPhone
-2. Navigate to **iCloud Drive → Desktop → Data TS24 Claude → 06_DELTA**
+2. Navigate to **iCloud Drive → Desktop → Data TS24 Claude → 09_DELTA**
 3. Copy `DAILY_DELTA_TEMPLATE.txt` (long-press → Duplicate, or copy text in a text app)
 4. Rename the new file using the naming convention (e.g., `DELTA_20260418_FP1_DA77.txt`)
 5. **Fill in and save on the spot** → iCloud automatically syncs to Mac
 6. Claude auto-detects when MacBook is opened (or at the next consultation)
 
-> **iCloud Sync Note**: `~/Desktop/Data TS24 Claude/` appears as iCloud Drive → Desktop when Desktop sync is enabled. If disabled, place the 06_DELTA folder anywhere in iCloud Drive and create a symlink on Mac.
+> **iCloud Sync Note**: `~/Desktop/Data TS24 Claude/` appears as iCloud Drive → Desktop when Desktop sync is enabled. If disabled, place the 09_DELTA folder anywhere in iCloud Drive and create a symlink on Mac.
 
 ### read_delta.py Usage
 ```bash
