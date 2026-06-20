@@ -679,11 +679,11 @@ def main():
                   f" PH12={row['ph12_duration_ms']}ms PH3={row['ph3_duration_ms']}ms"
                   f" PH45={row['ph45_duration_ms']}ms")
     else:
-        JSON_OUT.write_text(
-            json.dumps(all_rows, ensure_ascii=False, indent=None),
-            encoding="utf-8",
-        )
-        print(f"\n📄 Written: {JSON_OUT}  ({len(all_rows)} rows)")
+        _json_text = json.dumps(all_rows, ensure_ascii=False, indent=None)
+        for _jout in [JSON_OUT, SCRIPT_DIR.parent / "06_DASHBOARD" / JSON_OUT.name]:
+            if _jout.parent.exists():
+                _jout.write_text(_json_text, encoding="utf-8")
+                print(f"\n📄 Written: {_jout}  ({len(all_rows)} rows)")
 
     if errors:
         print(f"\n⚠️  {len(errors)} errors:")

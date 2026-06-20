@@ -123,6 +123,45 @@ def read_run_log(wb):
 
 
 # ─────────────────────────────────────────────
+#  DB_LOG 読み取り (TAGS列 — 1行=1セッション)
+# ─────────────────────────────────────────────
+def read_db_log(wb):
+    """
+    DB_LOG シートを読み取り、1行=1セッション/週末 の dict リストを返す。
+    TAGS列 (AE) をタグ集計の主データソースとして使用。
+    """
+    ws = wb["DB_LOG"]
+    col_map = {}
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(row=4, column=c).value
+        if v:
+            col_map[str(v).replace("\n", " ").strip()] = c
+
+    tags_col    = col_map.get("TAGS (keywords)", 31)
+    rider_col   = col_map.get("RIDER ID", 5)
+    circuit_col = col_map.get("CIRCUIT", 3)
+
+    rows = []
+    skip_ids = {"LEGEND", "EFFECT SCORE:", "PROBLEM PHASE:"}
+    for r in range(5, ws.max_row + 1):
+        session_id = ws.cell(r, 1).value
+        if not session_id or str(session_id).strip() in skip_ids:
+            continue
+        rider   = ws.cell(r, rider_col).value
+        circuit = ws.cell(r, circuit_col).value
+        tags    = ws.cell(r, tags_col).value
+        if not rider or not circuit:
+            continue
+        rows.append({
+            "session_id": str(session_id).strip(),
+            "rider":      str(rider).strip(),
+            "circuit":    str(circuit).strip().upper(),
+            "tags":       str(tags).strip() if tags else "",
+        })
+    return rows
+
+
+# ─────────────────────────────────────────────
 #  タグ解析
 # ─────────────────────────────────────────────
 def parse_tags(tag_string):
@@ -139,43 +178,43 @@ def parse_tags(tag_string):
 # ─────────────────────────────────────────────
 #  集計処理
 # ─────────────────────────────────────────────
-def aggregate(run_rows):
+def aggregate(db_log_rows, run_rows):
     """
-    RUN_LOG 行から以下を集計して返す:
-      - tag_total:   {tag: count}
-      - rider_data:  {rider: {"sessions": set(), "tag_circuits": {tag: set(circuits)}}}
-      - session_ids: set of (event_id, rider) — COMMENTがある unique イベント
-      - note_map:    {event_id: {rider: note_text}} — COMMENT 列から
-    """
-    tag_total   = {t: 0 for t in TAG_DEFS}
-    rider_data  = {}
-    note_map    = {}          # e.g. {"20260313-TEST4": {"DA77": "Main issue...", ...}}
+    DB_LOG TAGS (1行=1セッション) を主データソースとしてタグを集計。
+    RUN_LOG は COMMENT / note_map 用のみ使用。
 
-    for row in run_rows:
+      - tag_total:   {tag: count}  ← DB_LOG 1行=1カウント
+      - rider_data:  {rider: {"sessions": set(), "tag_circuits": {tag: set(circuits)}}}
+      - note_map:    {ev_key: note_text}  ← RUN_LOG COMMENT 列から
+    """
+    tag_total  = {t: 0 for t in TAG_DEFS}
+    rider_data = {}
+    note_map   = {}
+
+    # ── DB_LOG TAGS から集計 (1セッション = 1カウント) ──────
+    for row in db_log_rows:
         rider   = row["rider"]
         circuit = row["circuit"]
-        tags    = parse_tags(row["prob"])
-        comment = row["comment"]
+        tags    = parse_tags(row["tags"])
 
-        # ライダー初期化
         if rider not in rider_data:
             rider_data[rider] = {"sessions": set(), "tag_circuits": {t: set() for t in TAG_DEFS}}
 
-        # セッション識別 (タグか COMMENT がある行を「有効セッション」とカウント)
-        if tags or comment:
-            rider_data[rider]["sessions"].add((circuit, row["session"]))
+        if tags:
+            rider_data[rider]["sessions"].add(row["session_id"])
 
-        # タグ集計
         for tag in tags:
+            # DB_LOG には chattering / no_grip / R_tyre_issue など非標準タグもあるため
+            # TAG_DEFS に含まれるものだけカウント
             if tag in TAG_DEFS:
-                tag_total[tag]  += 1
+                tag_total[tag] += 1
                 rider_data[rider]["tag_circuits"][tag].add(circuit)
 
-        # COMMENT をイベントノートに集約
-        # セッション (circuit+session) を event_id キーとして使用
+    # ── RUN_LOG COMMENT からノートを収集 ─────────────────────
+    for row in run_rows:
+        comment = row["comment"]
         if comment:
-            # イベントキーを生成 (例: "ASSEN-RACE1-JA52" 形式)
-            ev_key = f"{circuit}-{row['session']}-{rider}"
+            ev_key = f"{row['circuit']}-{row['session']}-{row['rider']}"
             if ev_key not in note_map:
                 note_map[ev_key] = comment
 
@@ -346,18 +385,25 @@ def update_trend_analysis(wb, run_rows, tag_total, rider_data, note_map):
             circs = tag_circ.get(tag, set())
             if not circs:
                 continue
+            from openpyxl.cell.cell import MergedCell
             circ_str = ", ".join(sorted(circs))
-            ws.cell(row=r, column=1).value = tag
-            ws.cell(row=r, column=2).value = str(len(circs))
-            ws.cell(row=r, column=3).value = circ_str
+            for col, val in [(1, tag), (2, str(len(circs))), (3, circ_str)]:
+                cell = ws.cell(row=r, column=col)
+                if not isinstance(cell, MergedCell):
+                    cell.value = val
             r += 1
         # 残行クリア
         end_row = (info.get("rider_da77_header") if rider == "JA52"
                    else info.get("notes_section_header", 999))
-        while ws.cell(row=r, column=1).value and r < end_row:
-            ws.cell(row=r, column=1).value = None
-            ws.cell(row=r, column=2).value = None
-            ws.cell(row=r, column=3).value = None
+        while r < end_row:
+            c1 = ws.cell(row=r, column=1)
+            if not c1.value:
+                break
+            from openpyxl.cell.cell import MergedCell
+            for col in (1, 2, 3):
+                cell = ws.cell(row=r, column=col)
+                if not isinstance(cell, MergedCell):
+                    cell.value = None
             r += 1
         print(f"  RIDER COMPARISON ({rider}) 更新完了")
 
@@ -415,18 +461,19 @@ def main():
     print(f"\n1. Excelを読み込み中: {EXCEL_PATH.name}")
     wb = openpyxl.load_workbook(str(EXCEL_PATH))
 
-    print("2. RUN_LOG を解析中...")
+    print("2. DB_LOG を解析中 (TAGS列 — 主データソース)...")
+    db_log_rows = read_db_log(wb)
+    print(f"   → {len(db_log_rows)} セッション読み込み")
+    tagged = [r for r in db_log_rows if r["tags"]]
+    print(f"   → TAGS 入力済み: {len(tagged)} セッション")
+
+    print("3. RUN_LOG を解析中 (COMMENTのみ使用)...")
     run_rows, col_map = read_run_log(wb)
-    print(f"   → {len(run_rows)} 行を読み込みました")
-
-    filled_rows = [r for r in run_rows if r["prob"]]
-    print(f"   → PROBLEM DESC 入力済み: {len(filled_rows)} 行")
-
     commented_rows = [r for r in run_rows if r["comment"]]
-    print(f"   → COMMENT 入力済み:      {len(commented_rows)} 行")
+    print(f"   → COMMENT 入力済み: {len(commented_rows)} 行")
 
-    print("3. 集計処理中...")
-    tag_total, rider_data, note_map = aggregate(run_rows)
+    print("4. 集計処理中...")
+    tag_total, rider_data, note_map = aggregate(db_log_rows, run_rows)
 
     # タグ集計サマリ表示
     if any(v > 0 for v in tag_total.values()):
@@ -437,10 +484,10 @@ def main():
     else:
         print("   ※ PROBLEM DESC にタグ未入力 → カウントは 0 のまま")
 
-    print("4. TREND_ANALYSIS を更新中...")
+    print("5. TREND_ANALYSIS を更新中...")
     update_trend_analysis(wb, run_rows, tag_total, rider_data, note_map)
 
-    print("5. 保存中...")
+    print("6. 保存中...")
     wb.save(str(EXCEL_PATH))
     print(f"   → {EXCEL_PATH.name} 保存完了")
 
