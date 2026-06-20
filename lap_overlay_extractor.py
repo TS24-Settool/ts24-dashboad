@@ -391,13 +391,13 @@ def main():
         print(f"  Speed range: {min(sp):.0f}〜{max(sp):.0f} km/h")
         print(f"  SusF range:  {min(su):.1f}〜{max(su):.1f} mm")
     else:
-        JSON_OUT.write_text(
-            json.dumps(all_rows, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
-        )
-        size_mb = JSON_OUT.stat().st_size / 1_048_576
-        print(f"\n📄 Written: {JSON_OUT}")
-        print(f"   {n_laps} laps × {args.points} points × 6 channels  ({size_mb:.1f} MB)")
+        _json_text = json.dumps(all_rows, ensure_ascii=False, separators=(",", ":"))
+        for _jout in [JSON_OUT, SCRIPT_DIR.parent / "06_DASHBOARD" / JSON_OUT.name]:
+            if _jout.parent.exists():
+                _jout.write_text(_json_text, encoding="utf-8")
+                size_mb = _jout.stat().st_size / 1_048_576
+                print(f"\n📄 Written: {_jout}")
+                print(f"   {n_laps} laps × {args.points} points × 6 channels  ({size_mb:.1f} MB)")
 
     if errors:
         print(f"\n⚠️  {len(errors)} errors:")

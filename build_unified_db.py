@@ -135,7 +135,8 @@ CREATE TABLE IF NOT EXISTS ts24_sessions (
     avg_lap_s   REAL,
     weather     TEXT,
     air_temp    REAL,
-    track_temp  REAL
+    track_temp  REAL,
+    data_scope  TEXT DEFAULT 'TS24_PRIVATE'  -- 'TS24_PRIVATE' or 'COMPANY'
 );
 
 -- ── ラン (スティント = 1回のコース走行) ── ★中心テーブル★
@@ -233,6 +234,8 @@ CREATE TABLE IF NOT EXISTS runs (
     change_intent  TEXT,
     expected_effect TEXT,
     result_eval    TEXT,
+    -- データスコープ
+    data_scope     TEXT DEFAULT 'TS24_PRIVATE',  -- 'TS24_PRIVATE' or 'COMPANY'
     -- メタ
     created_at     TEXT DEFAULT (datetime('now')),
     updated_at     TEXT DEFAULT (datetime('now'))
@@ -510,7 +513,7 @@ def build_sqlite(conn, wb):
     print(f"  LAP_TIMES:       {len(df_lt)} 行")
 
     # ── ts24_sessions テーブル ────────────────
-    cur.execute("DELETE FROM ts24_sessions")
+    cur.execute("DELETE FROM ts24_sessions WHERE data_scope='TS24_PRIVATE' OR data_scope IS NULL")
     inserted_sessions = set()
     for _, row in df_sess.iterrows():
         rnd  = _v(row.get("ROUND",""))
@@ -533,19 +536,21 @@ def build_sqlite(conn, wb):
         cur.execute("""
             INSERT OR REPLACE INTO ts24_sessions
             (session_id, event_id, round, circuit, session, rider, date,
-             total_laps, best_lap, best_lap_s, avg_lap_s, weather, air_temp, track_temp)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             total_laps, best_lap, best_lap_s, avg_lap_s, weather, air_temp, track_temp,
+             data_scope)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             sid, eid, str(rnd), str(circ), str(sess), str(rider), date_val,
             _i(row.get("LAPS")), _v(row.get("BEST LAP")),
             _f(row.get("BEST (s)")), _f(row.get("AVG LAP (s)")),
             _v(row.get("WEATHER")), _f(row.get("AIR °C")), _f(row.get("TRACK °C")),
+            'TS24_PRIVATE',
         ))
     conn.commit()
     print(f"  ts24_sessions: {len(inserted_sessions)} 件挿入")
 
     # ── runs テーブル ─────────────────────────
-    cur.execute("DELETE FROM runs")
+    cur.execute("DELETE FROM runs WHERE data_scope='TS24_PRIVATE' OR data_scope IS NULL")
     inserted_runs = set()
 
     # RUN_LOG ベースで runs を作成
@@ -579,9 +584,10 @@ def build_sqlite(conn, wb):
              f_offset, f_offset2, f_hgt_top, f_hgt_bot,
              shock_type, r_set_c, r_set_r, r_spr, r_preload, r_comp, r_reb,
              r_tos_spr, r_tos_len, shock_len, link, ride_hgt, swing_arm,
-             comment, problem_desc, change_intent, expected_effect, result_eval)
+             comment, problem_desc, change_intent, expected_effect, result_eval,
+             data_scope)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             run_id, sid, str(rnd), str(circ), str(sess), str(rider), rno,
             _v(row.get("WEATHER")), _f(row.get("TRACK\nTEMP") or row.get("TRACK TEMP")),
@@ -614,6 +620,7 @@ def build_sqlite(conn, wb):
             _v(row.get("CHANGE\nINTENT") or row.get("CHANGE INTENT")),
             _v(row.get("EXPECTED\nEFFECT") or row.get("EXPECTED EFFECT")),
             _v(row.get("RESULT\nEVAL") or row.get("RESULT EVAL")),
+            'TS24_PRIVATE',
         ))
 
     # DYNAMICS から runs を UPDATE
@@ -807,10 +814,9 @@ def add_ids_to_excel(wb, df_sess, df_run, df_tyre, df_dyn, df_pc, df_lt):
     dyn_ids = gen_ids(df_dyn, "Round","Circuit","Session","Rider","Run")
     add_id_column_to_sheet(wb["DYNAMICS_ANALYSIS"], dyn_ids, header_row_excel=2, insert_col=1)
 
-    # PERFORMANCE_CORRELATION
-    print("  PERFORMANCE_CORRELATION に RUN_ID 追加...")
-    pc_ids = gen_ids(df_pc, "Round","Circuit","Session","Rider","Run")
-    add_id_column_to_sheet(wb["PERFORMANCE_CORRELATION"], pc_ids, header_row_excel=2, insert_col=1)
+    # PERFORMANCE_CORRELATION: 集計分析シートのため RUN_ID は上書きしない
+    # （アグリゲートされたセッションIDは RUN_LOG の個別 run_id と1:1対応しないため）
+    print("  PERFORMANCE_CORRELATION: RUN_ID 上書きをスキップ（既存値を保持）")
 
     # LAP_TIMES: RUN_ID + LAP_ID の2列追加
     print("  LAP_TIMES に RUN_ID / LAP_ID 追加...")

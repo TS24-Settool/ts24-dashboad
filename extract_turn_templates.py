@@ -230,11 +230,11 @@ def main():
 
     merged = dict(existing)
     merged.update(templates)
-    OUT_JSON.write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    print(f"\n📄 Written: {OUT_JSON}  ({len(merged)} circuits)")
+    _json_text = json.dumps(merged, ensure_ascii=False, indent=2)
+    for _jout in [OUT_JSON, OUT_JSON.parent.parent / "06_DASHBOARD" / OUT_JSON.name]:
+        if _jout.parent.exists():
+            _jout.write_text(_json_text, encoding="utf-8")
+            print(f"\n📄 Written: {_jout}  ({len(merged)} circuits)")
     print("\n⚠️  全サーキット manual_validated: false")
     print("   サーキットマップで確認後、対象サーキットの manual_validated を true に変更してください。")
 

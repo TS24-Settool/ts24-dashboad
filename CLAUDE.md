@@ -1,7 +1,22 @@
 # CLAUDE.md — TS24 Project Team Shared Context
 **Project:** TS24 SET-UP TOOL / Puccetti Racing WorldSSP Suspension Management System
-**Last Updated:** 2026-05-13
+**Last Updated:** 2026-06-20
 **Read this file at the start of every session — Claude Code, Cowork Claude, and ChatGPT both.**
+
+---
+
+## ⚠️ 0. 最新の正（READ FIRST）— 旧記述スコープ宣言（2026-06-20）
+
+**§2〜§17 は 2026-05 時点の旧アーキテクチャ記述。現行と矛盾する箇所は §18 / §19 / §20 が正。**
+迷ったら §18-§20 を優先すること。特に以下は**旧情報**（本文内にも【旧情報】マーカーあり）:
+
+| 項目 | 旧記述（§2-§17） | 現行の正 |
+|---|---|---|
+| 正本DB | `ts24_setup.db`（sessions/tags/...） | **`02_DATABASE/ts24_unified.db`**（§4.4更新済/§18/§20a）。run_id/lap_id規則は §20a |
+| データフロー | MES→各種JSON→dashboard | **build_master_db.py → ts24_unified.db 駆動**（§18/§19）。Workbenchは完全DB駆動（§18c/§19c） |
+| dashboard用JSON | lap_suspension_data/dynamics_data/lap_overlay_data/lap_times_data/corner_phase_data.json を「使用」 | **HEAD版を保持（削除commitしない / 2026-06-20 Tatsuki決定 §21）**。dashboard.py がまだ参照中のため、dashboard refocus / Supabase完全移行が別PRで完了するまで削除判断は先送り。`lap_suspension_data.json` は **stale/deprecated**(HEAD版=旧30列)、**WorkbenchはDB(46列)優先**(§19c)。DB由来46列JSON再生成フローは未実装 |
+| race_memory.json | 「全AI共有文脈・必須・自動追記」 | **保持（削除しない / 2026-06-20 Tatsuki決定 §21）。将来DB化候補**：知見蓄積をDB(problem_log/setup_decision_log等)へ完全移行する設計が確定するまで現行ファイルを維持。dashboard.py(memory_service)が参照中 |
+| 件数（844行/615行/17387行 等） | 旧スナップショット | 現行: runs275 / laps1202 / lap_suspension1202(46列) / race_results792（§18d/§20a） |
 
 ---
 
@@ -53,6 +68,64 @@ Claude Code（コード修正・Git管理）
 
 ---
 
+## 1b. 原本照合ルール（確定 2026-06-05・Tatsuki承認済み）
+
+`04_REFERENCE/Data_Base_TS24_ORIGINAL.xlsx` を権威源として DB（`TS24 DB Master.xlsx / RUN_LOG`）と
+照合する際の補正可否ルール。**原本は常に読み取り専用**だが、「原本が勝つ」を機械的に適用すると
+かえって情報が劣化するケースがあるため、以下を確定ルールとする。
+
+照合キー = `(RIDER, CIRCUIT_norm, SESSION.strip().upper(), RUN)`。サーキット名は別表で正規化。
+
+### 補正の判定（フィールド単位）
+
+| ケース | 原本 | DB | 補正するか | 理由 |
+|---|---|---|---|---|
+| 原本に値があり DB と矛盾 | 値あり | 値あり（異なる） | ✅ 原本で上書き | 原本が真実 |
+| **原本が空** | 空 / None | 値あり | ❌ DB を残す | 原本未記入＝原本の欠落。DB の実測値を消さない |
+| **DB の方が詳細（粒度差）** | 粗い（例 `SC1`） | 詳細（例 `SC1 NEW`） | ❌ DB を残す | DB の付加情報（NEW/USED 等）は価値あり、劣化させない |
+| 原本にあるが DB に無いキー | 行あり | 行なし | ✅ DB に追加 | 原本のカバー範囲内で DB が取りこぼし |
+| DB にあるが原本に無いキー | 行なし | 行あり | ❌ 触らない | 原本のカバー範囲外（ROUND3+ 等の未バックフィル） |
+
+### 要点（一言で）
+
+> **「原本が勝つ」は "原本に明示的な値があるとき" のみ。原本の空欄・DB の付加情報は DB を残す。**
+
+このルールにより、2026-06-05 の初回照合で検出された 24 件のフィールド不一致
+（TYRE_FRONT/REAR の NEW/USED 表記差 18 件 + 原本空欄の AIR/TRACK_TEMP 6 件）は
+**すべて補正対象外**と判定された。詳細は `05_SCRIPTS/reports/reconcile_original_vs_db_20260605.md`。
+
+---
+
+## 1c. Supabase sync の conflict キー（確定 2026-06-05）
+
+`sync_to_supabase.py` は **自然キー（business key）で upsert する**。旧実装は
+`conflict_col="id"` だったが SELECT に id を含めず on_conflict が無効化され、
+再 sync のたびに全行 INSERT → オンラインが local の 5〜13 倍に肥大した。
+
+| テーブル | conflict_col（= Supabase 側 UNIQUE INDEX） |
+|---|---|
+| race_results | round_no, circuit, session_type, rider_no, position |
+| lap_times | round_id, circuit, session_type, rider_num, lap_no |
+| sessions_2d | round, circuit, session_type, rider, run_no, **date** |
+| lap_times_2d | round, circuit, session_type, rider, run_no, lap_no, **date** |
+
+対応 UNIQUE INDEX は `reports/supabase_dedup_and_constraints_*.sql` で作成（`NULLS NOT DISTINCT`）。
+**新テーブルを sync 対象に追加する場合は必ず自然キー + UNIQUE 制約をセットで用意すること。**
+`id`（autoincrement）は再ビルドごとに振り直されるため conflict キーに使ってはいけない。
+
+### 更新（DB再構築 2026-06-18）
+
+- **`sessions` / `chassis_geometry` は sync 対象から除外**。再構築で源テーブル
+  (`ts24_sessions` / `chassis_geometry`) が廃止されたため。sync_to_supabase.py v3
+  は `race_results / lap_times / sessions_2d / lap_times_2d` の4本のみ。
+- **`sessions_2d` / `lap_times_2d` の conflict_col に `date` を追加**。新 run_id が
+  日付付き ({date}_{round}_...) になり、同一 round 番号がシーズンを跨いで再利用
+  される（例: ROUND1 PHILLIP ISLAND が 2025/2026 両方に存在）。date 無しでは
+  natural key 衝突で sync が 21000 エラー。対応 SQL =
+  `reports/supabase_dedup_and_constraints_20260618.sql`（Supabase で先に実行 → 再 sync）。
+
+---
+
 ## 2. プロジェクト概要
 
 - **チーム:** Puccetti Racing（プチェッティ・レーシング）
@@ -73,8 +146,8 @@ Claude Code（コード修正・Git管理）
 │   └── JA52/                        ← JA52イベントレポート (.xlsx)
 ├── 02_DATABASE/
 │   ├── TS24 DB Master.xlsx          ← メインDB（Excel）
-│   ├── ts24_setup.db                ← SQLite（sessions / tags / race_results）
-│   └── all_sessions.json            ← セッションJSONキャッシュ
+│   ├── ts24_setup.db                ← 【旧情報】0B廃止。正本=ts24_unified.db（§4.4/§20a）
+│   └── all_sessions.json            ← 【旧情報】旧キャッシュ。現行はDB駆動（§18）
 ├── 03_TEMPLATES/                    ← イベントレポートテンプレート
 ├── 04_REFERENCE/
 │   ├── TS24_Knowledge_Base.md       ← サスペンション理論・ZX-636知識（必読）
@@ -122,6 +195,13 @@ ts24_setup.db（SQLite）   →  sessions / tags / race_results テーブル
 ```
 
 ### 4.2 主要JSONファイル（Streamlit Cloud用）
+
+> **【旧情報 / stale・deprecated】** 以下のJSON群（lap_suspension_data / corner_phase_data / lap_overlay_data /
+> dynamics_data / lap_times_data）は **HEAD版を保持**（削除commitしない / 2026-06-20 Tatsuki決定 §21）。
+> dashboard.py がまだ参照中のため、dashboard refocus / Supabase完全移行が別PRで完了するまで削除は先送り。
+> 件数(844/615/17387等)は旧スナップショット。現行のデータ正は `ts24_unified.db`（§18/§19）。
+> `lap_suspension_data.json` は **stale/deprecated**（HEAD版=旧30列）、**WorkbenchはDB(46列)優先**（§19c）。
+> DB由来46列JSON再生成フローは未実装（将来 §18d Cloud再生成の残課題）。
 
 | ファイル | レコード数 | 主要列 | 更新タイミング |
 |---------|-----------|--------|---------------|
@@ -765,6 +845,10 @@ python ts24_workbench.py
 
 ## 7b. race_memory.json — 知見蓄積ファイル
 
+> **【保持 / 将来DB化候補】** `race_memory.json` は **削除しない**（2026-06-20 Tatsuki決定 §21）。
+> 知見蓄積をDB(problem_log/setup_decision_log等)へ完全移行する設計が確定するまで現行ファイルを維持。
+> dashboard.py(memory_service)が参照中。以下は現行運用（DB移行までは有効）。
+
 **このファイルはCoworkとClaude Codeの共有記憶。**
 
 ```json
@@ -1233,4 +1317,226 @@ CLAUDE.md の Section 17 と 05_SCRIPTS/automation_spec_v1.0.md を読んでか�
   テスト: 07_RESULTS/TEST/ にPDFをコピー → watcher.log を確認
   race_memory.json の conversation_summaries に実装内容を記録
 ```
+
+---
+
+## 18. DB再構築 + Workbench進化（2026-06-18〜19 Claude Code 実施）
+
+正本DB = `02_DATABASE/ts24_unified.db`（cutover済・Supabase/Workbench反映済）。設計書: `reports/partb_roadmap_20260619.md`, `reports/workbench_levelup_review_20260619.md`。
+
+### 18a. データ層の修正（build_master_db.py / cutover_db.py）
+- **split-lap修正**: `.LAP` ヘッダ `vals[1]` を時間ベース(=1秒あたり単位数)として読む `_lap_timebase()`。lean export=1000(ms)/238ch Dorna export=400(400Hz)。旧 /1000固定で2025 ROUND10 Aragon等が2.5倍短い偽ラップになっていた→是正(45s→114s)。
+- **is_outlap 頑健化** `_recompute_is_outlap()`: ①物理下限stray除去(>200km/h相当=track_m/55.56) ②GRID/FORMATION除去 ③stray除外後run_min×1.15 ④単一ラップの上限絶対ガード(circuit P10×1.25)。best/avgは is_outlap=0のみ集計。旧「min×1.15のみ」は stray反転(MOST R2=56.2)・単一グリッドラップbest昇格(PORTIMAO)の両汚染を許していた。
+- **HED Fastestフロア**: `extract_outing` で HED `Fastest lap`×0.97 未満の stray を除外。
+- **受入ゲート(SPEC §8)**: `|2D session最速 − PDF best| > 1.5s = 0件` をビルド合否条件に。
+- **恒久化**: runs/laps に created_at/updated_at、laps に is_outlap、`lap_suspension`(per-lap全件)を build で再生成。cutover は best_worst_pairs を保持＋旧→新run_id再マップ。
+- **コメント抽出修正**: `_scanon_report` で "TEST2 DAY1"→"TEST2_DAY1"(build側canonと一致)。TESTイベントのコメント紐付け復活で **comment付きrun 80→142**(JEREZ 0→27, CREMONA 0→15等)。※TEST1はレポート無・ROUND11は2D未取込のため178には届かない。
+- **NEW抽出指標(Tatsukiアイデア 2026-06-19)**: lap単位で
+  - サス速度(ダンピング): `f_dive_spd/f_reb_spd/r_dive_spd/r_reb_spd`(位置微分のピークmm/s, 圧縮=Diving/伸び=Rebound)。位置balance=バネ/ジオメトリ, 速度=ダンピング で判断補完。
+  - `rear_light_brk`: ブレーキ区間(BRAKE_FRONT≥5bar)で SUSP_REAR≤1mm の割合%。大=フロントのみで停止=ブレーキバランス指標。
+  - **CORNER_EXIT** を lap_suspension に射影(ce_count/ce_spd_avg/ce_susF_avg/ce_susR_avg + wf_f/r_ce_n)。
+- v2 PDF順位を本番 race_results へ反映(`apply_pdf_positions_v2.py` 自然キーUPSERT・COALESCEで既存値保護)→ performance.session_position 77件。
+- Supabase: `sync_to_supabase.py` v3 新スキーマ(race_results/lap_times/sessions_2d/lap_times_2d)。conflict_col に **date 追加**(同一round番号がシーズン跨ぎで衝突するため。§1c参照)。
+
+### 18b. DB Master.xlsx（build_excel_master.py）= 9シート構成
+- 削除: BEST_WORST_ANALYSIS / SESSION_SUMMARY / TYRE_LOG / CHASSIS_GEO
+- 再生成(DB由来): RUN_LOG / LAP_TIMES / PERFORMANCE_CORRELATION(FAST緑·SLOW赤強調) / DYNAMICS_ANALYSIS(INFO/APEX/BRAKING ENTRY/FULL BRAKING/**CORNER EXIT**/**DAMPING(F-Dive/F-Reb/R-Dive/R-Reb/RearLight%)** の6グループ・空列廃止) / PROBLEM_LIBRARY / LAP_SUSPENSION(per-lap全件)
+- 保持(未再生成・要Phase3): DB_LOG / TREND_ANALYSIS(コメント/問題トレンド・旧内容) / SOLUTION_SEARCH
+
+### 18c. Workbench（ts24_workbench.py）
+- **Trend Analysis 廃止 → `CommentAnalysisTab`("💬 Comment Analysis") 新設**: ①Circuit×Tag再発頻度(3回以上=赤=コース特性の問題) ②コメント詳細(タイヤ変更/Best Lap/Tag, タイヤ言及は淡色強調) ③フィルタ(Circuit/Rider/Tag/キーワード/タイヤ関連のみ)。データ源 runs.comment+run_tags+runs.tyre/best_lap。
+- "📊 Setup Trend"(SetupTrendTab) 削除。Posture を "🦾 Suspension/Posture" に改称(実体は pitch/heave + サス分析)。
+- 接続先=ts24_unified.db(新データ)。Run Browser/Quick Log/Problem Log/Setup Decision/Suspension/Race/Comment が稼働。**GUIスモークテストはローカルで要実施**(ヘッドレス不可)。
+
+### 18d. 監査・残課題
+- マルチエージェント数値監査(30エージェント): 全数値整合性を検証→11確定欠陥は is_outlap ロジック1点に収束→恒久修正で一括解消。`audit_db_dump.py`(全テーブル数値ダンプ→/tmp)で再現可。
+- **残(Part B 未着手)**: Phase3=TREND_ANALYSIS/SOLUTION_SEARCH のDB由来再生成 + problem_log充填(4→100+)、Setup Lookup(前回好調Setup逆引き=10x#1)、knowledge_cases自動提案(10x#2)、Temperature/Tyre-Aware Advisory(10x#3)、dashboard JSON(クラウド)再生成。詳細はタスク #5-#11 と上記reports。
+- 新規スクリプト: `audit_db_dump.py`, `apply_pdf_positions_v2.py`。バックアップ: `02_DATABASE/_backup_20260618/`, `ts24_unified.old.db`。
+
+---
+
+## 19. ゾーン限定サス速度 + PH1-2リア0mm 抽出&UI（2026-06-20 Claude Code 実施 / Tatsuki承認設計）
+
+**目的:** 既存ゾーンイベント(FULL_BRAKING/CORNER_EXIT)内のサス速度と PH1-2 のバイク姿勢(リア抜け)を、
+セットアップ判断の根拠に使える形で抽出し、Workbench と DB Master で確認できるようにする。
+従来は `f_dive_spd` 等が**ラップ全体ピークのみ**で、ゾーン限定 avg/peak と PH1-2 リア0mm時間が存在せず、
+分析UIも無かった。
+
+### 19a. 新5指標（`lap_suspension` のみに追加 / `laps`は不変）
+| カラム | 定義 | ガード |
+|--------|------|--------|
+| `brk_f_dive_spd_avg` / `_peak` | FULL_BRAKING内 フロント圧縮方向(diving, v_f>0)速度の avg/peak [mm/s] | mask n≥5 **かつ** 圧縮サンプル n≥5、未満は NULL |
+| `ce_r_spd_avg` / `_peak` | CORNER_EXIT内 リアサス速度**絶対値**(\|v_r\|)の avg/peak [mm/s] | mask n≥5、未満は NULL |
+| `ph12_rear0_s` | PH1-2(代理マスク= BRAKE_FRONT≥0.3bar 進入相)で SUSP_REAR≤0mm の累積秒 [s] | 両ch存在時のみ。0秒は実測値として許容 |
+
+- **設計確定事項(Tatsuki)**: ① n<5 は **必ずNULL**(0は「速度ゼロ」と誤読されるため厳禁)。信頼度として
+  `fullbrk_count`/`ce_count` を併記。② CE Rearは v1で**絶対値**(動きの忙しさ)。将来 `ce_r_squat_spd_avg/peak`
+  (圧縮方向)を別列で追加するのが理想。③ PH1-2 は当面 BRAKE≥0.3bar 代理。将来 `corner_phase_analysis.py`
+  のコーナー単位PH1-2と統合。④ peak は既存 `f_dive_spd` との一貫性で `max()`。検証で p95 併記。
+- **速度の性格**: グリッドR(M点)上の `np.gradient/dt`。既存 `f_dive_spd` と同一手法で**データセット内比較は正当**
+  だが校正済み絶対mm/sではない(=相対ダンピング速度指数)。一人歩き禁止。
+- 計算は `build_master_db.py` の `extract_outing()` に追加(`AREAS` マスク再構成 + `_vel()`/`_zone_mask()`)。
+  lap dict → `extra_by_lapid` → `_build_lap_suspension(conn, extra_by_lapid)` 経由で **lap_suspension のみ**へ射影。
+
+### 19b. 安全なDB反映（cutover不使用 / `backfill_susp_zone_speed.py` 新規）
+全DB再ビルド+cutover(run_id再マップ=lap_id破壊リスク)を回避。手順:
+1. `build_master_db.py --all --out /tmp/ts24_scratch.db` でスクラッチ再生成(受入ゲート0件合格・totals不変)。
+2. **決定論ゲート**: scratch vs 正本の lap_suspension 既存40列を lap_id JOINで突合、`abs(diff)<1e-6`・lap_id集合一致を要求。
+   `updated_at`(timestamp)と新5列は比較除外。→ **1202ラップ×40列 全一致で合格**(既存データ無改変を証明)。
+3. 合格時のみ 正本 `ts24_unified.db` に5列 `ALTER ADD` + scratchから lap_id で UPDATE(1202行)。`laps`は不変。
+4. **検証ログ**(NULL率/分布/peakのp95): brk_f_dive 非NULL1072(NULL10.8%, peak max/p95=1.97x健全) /
+   ce_r 非NULL661(NULL45%=CE無しラップ多数, peak max/p95=4.28x→将来p95化候補) / ph12 非NULL1198(>0秒958件・
+   mean0.51s・max7.45s=**退化せず**, ≤0mmのまま採用)。整合性: n<5ガードとサンプル数が完全一致(誤NULL/誤算出=0)。
+- 正本DB・DB Master・対象スクリプトは作業前に `02_DATABASE/_backup_susp_speed_<TS>/` と
+  `05_SCRIPTS/_backup_susp_speed_<TS>/` にバックアップ済(2026-06-20)。
+
+### 19c. Workbench UI（`ts24_workbench.py` / `PostureAnalysisTab`）
+- 既存4パネル(APEX分析)を内部 `QTabWidget` 第1タブ「📊 APEX分析（基本）」に格納し、第2タブ
+  **「⚙️ Damping / Phase」**(`_build_damping_phase_tab`/`_draw_damping_phase`/`_fill_dp_table`)を増設。
+- 2×2: ①Hard Brake Front Diving速度 Lap推移(avg実線/peak点線・Rider色分け) ②Corner Exit Rear|v| 散布図
+  (X=ラップタイム,Y=ce_r_spd_avg,点サイズ=ce_count) ③PH1-2 Rear@0mm 累積秒 Lap推移 ④数値テーブル
+  (新5指標＋`fullbrk_count`/`ce_count` 併記、NaN→"—"、n<5は淡色「参考」)。
+- 既存タブ/クリックポップアップ/Circuitフィルタは無改変。Circuitフィルタは共通で両タブに作用。
+- **GUIスモークテストはローカル必須**(ヘッドレス不可)。`python3 ts24_workbench.py` で Suspension/Posture →
+  Damping/Phase タブ表示確認を Tatsuki が実施。
+
+### 19d. DB Master.xlsx（`build_excel_master.py`）
+- `DYNAMICS_ANALYSIS` の DAMPING グループ(per-run集計)を **5→10列**に拡張: Brk F-Dive Avg/Peak,
+  CE R-Spd Avg/Peak, PH1-2 Rear@0[s]。グループ見出しspan自動拡張・既存書式(`build_clean_sheet`)踏襲・None=空セル。
+- `LAP_SUSPENSION` 生ダンプシート: ヘッダが旧テンプレ `ws.max_column`(34)で頭打ち→ `r_dive_spd` 以降ヘッダ欠落
+  だった既存quirkを修正(全LS_COLSをラベル・スタイルは既存ヘッダから複製) + 新5列を追加 → **46列**。9シート構成は維持。
+
+### 19e. 残課題（将来）
+- `ce_r_squat_spd_avg/peak`(CE圧縮方向)の追加 / PH1-2をコーナー単位(corner_phase_analysis統合)へ精緻化 /
+  ce_r_spd_peak の p95化検討 / Supabase・Streamlit dashboard への展開(今回スコープ外)。
+- 新規/変更: `build_master_db.py`(計算+schema+射影), `backfill_susp_zone_speed.py`(新規・ゲート+反映),
+  `ts24_workbench.py`(Damping/Phaseタブ), `build_excel_master.py`(DAMPING列+LAP_SUSPENSIONヘッダ修正)。
+
+---
+
+## 20. Multi-Agent Data Quality & Auto Analysis Roadmap — Phase 0-1 着手（2026-06-20 Claude Code 実施 / Tatsuki指示書）
+
+**指示書全文**: Tatsuki 提示の「TS24 Workbench Multi-Agent Data Quality & Auto Analysis Roadmap」。
+6エージェント構成(Extraction=測る / Quality Gate=疑う / DB Integration=保存 / Case Search=探す /
+Hypothesis=考える / Supervisor=止める) + **Tatsuki=決める**。AIは最終判断者ではなく、生データ品質を
+落とさず過去の事実を引き出し、Tatsukiの判断を速く・深くするための補助。今回は最も安全な **Phase 0-1**
+(DB品質基盤)から着手。**運用ルール: 全作業は複数エージェントで遂行・CLAUDE.mdに必ず記録・外部AI Codexが
+本ファイルで進捗監視**。
+
+### 20a. Phase 0 — 正本DB固定（確定 / 監査2エージェントで実施）
+- **正本DB = `02_DATABASE/ts24_unified.db`**（3.9MB / 23テーブル / runs275・laps1202・lap_suspension1202・
+  race_results792）。全スクリプト約40本のDB参照を監査 → **全て正本を正しく参照済**（os.path/`__file__`相対/
+  `ROOT/SCRIPT_DIR.parent`で構築・ハードコード絶対パス無し・曖昧な相対パス無し）。
+- **run_id / lap_id 命名規則（確定・CLAUDE.md権威記載）**:
+  - `run_id = {YYYYMMDD}_{ROUND}_{CIRCUIT}_{SESSION}_{RIDER}_{RUN_NO}`
+    例 `20250221_ROUND1_PHILLIPISLAND_RACE2_JA52_R1`（CIRCUITはスペース無し正規化・SESSION=QP/SP/RACE1/RACE2等・RUN_NO=R1..）
+  - `lap_id = {run_id}_L{LAP_NO}` 例 `..._JA52_R1_L19`
+  - 新run/lap生成・JOIN・UPSERTは必ずこの規則に従う（§1c の Supabase 自然キーとも整合）。
+- **ts24_master.db は廃止ではなく現役の中間ファイル**: `build_master_db.py`(出力先) → `cutover_db.py`(昇格)の
+  ビルドパイプライン用。**削除厳禁**。`ts24_unified.old.db`=cutover前バックアップ。
+- **判明した非破壊の残課題（今回は Tatsuki 指示で触らず記録のみ）**:
+  - ① ルート直下 `ts24_unified.db`(0B・参照元ゼロの孤児) と `02_DATABASE/ts24_setup.db`(0B) → **削除保留**
+    （Tatsuki判断待ち。`_backup_phase0_*`退避→削除でクリーン化可能）。
+  - ② `dashboard.py` の `find_db()`→`_load_sqlite()` は**旧スキーマ(sessions/session_tags/lap_times)参照の
+    レガシー死コード**。本番はSupabase経由で稼働しfind_dbは通常None(=安全)。新DBに旧テーブルが無いため
+    **find_dbを正本へ向ける改修は逆に破壊的**。今回は無改修（残課題）。
+
+### 20b. Phase 1 — 解析ログ・品質ログ基盤（実装完了 / 追加のみ・既存無改変）
+- 新規スクリプト **`create_quality_tables.py`**（冪等 / 実行前に `_backup_quality_tables_<TS>/` へ自動バックアップ /
+  `CREATE TABLE IF NOT EXISTS`のみ=既存データ無害）で正本DBに **管理5テーブルを追加**:
+  | テーブル | 役割 | 主keyの要点 |
+  |---|---|---|
+  | `source_file_registry` | 検出ソースファイル台帳(MES/LAP/DDD/REPORT/PDF/CSV) | file_id PK・file_path UNIQUE・sha256で変更検出・status(discovered/queued/extracted/archived) |
+  | `import_queue` | Quality Gate待ち処理キュー | queue_id・status(pending/processing/awaiting_gate/done/failed/skipped)・priority |
+  | `analysis_run_log` | 抽出/解析の実行記録(DB更新の根拠) | analysis_run_id=`{ISO}_{script}`・agent/script_version/rows_*/quality_status/params_json |
+  | `data_quality_log` | 品質チェック結果 | check_name・scope/scope_id・observed/expected/tolerance・**result=PASS/WARNING/FAIL** |
+  | `metric_version_log` | 指標定義のバージョン管理 | (metric_name,version) UNIQUE・definition/guard_rule/effective_from |
+- `metric_version_log` に既存v1指標 **10件をシード**（§18 f_dive_spd系4+rear_light_brk / §19 zone速度5）。
+  guard_rule に「n<5→NULL」「相対ダンピング速度指数・一人歩き禁止」等の注意を明記。
+- 検証: 5/5テーブル作成・既存データ件数不変(runs275/laps1202/lap_suspension1202/race_results792)を確認。
+  バックアップ=`02_DATABASE/_backup_quality_tables_20260620_074105/`。再実行は冪等(INSERT OR IGNORE)。
+
+### 20c. 次フェーズ（未着手 / ロードマップ Phase 2-5）
+- Phase 2 Extraction Pipeline: `DATA 2D/`・`01_REPORTS/`・`07_RESULTS/` 新ファイル検出→registry/queue登録→scratch DB。
+- Phase 3 Quality Gate: lap数/lap_time物理範囲/PDF best vs 2D best差/決定論/NULL率/zone sample/外れ値/0-NULL意味論 →
+  `data_quality_log`へ PASS/WARNING/FAIL記録。**FAILは絶対に正本へ反映しない**。
+- Phase 4 DB Integration: PASS のみ run_id/lap_id JOINでUPSERT・NULLで既存上書き禁止・反映後Excel/JSON/Workbench再生成。
+- Phase 5 Workbench Auto Diagnosis / Case Search Agent / Hypothesis Agent / Supervisor監査ルール。
+- 新規/変更: `create_quality_tables.py`(新規)。CLAUDE.md §20 追記。
+
+---
+
+## 21. 作業ツリー整理・検証・ドキュメント整合（2026-06-20 Claude Code 実施 / Tatsuki指示）
+
+新規機能を停止し、git作業ツリー整理(調査)・Workbench検証・DBレポート・CLAUDE.md旧記述整理を実施。
+commit は未実施（Tatsuki確認後に候補作成=指示Step5）。**Supervisor的に「止める」案件を1件検出**（下記21a）。
+
+### 21a. git作業ツリー監査（gitルート=`05_SCRIPTS`, branch=main, origin同期済）
+- **重大: services/ domain/ components/ の削除(ステージ済)が dashboard.py と矛盾**。dashboard.py は
+  HEAD・index・working tree の**全てでこれらをライブ import**（claude_client/supabase_client/memory_service/
+  charts を30-40箇所で呼び出し）。3ディレクトリは**ディスク上も削除済** → working treeの dashboard.py は
+  既にローカルで ModuleNotFoundError 状態（origin/mainには残るためStreamlit Cloudは稼働中）。
+  **このままcommitするとデプロイ時に本番dashboardが壊れる** → コミット禁止・要方針確認。
+- ステージ全体: **61ファイル・+2285/−15424** の大規模で、**中断された未完成リファクタ**。index版dashboard.pyは
+  HEAD/worktreeと異なる(nav構成違い=リフォーカスをstage後にworktreeで部分差し戻し)。
+- **lap_suspension_data.json = conflict(UU)**: マージ残骸(MERGE_HEAD無し)。working treeは4ラップ/30列/2.6KBの
+  stale断片(stage2=692KB/stage3=1174KB/worktree=どちらでもない)。DBが正(1202ラップ46列)。**削除で解決推奨**
+  (他dashboard JSONと整合・Workbenchは DB駆動でJSON不要)。ただし未確定→git未mutate。
+- **削除分類(暫定)**: ✅意図的=INSTRUCTION_*.md/各種spec/.command/.bat/.sh/旧sync_*.py/create_workbench_tables.py/
+  SQL群/tests/docs/password_generator.py/ts24_watcher.py/test_gps_decode.py。⚠️要確認=services/domain/components
+  (dashboard依存=矛盾)・dashboard用JSON群・**race_memory.json(知見喪失リスク=要Tatsuki確認)**。
+- untracked: §18/§19の新スクリプト群(build_master_db.py/cutover_db.py/sync_to_supabase.py/apply_pdf_positions_v2.py/
+  audit_db_dump.py/backfill_susp_zone_speed.py/build_excel_master.py/import_*/pdf_*/reports/ 等)+本作業の
+  create_quality_tables.py。これらは add候補だが §18系は dashboard 依存と切り離して扱う必要。
+
+### 21b. Workbench GUIスモークテスト（offscreen / Python+PyQt6 6.10.0 / pyqtgraph 0.13.7）
+- 絶対パス起動(実起動同条件)で**全合格**: module import / MainWindow構築 / PostureAnalysisTab.refresh /
+  内部タブ`['📊 APEX分析（基本）','⚙️ Damping / Phase']`存在 / DB 1202ラップ読込(circuit列有) /
+  Circuitコンボ8件(全サーキット/ARAGON/ASSEN/BALATON/JEREZ/MOST/...) / フィルタ ARAGON→ASSEN→リセットの
+  再描画が無例外。**チャートの見た目の目視のみ Tatsuki がローカル実施**(ヘッドレス不可)。
+- 注: relative-importロード時のみ `SCRIPT_DIR=Path(__file__).parent` が相対化しDB空読みになる人工物を確認。
+  実起動(`python3 ts24_workbench.py`, Python3.9+で__file__絶対)では正常。実害なし。
+
+### 21c. DB状態レポート（lap_suspension 新5指標 / 正本DB）— §19bと完全一致=健全
+- NULL率: brk_f_dive_spd_avg/peak=**10.8%**(130/1202) / ce_r_spd_avg/peak=**45.0%**(541/1202, CE無しラップ多数) /
+  ph12_rear0_s=**0.3%**(4/1202)。
+- **n<5ガード違反=0件**（全4指標で NOT NULL かつ count<5 のラップ=ゼロ。誤算出なし）。
+- ph12_rear0_s分布: 非NULL1198 / >0が958 / =0が240 / min0.0・mean0.511・max7.449秒（退化なし）。
+- ce_r_spd_peak: max=3479.1 / p95=812.1 / **max/p95=4.28x**（少数ラップで突出 → §19e のp95化候補。一人歩き注意）。
+
+### 21d. CLAUDE.md 旧記述整理（削除せずアノテーション=可逆 / §19・§20を正）
+- 冒頭に **§0「最新の正（READ FIRST）」バナー**新設: §2-§17は旧アーキ、§18/§19/§20が正。正本DB/データフロー/
+  dashboard用JSON/race_memory.json/件数 の新旧対応表。
+- インライン【旧情報】マーカー: §3(ts24_setup.db/all_sessions.json)・§4.2(JSON群はgit削除済・件数旧)・
+  §7b(race_memory.jsonは削除ステージ済=要確認)。
+
+### 21e. Tatsuki方針確定 → 実行（2026-06-20）
+**方針(Tatsuki)**: ①services/domain/components は**復元・保持**(dashboard live import中、完全書換まで削除禁止)。
+②race_memory.json **削除しない**(将来DB化候補、設計確定まで保持)。③lap_suspension_data.json conflict は
+**削除で解決しない**(dashboard参照残)。DB由来46列JSON再生成が最優先だが**未実装**のため、**HEAD版復元+conflict解消**、
+CLAUDE.mdに stale/deprecated・WorkbenchはDB優先を明記。④dashboard用JSON群の削除は**今回commitに含めない**
+(refocus/Supabase完全移行の別PR完了後に判断)。⑤commitは A/B/C/D に**分割**、cleanup削除は未commit。
+
+**実行内容**:
+- 復元(`git checkout HEAD --`): services/ domain/ components/ race_memory.json + dashboard用JSON5本
+  (lap_suspension_data 692KB / dynamics_data / lap_overlay_data / lap_times_data / corner_phase_data)。
+  **lap_suspension_data.json の conflict(UU)は HEAD版で解消**。
+- dashboard.py: ステージのrefocus差分をunstage→ working tree は**HEAD一致(クリーン)**に復帰。dashboard変更は別PRへ先送り。
+- cleanup系削除(INSTRUCTION_*.md/spec/.command/.bat/.sh/.sql/旧sync_*.py/tests/docs/create_workbench_tables.py/
+  password_generator.py/ts24_watcher.py/test_gps_decode.py 等)は**unstageのまま=未commit**(将来別commit)。
+- CLAUDE.md の §0/§4.2/§7b アノテーションを最終決定に合わせ更新(削除済→保持/deprecated)。
+
+### 21f. コミット分割（branch `db-rebuild-quality-20260620` / 未push＝候補）
+- **A. DB再構築・build系(§18)**: build_master_db.py / cutover_db.py / build_excel_master.py / export_master_to_excel.py /
+  apply_pdf_positions_v2.py / audit_db_dump.py / sync_to_supabase.py / import_all_race_results.py / import_company_bsb.py /
+  parse_bsb_result_pdf.py / pdf_chrono_extractor.py / pdf_result_extractor_v2.py / reconcile_2d_vs_original.py / reports/ +
+  (M)build_unified_db.py / corner_phase_analysis.py / extract_turn_templates.py / lap_overlay_extractor.py /
+  lap_suspension_stats.py / update_trend_analysis.py。**注**: build_master_db.py/build_excel_master.py には§19の
+  ゾーン速度計算・DAMPING列も内包(新規ファイルのため分離不可、Aに含める)。
+- **B. ゾーン限定サス速度 + Workbench Damping/Phase(§19)**: backfill_susp_zone_speed.py + (M)ts24_workbench.py。
+- **C. 品質ログ基盤(§20)**: create_quality_tables.py。
+- **D. CLAUDE.mdドキュメント更新**: CLAUDE.md (+ _CLAUDE_INDEX.md)。
+- **未commit(意図的)**: cleanup削除全件 / dashboard.py(=HEAD) / 作業メモmd(CLAUDE_CODE_INSTRUCTIONS_*/CODE_INSTRUCTION_*/
+  CODEX_*/TRN_*/DB_REBUILD_SPEC_v1.0.md) / parse_chrono_pdf_DRAFT.py・parse_race_pdf.py(draft) / _backup_susp_speed_*/。
+- pushはTatsukiがレビューしてからCLIで実施(自動pushしない)。
 

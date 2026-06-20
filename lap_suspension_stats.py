@@ -728,11 +728,6 @@ CREATE TABLE lap_suspension (
     lap_susF_min     REAL,
     lap_susF_max     REAL,
     lap_susR_mean    REAL,
-    -- WheelForce Proxy (Level 1: spring × displacement, MR=0.5 rear)
-    wf_f_apex_n      REAL,
-    wf_r_apex_n      REAL,
-    wf_f_brk_n       REAL,
-    wf_r_brk_n       REAL,
     updated_at       TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_lapsus_run     ON lap_suspension(run_id);
@@ -750,7 +745,6 @@ INSERT OR REPLACE INTO lap_suspension (
     wf_f_brk_n,  wf_r_brk_n,
     fullbrk_count, fullbrk_susF, fullbrk_susR,
     lap_susF_mean, lap_susF_min, lap_susF_max, lap_susR_mean,
-    wf_f_apex_n, wf_r_apex_n, wf_f_brk_n, wf_r_brk_n,
     updated_at
 ) VALUES (
     :lap_id, :run_id, :round, :circuit, :session, :rider, :run_no, :lap_no, :date,
@@ -761,7 +755,6 @@ INSERT OR REPLACE INTO lap_suspension (
     :wf_f_brk_n,  :wf_r_brk_n,
     :fullbrk_count, :fullbrk_susF, :fullbrk_susR,
     :lap_susF_mean, :lap_susF_min, :lap_susF_max, :lap_susR_mean,
-    :wf_f_apex_n, :wf_r_apex_n, :wf_f_brk_n, :wf_r_brk_n,
     datetime('now')
 )
 """
@@ -927,9 +920,13 @@ def main():
     else:
         print(f"  [WARN] SQLite DB が見つかりません: {UNIFIED_DB}")
 
-    # ── JSON エクスポート (Streamlit Cloud用) ────────────────────────
+    # ── JSON エクスポート ────────────────────────────────────────────
+    # Workbench (05_SCRIPTS) と Dashboard (06_DASHBOARD) の両方に出力する
     import json as _json
-    JSON_OUT = SCRIPT_DIR / "lap_suspension_data.json"
+    JSON_OUTS = [
+        SCRIPT_DIR / "lap_suspension_data.json",                          # Workbench用
+        SCRIPT_DIR.parent / "06_DASHBOARD" / "lap_suspension_data.json",  # Dashboard用
+    ]
     if not dry_run:
         # FIELDS → HEADERS のマッピングでキーを大文字化
         field_to_header = dict(zip(FIELDS, HEADERS))
@@ -938,11 +935,11 @@ def main():
              if k in field_to_header}
             for row in all_rows
         ]
-        JSON_OUT.write_text(
-            _json.dumps(json_rows, ensure_ascii=False, indent=None),
-            encoding="utf-8"
-        )
-        print(f"  [JSON] lap_suspension_data.json に {len(json_rows)} 行書き込み完了")
+        json_text = _json.dumps(json_rows, ensure_ascii=False, indent=None)
+        for JSON_OUT in JSON_OUTS:
+            if JSON_OUT.parent.exists():
+                JSON_OUT.write_text(json_text, encoding="utf-8")
+                print(f"  [JSON] {JSON_OUT} に {len(json_rows)} 行書き込み完了")
     else:
         print(f"  [DRY-RUN] JSON 書き込みをスキップ ({len(all_rows)} 行)")
 
