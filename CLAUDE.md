@@ -1560,4 +1560,11 @@ CLAUDE.mdに stale/deprecated・WorkbenchはDB優先を明記。④dashboard用J
   07_RESULTS(リザルト/クロノPDF・**拡張子なしPDF実在**)と既存抽出ロジック(discover_outings/report_importer/
   pdf_result_extractor_v2/受入ゲート§8)を確認し、設計を実装と矛盾しないよう整合。
 - ブランチ: `phase2-extraction-design-20260620`(main基底・未push)。実装着手は Tatsuki 承認後。
+- **rev.2（2026-06-20 Tatsuki承認＋7点修正）**: ①「正本DBに書かない」→**「業務テーブルに書かない／管理テーブルは許可」**
+  と用語修正(§0.1で business/management を明示) ②Phase 2を **2A**(scan→registry→queue→Workbench表示のみ)/
+  **2B**(scratch生成→awaiting_gate)に分割 ③2D outing の同一性は代表DDD単体でなく **manifest hash**
+  (DDD/LAP/HED/主要ファイルの正規化連結hash) ④**半端コピー対策**(size/mtime安定確認・`~$`/`.tmp`/`.partial`/
+  `.icloud`/`._`等除外) ⑤status に **incomplete/gated/unknown** を明示 ⑥`data_quality_log.check_name` を
+  **`detect_*`(Phase2検出)/`gate_*`(Phase3正式Gate)** で分離 ⑦scratch は **FAIL時のみ短期保存**(/tmp・既定72h)。
+  → **Phase 2A から実装開始。Phase 2B以降の正本業務テーブル反映は引き続き禁止。**
 
