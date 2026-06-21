@@ -5828,6 +5828,149 @@ class CommentAnalysisTab(QWidget):
         self._tbl_detail.resizeColumnsToContents()
 
 
+class ImportQualityTab(QWidget):
+    """📥 Import / Quality — Phase 2A 未処理データ表示（読み取り専用）。
+    管理テーブル(source_file_registry / import_queue / data_quality_log)のみ参照し、
+    業務テーブルには触れない。検出キュー・要確認(incomplete/gated/unknown)・検出チェックを可視化。
+    """
+    _MGMT = ("source_file_registry", "import_queue", "data_quality_log")
+
+    def __init__(self, db: WorkbenchDB, parent=None):
+        super().__init__(parent)
+        self._db = db
+        lay = QVBoxLayout(self)
+        bar = QHBoxLayout()
+        self._lbl = QLabel("…")
+        self._lbl.setStyleSheet("font-weight: bold;")
+        bar.addWidget(self._lbl)
+        bar.addStretch()
+        btn = QPushButton("↻ 再読込")
+        btn.clicked.connect(self.refresh)
+        bar.addWidget(btn)
+        lay.addLayout(bar)
+
+        note = QLabel("Phase 2A: 検出→registry→queue の可視化のみ（業務テーブル不変・抽出なし）。"
+                      "再評価/承認は将来。FAIL/WARNING は data_quality_log の detect_* に基づく。")
+        note.setStyleSheet("color:#666; font-size:11px;")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        inner = QTabWidget()
+        self._tbl_queue = QTableWidget()
+        self._tbl_queue.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        inner.addTab(self._wrap(self._tbl_queue), "📋 未処理キュー")
+        self._tbl_doubt = QTableWidget()
+        self._tbl_doubt.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        inner.addTab(self._wrap(self._tbl_doubt), "⚠ 要確認（疑い）")
+        self._tbl_checks = QTableWidget()
+        self._tbl_checks.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        inner.addTab(self._wrap(self._tbl_checks), "🔎 検出チェック (detect_*)")
+        lay.addWidget(inner)
+        self.refresh()
+
+    @staticmethod
+    def _wrap(w):
+        box = QWidget(); l = QVBoxLayout(box); l.setContentsMargins(0, 0, 0, 0); l.addWidget(w)
+        return box
+
+    def _con(self):
+        c = sqlite3.connect(self._db.db_path)
+        c.row_factory = sqlite3.Row
+        return c
+
+    def refresh(self):
+        try:
+            self._load()
+        except Exception as e:
+            self._lbl.setText(f"⚠ {e}")
+
+    def _load(self):
+        with self._con() as c:
+            have = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not set(self._MGMT) <= have:
+                self._lbl.setText("管理テーブル未作成。create_quality_tables.py / extraction_scan.py を先に実行してください。")
+                for t in (self._tbl_queue, self._tbl_doubt, self._tbl_checks):
+                    t.setRowCount(0)
+                return
+            reg = c.execute("SELECT status, COUNT(*) n FROM source_file_registry GROUP BY status").fetchall()
+            q = c.execute("SELECT status, COUNT(*) n FROM import_queue GROUP BY status").fetchall()
+            reg_s = " ".join(f"{r['status']}={r['n']}" for r in reg) or "—"
+            q_s = " ".join(f"{r['status']}={r['n']}" for r in q) or "—"
+            queue_rows = c.execute(
+                """SELECT q.queue_id, q.status, q.target_kind, q.enqueued_at,
+                          r.file_type, r.file_name, r.round, r.rider, r.circuit, r.session, q.file_path
+                   FROM import_queue q LEFT JOIN source_file_registry r ON q.file_id=r.file_id
+                   ORDER BY (q.status='pending') DESC, q.target_kind, q.queue_id"""
+            ).fetchall()
+            doubt_rows = c.execute(
+                """SELECT status, file_type, file_name, round, rider, circuit, notes, file_path
+                   FROM source_file_registry WHERE status IN ('incomplete','gated','unknown')
+                   ORDER BY status, file_type"""
+            ).fetchall()
+            last_run = c.execute(
+                "SELECT analysis_run_id FROM analysis_run_log WHERE status='success' "
+                "ORDER BY started_at DESC LIMIT 1").fetchone()
+            arid = last_run["analysis_run_id"] if last_run else ""
+            check_rows = c.execute(
+                """SELECT check_name, result, severity, scope_id, detail FROM data_quality_log
+                   WHERE check_name LIKE 'detect_%' AND (?='' OR analysis_run_id=?)
+                   ORDER BY (result='FAIL') DESC, (result='WARNING') DESC, check_name""",
+                (arid, arid),
+            ).fetchall()
+
+        self._lbl.setText(f"registry: {reg_s}   |   queue: {q_s}   |   要確認 {len(doubt_rows)} / 検出チェック {len(check_rows)}")
+        self._fill_queue(queue_rows)
+        self._fill_doubt(doubt_rows)
+        self._fill_checks(check_rows)
+
+    def _fill_queue(self, rows):
+        cols = ["queue_id", "status", "種別", "type", "Round", "Rider", "Circuit", "Session", "enqueued", "file"]
+        t = self._tbl_queue
+        t.clear(); t.setColumnCount(len(cols)); t.setHorizontalHeaderLabels(cols); t.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            vals = [str(r["queue_id"]), r["status"] or "", r["target_kind"] or "", r["file_type"] or "",
+                    r["round"] or "", r["rider"] or "", r["circuit"] or "", r["session"] or "",
+                    (r["enqueued_at"] or "")[:19], r["file_name"] or r["file_path"] or ""]
+            for j, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                if r["status"] == "failed":
+                    it.setBackground(QColor("#FFC7CE"))
+                elif r["status"] == "awaiting_gate":
+                    it.setBackground(QColor("#FFF2CC"))
+                t.setItem(i, j, it)
+        t.resizeColumnsToContents()
+
+    def _fill_doubt(self, rows):
+        cols = ["status", "type", "name", "Round", "Rider", "Circuit", "notes", "file"]
+        t = self._tbl_doubt
+        t.clear(); t.setColumnCount(len(cols)); t.setHorizontalHeaderLabels(cols); t.setRowCount(len(rows))
+        color = {"gated": "#FFC7CE", "unknown": "#FFD9A0", "incomplete": "#FFF2CC"}
+        for i, r in enumerate(rows):
+            vals = [r["status"] or "", r["file_type"] or "", r["file_name"] or "", r["round"] or "",
+                    r["rider"] or "", r["circuit"] or "", r["notes"] or "", r["file_path"] or ""]
+            for j, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                it.setBackground(QColor(color.get(r["status"], "#FFFFFF")))
+                t.setItem(i, j, it)
+        t.resizeColumnsToContents()
+
+    def _fill_checks(self, rows):
+        cols = ["check_name", "result", "severity", "scope_id", "detail"]
+        t = self._tbl_checks
+        t.clear(); t.setColumnCount(len(cols)); t.setHorizontalHeaderLabels(cols); t.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            vals = [r["check_name"] or "", r["result"] or "", r["severity"] or "",
+                    r["scope_id"] or "", r["detail"] or ""]
+            for j, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                if r["result"] == "FAIL":
+                    it.setBackground(QColor("#FFC7CE"))
+                elif r["result"] == "WARNING":
+                    it.setBackground(QColor("#FFF2CC"))
+                t.setItem(i, j, it)
+        t.resizeColumnsToContents()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, db: WorkbenchDB):
         super().__init__()
@@ -5871,6 +6014,7 @@ class MainWindow(QMainWindow):
         self._tab_setup       = SetupDecisionTab(db=self._db)
         self._tab_posture     = PostureAnalysisTab(db=self._db)
         self._tab_race        = RaceAnalysisTab(db=self._db)
+        self._tab_import      = ImportQualityTab(db=self._db)      # Phase 2A 未処理データ(2026-06-21)
 
         self._tabs.addTab(self._tab_quick,       "⚡ Quick Log")
         self._tabs.addTab(self._tab_problem,     "📋 Problem Log")
@@ -5878,6 +6022,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._tab_setup,       "🔧 Setup Decision")
         self._tabs.addTab(self._tab_posture,     "🦾 Suspension/Posture")
         self._tabs.addTab(self._tab_race,        "🏁 Race Analysis")
+        self._tabs.addTab(self._tab_import,      "📥 Import / Quality")
 
         root.addWidget(self._tabs)
 
@@ -5889,7 +6034,7 @@ class MainWindow(QMainWindow):
         """DB ファイルが更新されたとき全タブを自動リフレッシュする。"""
         self._lbl_status.setText("🔄 DB更新検出 — リフレッシュ中…")
         for tab in (self._tab_quick, self._tab_problem, self._tab_comment, self._tab_setup,
-                    self._tab_posture, self._tab_race):
+                    self._tab_posture, self._tab_race, self._tab_import):
             try:
                 tab.refresh()
             except Exception:
