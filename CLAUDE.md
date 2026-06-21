@@ -1568,3 +1568,155 @@ CLAUDE.mdに stale/deprecated・WorkbenchはDB優先を明記。④dashboard用J
   **`detect_*`(Phase2検出)/`gate_*`(Phase3正式Gate)** で分離 ⑦scratch は **FAIL時のみ短期保存**(/tmp・既定72h)。
   → **Phase 2A から実装開始。Phase 2B以降の正本業務テーブル反映は引き続き禁止。**
 
+---
+
+## 23. DB Master Report Helper / Similar Cases ビュー追加（2026-06-21 Codex 実施）
+
+**目的:** `TS24 DB Master.xlsx` を単なるDB出力ではなく、イベント後Reportの Weekend Summary と過去事例比較に
+使える上位ビューへ拡張する。生データ品質を落とさないため、既存の raw/data シート
+(`LAP_SUSPENSION` / `DYNAMICS_ANALYSIS` 等)は根拠データとして保持し、DB由来の新規ビューを追加する方針。
+
+### 23a. 実装内容（`build_excel_master.py`）
+- 新規ビュー生成ヘルパーを追加:
+  - `reset_sheet()` / `apply_table_style()` / `write_note()` / `top_items()` / `compact_text()`
+- `TS24 DB Master.xlsx` に以下3シートを追加生成:
+  | シート | 役割 | 行数(検証時) |
+  |---|---|---:|
+  | `WEEKEND_SUMMARY_HELPER` | Report Weekend Summary用。Round/Circuit/Rider別にBest Lap、問題タグ、代表コメント、サス指標、セット変更、貼り付け用Draftを集約 | 36 |
+  | `SIMILAR_CASES` | 過去事例検索用。`run_tags` + `problem_log` + 2D根拠指標 + `setup_decision_log`を結合し、Confidence(HIGH/MED/LOW)を付与 | 86 |
+  | `SETUP_EFFECTS` | セット変更と結果の一覧。`setup_decision_log`をReport根拠として読みやすく整理 | 7 |
+- `SIMILAR_CASES` のConfidence方針:
+  - `HIGH`: 同一(circuit,rider,problem_tag)事例数>=3、2D根拠あり、POSITIVE結果あり
+  - `MED`: 事例数>=2、2D根拠あり
+  - `LOW`: 上記未満。**断定的なセット提案に使用禁止**
+- `WEEKEND_SUMMARY_HELPER` のDraft文は比較参考用。AIが最終判断を行う文言ではなく、
+  「Use as comparison evidence, not an automatic setup decision.」を明記。
+
+### 23b. 実行・検証結果
+- 既存 `TS24 DB Master.xlsx` は作業前に
+  `02_DATABASE/TS24 DB Master.pre_report_helper_20260621.xlsx` としてバックアップ。
+- `PYTHONPYCACHEPREFIX=/tmp/ts24_pycache python3 -m py_compile build_excel_master.py` → PASS
+  （通常 `py_compile` は macOS Python cache 権限で失敗するため `/tmp` cache を使用）
+- `python3 build_excel_master.py` → PASS
+- 生成後シート構成:
+  `DB_LOG`, `WEEKEND_SUMMARY_HELPER`, `SIMILAR_CASES`, `SETUP_EFFECTS`, `TREND_ANALYSIS`,
+  `SOLUTION_SEARCH`, `PROBLEM_LIBRARY`, `PERFORMANCE_CORRELATION`, `LAP_TIMES`, `RUN_LOG`,
+  `DYNAMICS_ANALYSIS`, `LAP_SUSPENSION`
+- 既存主要シート維持確認:
+  - `DYNAMICS_ANALYSIS`: 160行 / 33列
+  - `LAP_SUSPENSION`: 1204行 / 46列
+  - `RUN_LOG`: 275 rows generated
+  - `LAP_TIMES`: 1202 rows generated
+
+### 23c. 注意・次課題
+- 今回はExcel上位ビュー追加のみ。正本DB `02_DATABASE/ts24_unified.db` の業務データは変更していない。
+- `TREND_ANALYSIS` / `SOLUTION_SEARCH` は引き続き保持シート。完全なDB由来再生成は次段階。
+- `problem_log` / `setup_decision_log` はまだ件数が少ないため、現時点の `SIMILAR_CASES` は
+  「Report比較参考」と「仮説候補」用途に限定する。
+
+### 23d. 追記（2026-06-21 Codex）— Weekend Summary Helper 使用方法 / Setup effect 自動反映方針
+- `WEEKEND_SUMMARY_HELPER` の上部説明欄(A2)に英語の使用方法を追記:
+  1) target weekendをRound/Circuit/Riderでfilter
+  2) Best Lap / Race Pos / Problem Tags / Representative Comment / Key Suspension Signalsを確認
+  3) `SIMILAR_CASES` / `SETUP_EFFECTS` で根拠を開く
+  4) Weekend Summary DraftはReport wording materialのみ（automatic setup decisionではない）
+  5) blank cellは0ではなく「信頼できるDB値なし」
+- `TS24 DB Master.xlsx` は再生成済み。`WEEKEND_SUMMARY_HELPER` 40行/15列、説明文反映を確認。
+- Workbenchで記入したSetup effectは正本DBの `setup_decision_log` が源泉。
+  `SETUP_EFFECTS` シートは `build_excel_master.py` 実行時に `setup_decision_log` から再生成される。
+- 定期自動反映の最小リスク設計:
+  - Workbenchは引き続きDBへ保存するだけ（Excelを直接編集しない）
+  - `build_excel_master.py` を定期実行して `TS24 DB Master.xlsx` を再生成
+  - Excelが開いている場合は保存失敗/競合の可能性があるため、ロック検知・バックアップ・ログ出力付きの
+    小さな wrapper script + macOS LaunchAgent で運用するのが安全
+  - 正本DBの業務データには書かない。Excelは常にDBからの派生物として扱う
+
+---
+
+## 24. Phase 2A Extraction Pipeline 実装（2026-06-21 Claude Code 実施）
+
+設計書 §22 / `reports/phase2_extraction_pipeline_design_20260620.md` rev.2 に基づき **Phase 2A のみ**実装。
+**業務テーブルには一切書かない**（書込は管理テーブル `source_file_registry`/`import_queue`/`data_quality_log`/
+`analysis_run_log` のみ）。抽出・scratch・Gate は 2B 以降（未実装）。コミット `f25cae4`（branch `phase2a-extraction-20260620`）。
+
+### 24a. scanner `extraction_scan.py`（新規）
+- DATA 2D / 01_REPORTS / 07_RESULTS を scan → 検出 → registry 登録 → `discovered` を queue(pending) 投入 →
+  検出チェックを `data_quality_log` に `detect_*` で記録 → `analysis_run_log` に1 run。冪等。
+- 2D は既存 `build_master_db.py` の `discover_events/discover_outings/event_circuit/_hed_meta` を再利用（作り直さない）。
+- **iCloud対策（重要）**: manifest を meta full-sha256 にすると iCloud データレス（未DL）ファイルのDL待ちで
+  1イベント80秒ハング。**検出は中身を読まない stat ベース**（manifest=`name|size`、report/pdf=size由来、
+  mtime は iCloud jitter のため除外）に統一 → 全 scan 約3秒。full hash は `--deep-hash` 任意。「2A=抽出しない」原則とも整合。
+- 半端コピー対策: `~$`/`.tmp`/`.partial`/`.icloud`/`._` 除外、mtime経過秒で安定性判定（既定10s、不安定=incomplete保留）。
+- status: `discovered/queued/incomplete/gated/unknown`。同一 event/base が複数物理パス（`_Copy`/サブフォルダ）の場合
+  両方を別行登録し `detect_duplicate_base` で疑い記録。HED↔eventサーキット矛盾(copia/loose)は `gated`。
+- **検証**: 検出366（2D 280/report 28/pdf 58）→ registry queued358/gated1/incomplete7、queue pending358、
+  data_quality_log: detect_duplicate_base 64/detect_hed_circuit_mismatch 1/detect_incomplete 7。
+  業務テーブル**完全不変**(runs275/laps1202/lap_suspension1202/race_results792)。再実行冪等(更新0/queue0)。
+  gated 1件=`20251010-ROUND11-JA52/D2-AM-JA3-04`(HED=PORTIMAO≠event=ESTORIL)=既知 Portimão 誤配置を自動隔離。
+
+### 24b. Workbench `ts24_workbench.py`「📥 Import / Quality」タブ（読み取り専用）
+- `ImportQualityTab` 新設（MainWindow 第7タブ・DBウォッチャ自動refresh対象）。3サブタブ:
+  ①未処理キュー ②要確認(incomplete/gated/unknown 色分け) ③検出チェック(detect_*/最新run)。管理テーブルのみ参照。
+- **実機GUI目視合格**: 7タブ、キュー358行、要確認8行(gated赤+incomplete黄)、検出チェック72行。既存タブ無破壊。
+
+### 24c. 未実装（次段階・要Tatsuki承認）
+- Phase 2B(queue→scratch→awaiting_gate)、Phase 3 Gate(`gate_*`)、Phase 4 業務テーブル反映(承認後)。
+- 変更: `extraction_scan.py`(新規)/`ts24_workbench.py`(Importタブ)。※build_excel_master.py / §23 は Codex 作業のため本記録の対象外。
+
+---
+
+## 25. 状態確認・整理 + Supabase Audit 設計（2026-06-21 Claude Code 実施 / Tatsuki指示）
+
+Phase 2B には進まず、状態確認・整理と次作業候補の設計に限定。
+
+### 25a. 状態確認
+- branch `phase2a-extraction-20260620` / HEAD `f25cae4`。
+- 管理テーブル: registry(queued358/gated1/incomplete7) / queue(pending358) / data_quality_log 72 / analysis_run_log success1。
+- **業務テーブル不変を再確認**: runs275 / laps1202 / lap_suspension1202 / race_results792。
+- Codex 作業分の未コミット変更を確認: `build_excel_master.py`(+336) と `CLAUDE.md §23`(DB Master Report Helper /
+  WEEKEND_SUMMARY_HELPER / SIMILAR_CASES / SETUP_EFFECTS)。**Phase 2A 本体(f25cae4)とは別コミット候補**として扱い、
+  Claude Code は触れない(未コミットのまま保持)。`TS24 DB Master.xlsx` は派生物=正本扱いしない。
+
+### 25b. Supabase Audit 設計（設計のみ・未実装）
+- 設計書 = `reports/supabase_audit_design_20260621.md`。コミット `5a9f9f9`。
+- 目的: local `ts24_unified.db` と Supabase の **件数・自然キー差分を read-only 比較** → remote extra / missing 抽出 →
+  **cleanup SQL 案を生成**（手動実行用）。**自動削除・自動 sync なし**。
+- 鉄則: local は SELECT のみ / remote は GET のみ / 書込はローカル `.md`+`.sql` のみ。差分は提示し判断は Tatsuki。
+- 対象4テーブル(race_results/lap_times/sessions_2d/lap_times_2d)＋自然キー(§1c)。**local 投影は `sync_to_supabase.py`
+  と同一ロジック再利用**(生テーブル直比較は偽差分→禁止)。NULLS NOT DISTINCT / `date` キーを正規化。
+  cleanup_proposal.sql は `IS NOT DISTINCT FROM` で DELETE 案を生成(SELECT確認→手動実行を強制)。
+
+### 25c. 未開始（Tatsuki承認後）
+- Phase 2B / Gate / 正本業務テーブル反映は引き続き未開始。
+- Supabase Audit は設計のみ。実装は承認後。
+- 新規/変更（本作業・私の分のみ）: `reports/supabase_audit_design_20260621.md`(新規・commit 5a9f9f9)。
+  ※CLAUDE.md §23 と build_excel_master.py は Codex 作業のため本コミットに含めない。
+
+---
+
+## 26. DB Master Report Helper 変更コミット（2026-06-21 Codex 実施）
+
+Tatsuki指示により、§23 の `DB Master Report Helper / Similar Cases` 変更を Phase 2A 本体とは別コミット対象として整理。
+
+### 26a. コミット対象
+- `build_excel_master.py`
+  - `WEEKEND_SUMMARY_HELPER` / `SIMILAR_CASES` / `SETUP_EFFECTS` 生成を追加。
+  - `WEEKEND_SUMMARY_HELPER` A2 に英語の使用方法を表示。
+  - `SETUP_EFFECTS` は Workbench が保存する `setup_decision_log` を源泉として再生成。
+- `CLAUDE.md`
+  - §23 追記（実装内容・検証結果・運用注意）
+  - §26 追記（本コミット整理）
+
+### 26b. 検証
+- `PYTHONPYCACHEPREFIX=/tmp/ts24_pycache python3 -m py_compile build_excel_master.py` → PASS
+- `python3 build_excel_master.py` → PASS（§23実施時）
+- 生成済み `TS24 DB Master.xlsx` の追加シート確認:
+  - `WEEKEND_SUMMARY_HELPER`: 40行 / 15列
+  - `SIMILAR_CASES`: 90行 / 20列
+  - `SETUP_EFFECTS`: 11行 / 18列
+- 正本DB `ts24_unified.db` の業務データは変更していない。ExcelはDB派生物として扱う。
+
+### 26c. 次作業方針
+- Phase 2B へ進む前に、Supabase Audit 実装（read-only diff / cleanup SQL案生成 / 自動削除禁止）を優先候補とする。
+- その後、Workbenchの `Setup Decision` → `setup_decision_log` → `TS24 DB Master.xlsx` 定期再生成を、
+  ロック検知・バックアップ・ログ付き wrapper + LaunchAgent として設計/実装する。
