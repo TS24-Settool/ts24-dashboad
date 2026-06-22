@@ -1891,3 +1891,35 @@ POST/PUT/PATCH/DELETE/upsert/sync を一切持たず、canonical DB / Supabase /
 - Supabase cleanup の実行・自動 sync・Supabase スキーマ変更。
 - **Phase 2B / Gate / canonical integration は未開始**（引き続き Tatsuki 承認制）。
 - 新規/変更: `supabase_audit.py`（新規）, `reports/supabase_audit_20260622.md`, `reports/cleanup_proposal_20260622.sql`, CLAUDE.md §28。
+
+---
+
+## 29. DB Master 安全再生成ラッパー（2026-06-22 Claude Code 実施）
+
+Workbench で記録した `setup_decision_log`（→ `SETUP_EFFECTS`）等を `TS24 DB Master.xlsx` へ反映するため、
+`build_excel_master.py` を**安全に**呼ぶラッパー `refresh_db_master_safe.py` を新規実装。
+`TS24 DB Master.xlsx` は DB 由来の派生物（正本ではない）。正本DB業務テーブルには書き込まない。
+
+### 29a. `refresh_db_master_safe.py` の安全策
+- 事前チェック: `ts24_unified.db` / `build_excel_master.py` / `TS24 DB Master Back UP.xlsx`(テンプレ) の存在。
+- **Excel オープン検出**: `~$TS24 DB Master.xlsx` ロックファイル + `lsof`。掴まれていれば exit 2 で中止
+  （`lsof` 不在環境は検出スキップ→保存失敗時に build の exit code で判別）。
+- **バックアップ**: 既存 xlsx を `02_DATABASE/backups/TS24_DB_Master.pre_refresh_<ts>.xlsx` へ退避。
+- **ログ**: `05_SCRIPTS/reports/db_master_refresh_<ts>.log` に全手順。
+- **exit code 伝播**: `build_excel_master.py` 失敗時はその終了コードを返す。
+- **事後検証**: 生成物の mtime 更新 / サイズ>0 / 主要6シート存在
+  (`WEEKEND_SUMMARY_HELPER` `SIMILAR_CASES` `SETUP_EFFECTS` `RUN_LOG` `DYNAMICS_ANALYSIS` `LAP_SUSPENSION`)、
+  および**正本DB件数の不変**(read-only `mode=ro` で before/after 照合)。
+- 終了コード: 0=成功 / 1=事前チェック失敗 / 2=Excel使用中 / 3=事後検証失敗 / 他=build の exit code。
+
+### 29b. 検証（2026-06-22 実行）
+- `py_compile` PASS。`python3 refresh_db_master_safe.py` を1回実行 → exit 0。
+- xlsx 再生成（mtime 更新・主要6シート存在）、バックアップ＋ログ生成を確認。
+- 正本DB件数 不変（runs275 / laps1202 / lap_suspension1202 / race_results792）。
+- Excel オープン中の中止も確認（`~$` ロック作成→ exit 2 → ロック撤去）。
+
+### 29c. スコープ外（今回未実施・禁止遵守）
+- Workbench UI 変更・LaunchAgent・自動定期実行は**作らない**（手動実行ラッパーのみ）。
+- 正本DB業務テーブル書込・Supabase cleanup/sync・Phase 2B・origin push は**しない**。
+- `02_DATABASE/`（xlsx・backups・DB）は `05_SCRIPTS` git リポジトリ外のため commit 非対象。
+- 新規: `refresh_db_master_safe.py`。生成物（backups/*.xlsx, reports/*.log）は実行時アーティファクトで commit しない。
