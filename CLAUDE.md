@@ -1851,3 +1851,43 @@ PDFコピー済み:
 - PDF原文を丸ごと転載しない。要約・概念・式・TS24での使い方に整理する。
 - theory/referenceとして扱い、`ts24_unified.db` の実測値・Workbench記録・quality gate結果を上書きしない。
 - source noteにはPDFファイル名、取り込み日、要約範囲を明記する。
+
+---
+
+## 28. Supabase Audit 実装（read-only）— 2026-06-22 Claude Code 実施
+
+§25b の設計（`reports/supabase_audit_design_20260621.md`）に基づき `supabase_audit.py` を実装。
+**read-only 監査のみ**：local は SELECT（SQLite を `mode=ro` URI で接続）、remote は HTTP GET のみ。
+POST/PUT/PATCH/DELETE/upsert/sync を一切持たず、canonical DB / Supabase / Excel / JSON は不変。
+
+### 28a. 新規ファイル（3点）
+- `supabase_audit.py` — 監査本体（GET のみ・削除しない）
+- `reports/supabase_audit_20260622.md` — 監査レポート
+- `reports/cleanup_proposal_20260622.sql` — remote_extra の DELETE 案（**提案のみ・実行禁止**）
+
+### 28b. 設計の要点
+- 対象4テーブルと自然キーは §1c に準拠（race_results / lap_times / sessions_2d / lap_times_2d）。
+- local 投影は `sync_to_supabase.py` と同一ロジック（源テーブル・別名・WHERE）を `AUDIT_SPECS` に複製。
+  `sync_to_supabase.py` は import するとモジュール実行で実 upsert(POST) が走るため **import しない**
+  （sync 側の投影 SELECT を変えたら `AUDIT_SPECS` も更新すること）。
+- NULLS NOT DISTINCT を Python tuple の None 等価で再現。`date` は**比較時のみ**数字8桁へ正規化
+  （local `20250221` vs Supabase `2025-02-21` の偽差分回避）。**cleanup SQL は remote の原値**を使用。
+- 終了コード: 0=差分なし / 2=差分あり / 1=エラー。
+
+### 28c. 監査結果（2026-06-22 read-only 実行）
+| table | local | remote | remote_extra | missing |
+|---|---:|---:|---:|---:|
+| race_results | 792 | 792 | 0 | 0 |
+| lap_times | 7613 | 7613 | 0 | 0 |
+| sessions_2d | 246 | 259 | 13 | 0 |
+| lap_times_2d | 1202 | 1213 | 11 | 0 |
+
+- **missing は全テーブル 0**（local 正本は完全に Supabase へ反映済み）。
+- **remote_extra 計24件**（Supabase のみに存在＝online 残骸。sessions_2d=JEREZ TEST1 等で round 空・date NULL の行を含む、lap_times_2d=lap_no=1 アウトラップ等）。
+- cleanup SQL は提案のみ。SELECT で確認後 Tatsuki が Supabase 上で手動実行する（**自動削除・自動 sync しない**）。
+- canonical business table 不変を確認（runs275 / laps1202 / lap_suspension1202 / race_results792）。
+
+### 28d. スコープ外（未実施）
+- Supabase cleanup の実行・自動 sync・Supabase スキーマ変更。
+- **Phase 2B / Gate / canonical integration は未開始**（引き続き Tatsuki 承認制）。
+- 新規/変更: `supabase_audit.py`（新規）, `reports/supabase_audit_20260622.md`, `reports/cleanup_proposal_20260622.sql`, CLAUDE.md §28。
