@@ -1720,3 +1720,134 @@ Tatsuki指示により、§23 の `DB Master Report Helper / Similar Cases` 変�
 - Phase 2B へ進む前に、Supabase Audit 実装（read-only diff / cleanup SQL案生成 / 自動削除禁止）を優先候補とする。
 - その後、Workbenchの `Setup Decision` → `setup_decision_log` → `TS24 DB Master.xlsx` 定期再生成を、
   ロック検知・バックアップ・ログ付き wrapper + LaunchAgent として設計/実装する。
+
+---
+
+## 27. Obsidian LLM Wiki 運用骨格（2026-06-21 Codex 実施）
+
+添付資料「LLM Wiki」パターンをTS24向けに再設計し、Obsidianで使えるMarkdown Vault骨格を作成。
+
+### 27a. 作成場所
+
+```text
+08_OBSIDIAN/TS24_Engineering_Knowledge/
+```
+
+### 27b. 役割分担（確定）
+
+| 層 | 役割 |
+|---|---|
+| `02_DATABASE/ts24_unified.db` | 正本DB。telemetry/setup/抽出指標のsource of truth |
+| `TS24 DB Master.xlsx` | DB派生のReport/helper出力 |
+| Workbench | 入力・分析UI |
+| Supabase | cloud mirror。正本ではない |
+| Obsidian | 判断・設計・AI handoff・監査要約・人間可読のknowledge case |
+| `CLAUDE.md` | coding agent必読の最新ルール。Obsidianで置換しない |
+
+### 27c. 作成した主要ファイル
+
+- `README.md`
+- `PROJECT_RULES.md`
+- `CURRENT_STATE.md`
+- `index.md`
+- `log.md`
+- `03_AI_HANDOFF/AI_HANDOFF_LATEST.md`
+- `04_SYSTEM_DESIGN/TS24_LLM_WIKI_OPERATING_MANUAL.md`
+- `05_DB_AUDIT/DB_INVENTORY.md`
+- `90_TEMPLATES/AI_HANDOFF_TEMPLATE.md`
+- `90_TEMPLATES/DECISION_RECORD_TEMPLATE.md`
+- `90_TEMPLATES/DB_INVENTORY_TEMPLATE.md`
+- `90_TEMPLATES/SUPABASE_AUDIT_NOTE_TEMPLATE.md`
+- `90_TEMPLATES/KNOWLEDGE_CASE_TEMPLATE.md`
+- `90_TEMPLATES/WORKBENCH_CHANGELOG_TEMPLATE.md`
+
+### 27d. 運用ルール
+
+- ObsidianはDB値の正本ではない。数値判断は必ず `ts24_unified.db` / source file / commit / generated outputに戻る。
+- AI handoff開始時は `CLAUDE.md` → `CURRENT_STATE.md` → `AI_HANDOFF_LATEST.md` を読む。
+- Obsidian noteには可能な限り `run_id` / `lap_id` / `problem_id` / `decision_id` / commit hash / file path を記載。
+- LOW confidence のknowledge caseを断定的なsetup提案に使わない。
+- Obsidianは「AIチームの作戦室」。SQLiteは「事実の正本」。
+
+### 27d-2. Codex Obsidian運用権限（2026-06-22 Tatsuki承認）
+
+Tatsuki方針により、CodexはObsidian内で実際に活動し、TS24の運用レイヤーを維持してよい。
+ただしObsidianは正本DBではなく、DB管理は以下の安全ワークフローに限定する。
+
+```text
+Observe -> Audit -> Document -> Propose -> Wait for approval -> Implement if approved
+```
+
+Codexが追加承認なしで実施してよいこと:
+
+- Obsidianのhandoff / decision / index / log / DB inventory / audit note更新
+- `ts24_unified.db` の読み取り監査
+- スクリプト・レポート・Excel派生出力の読み取り確認
+- audit report / cleanup proposal SQL の生成
+
+明示承認が必要なこと:
+
+- `ts24_unified.db` のcanonical business table書き込み
+- DB行削除
+- Supabase cleanup実行
+- Phase 2B canonical integration開始
+- metric definition変更
+- dashboard JSON / derived data置換
+
+関連Obsidian decision:
+
+- `08_OBSIDIAN/TS24_Engineering_Knowledge/02_DECISIONS/2026-06-21_Obsidian_is_not_canonical.md`
+- `08_OBSIDIAN/TS24_Engineering_Knowledge/02_DECISIONS/2026-06-22_Codex_operates_via_Obsidian.md`
+
+### 27e. PDF理論資料のObsidian取り込み（2026-06-22 Codex準備）
+
+UWTSD / motorcycle dynamics系PDFは理論参照としてObsidianへ保存する。ただしPDF previewの一時パス
+(`/var/folders/.../remote-file-preview-*`) は消えるため、抽出前に必ずVault内の安定フォルダへ置くこと。
+
+安定保存先:
+
+```text
+08_OBSIDIAN/TS24_Engineering_Knowledge/10_RAW_SOURCE_NOTES/PDF_SOURCES/
+```
+
+追加済み:
+
+- `10_RAW_SOURCE_NOTES/PDF_SOURCES/PDF_INGESTION_STATUS.md`
+- `11_ENGINEERING_KNOWLEDGE/Motorcycle_Dynamics_Index.md`
+- `11_ENGINEERING_KNOWLEDGE/Motorcycle_Dynamics_Source_Summary.md`
+- `11_ENGINEERING_KNOWLEDGE/Suspension_Damping.md`
+- `11_ENGINEERING_KNOWLEDGE/Suspension_Mathematics.md`
+- `11_ENGINEERING_KNOWLEDGE/Chassis_Geometry_Fundamentals.md`
+- `11_ENGINEERING_KNOWLEDGE/Limited_Acceleration_and_Cornering.md`
+- `11_ENGINEERING_KNOWLEDGE/Tyre_Fundamentals.md`
+- `11_ENGINEERING_KNOWLEDGE/TwoD_Analyzer_CalcTool_Workflow.md`
+- `11_ENGINEERING_KNOWLEDGE/Setup_Reference_Source_Index.md`
+
+PDFコピー済み:
+
+- `Week 1.1 - Module Introduction.pdf`
+- `Week 1.3 - Limited Accelerations & Basic Cornering.pdf`
+- `Week 1.4 - Understanding Suspension Design.pdf`
+- `Week 1.6 - Suspension & Mathematics.pdf`
+- `Trackday Guide to Suspension Setup.pdf`
+- `FKR-1xx-setting-library-version-1.0.pdf`
+- `2025_JA52_AllSetUP.pdf`
+- `AC-DOC_Analyzer_e-000.pdf`
+- `AC-DOC_CalcTool.pdf`
+- `AC-DOC_2D_GPSTracks.pdf`
+
+未発見:
+
+- `Week 1.5 - Suspension & Damping.pdf`
+- `Motorcycle Dynamics 2019.pdf`
+
+今後の追加候補:
+
+- 未発見の `Week 1.5 - Suspension & Damping.pdf` が見つかったら `Suspension_Damping.md` を追補する。
+- 未発見の `Motorcycle Dynamics 2019.pdf` が見つかったら `Motorcycle_Dynamics_Source_Summary.md` と関連ノートを追補する。
+
+ルール:
+
+- PDF原文を丸ごと転載しない。要約・概念・式・TS24での使い方に整理する。
+- theory/referenceとして扱い、`ts24_unified.db` の実測値・Workbench記録・quality gate結果を上書きしない。
+- source noteにはPDFファイル名、取り込み日、要約範囲を明記する。
