@@ -1923,3 +1923,36 @@ Workbench で記録した `setup_decision_log`（→ `SETUP_EFFECTS`）等を `T
 - 正本DB業務テーブル書込・Supabase cleanup/sync・Phase 2B・origin push は**しない**。
 - `02_DATABASE/`（xlsx・backups・DB）は `05_SCRIPTS` git リポジトリ外のため commit 非対象。
 - 新規: `refresh_db_master_safe.py`。生成物（backups/*.xlsx, reports/*.log）は実行時アーティファクトで commit しない。
+
+---
+
+## 30. Result PDF 抽出精度監査（read-only）— 2026-06-23 Claude Code 実施
+
+Workbench `Race Analysis` のラップデータ精度が低い件（ROUND3/RACE1 で #77 が空欄）を read-only 監査。
+新規 `audit_pdf_lap_extraction.py`（SQLite `mode=ro` / DB 書込なし / PDF は `pdf_result_extractor_v2.extract_pdf()`
+のみ・`write_to_db()` 不使用）。出力 `reports/pdf_lap_extraction_audit_20260623.md`。**正本DB等は一切無変更**。
+
+### 30a. 根本原因（コード監査・確定）
+- Workbench `RaceAnalysisTab` は **`pdf_lap_times` のみ参照**。ライダー一覧も
+  `SELECT DISTINCT rider_num FROM pdf_lap_times`（`ts24_workbench.py` L4983-4987）→ 行が無いライダーは**選択肢に出ず空欄**。
+- `pdf_result_extractor_v2.write_to_db()` はラップ明細を **`pdf_lap_times_v2`** に書く設計（L461/L504）だが、
+  正本DBに `pdf_lap_times_v2` は **存在しない**（v2 の `--laps --write` は正本へ未実行）。
+- `apply_pdf_positions_v2.py` は `race_results` の position/best_lap のみ UPSERT。**ラップ明細は更新しない**
+  → race_results=v2反映済 / pdf_lap_times=旧抽出（不完全）の不一致。
+
+### 30b. 監査結果（`--all` / 46 セッション）
+- race_results にあって pdf_lap_times に無い **team rider(#77/#52) 欠落 = 27 セッション**、field 欠落計 **480**。
+- lap 数不一致（pdf valid≠race_results.laps・共通ライダー）**258 件**、best_lap 乖離(>0.5s)**41 件**。
+- 具体例 ROUND3/RACE1/#77: race_results=`D.AEGERTER pos6 18laps best97.35`、**pdf_lap_times=0 行**。
+  v2 再パース=**18 laps / valid17 / best 97.350**（race_results と一致）→ v2 で取得可能、未反映なだけ。
+
+### 30c. 推奨次作業（いずれも要 Tatsuki 承認・本監査では未実施）
+1. **v2 を scratch table 化 + Gate**（推奨）: 全 RACE/QP 等を `--all-riders --laps` 抽出 → `/tmp`/scratch の
+   `pdf_lap_times_v2` へ → `race_results.laps`/`best_lap_s` と突合 Gate（PASS のみ採用）。
+2. **Workbench を検証済みテーブル参照に切替**（Gate 通過後・UI 変更は別タスク・要承認）。
+3. 旧 `pdf_lap_times` の直接修正は非推奨（出所不明・上書きより Gate 付き再構築が安全）。
+
+### 30d. スコープ外（禁止遵守）
+- pdf_lap_times / race_results の書込・削除なし、v2 結果の正本流し込みなし、Workbench 参照先変更なし、
+  Supabase cleanup/sync なし、Phase 2B 未着手、origin push なし。
+- 新規: `audit_pdf_lap_extraction.py` / `reports/pdf_lap_extraction_audit_20260623.md`。
