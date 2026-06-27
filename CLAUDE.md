@@ -1956,3 +1956,86 @@ Workbench `Race Analysis` のラップデータ精度が低い件（ROUND3/RACE1
 - pdf_lap_times / race_results の書込・削除なし、v2 結果の正本流し込みなし、Workbench 参照先変更なし、
   Supabase cleanup/sync なし、Phase 2B 未着手、origin push なし。
 - 新規: `audit_pdf_lap_extraction.py` / `reports/pdf_lap_extraction_audit_20260623.md`。
+
+---
+
+## 31. Result PDF v2 統合設計（P0 / 設計 + read-only 試験）— 2026-06-25 Claude Code 実施
+
+§30 の監査を受け、Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-25）の P0 タスクとして、v2 ラップ明細を
+**安全に統合する設計**と read-only 試験を実施。**正本DB書込・Workbench 参照先変更・Phase 2B・origin push なし**。
+設計書 = `reports/pdf_v2_integration_design_20260625.md` / Obsidian `05_DB_AUDIT/2026-06-25_pdf_v2_integration_design.md`。
+
+### 31a. read-only 試験（ROUND3/RACE1・新証拠）
+- 旧 `pdf_lap_times` は本セッションで全ライダー 8/10/14 laps に切断（18周レース）。#77=0行、#52=8行/best97.823（誤）。
+- v2 `--all-riders --dry-run`: 完走勢ほぼ全員 18 laps、best_lap は `race_results` と**完全一致**（#52→97.457 正）。
+- **唯一の不一致=カバレッジ**: `race_results` の **#73(18laps/best99.252) を v2 が取りこぼし**（chrono ヘッダ正規表現の漏れ）。
+  → 「v2 無条件採用」は不可。**`race_results` を真値基準にした Gate（特にカバレッジ照合 G1）が必須**。
+
+### 31b. スキーマ・ギャップ（最重要）
+- `RaceAnalysisTab` は `pdf_lap_times` の `is_outlap`/`is_pit`/`is_cancelled`（フィルタ）と `seg1..seg4`（セクター分析・
+  `seg1 IS NOT NULL`）も使用。だが v2 lap dict は `lap_no/lap_time/lap_time_s/is_cancelled` のみ。
+  → seg/速度/local_time/is_outlap/is_pit を欠く。**判断事項**: (A) v2 拡張で完全互換（推奨・seg/speed/localtime 行は
+  v2 が既に読んでいるので収集可）／(B) NULL 許容ローンチ（軽量だがセクター分析が機能後退）。
+
+### 31c. scratch / Gate 設計
+- staging = **`pdf_lap_times_v2_staging`**（`pdf_lap_times` 互換 + 来歴列 source_file/extractor_version/generated_at/
+  gate_status）。自然キー (round,session_type,rider_num,lap_no,date)=§1c 整合。まず `/tmp/ts24_pdf_v2_scratch.db` で生成・検証。
+- Gate（単位=session×rider・真値=`race_results`）: G1 カバレッジ / G2 lap数差≤1 / G3 best差≤0.05s / G4 lap_no重複なし /
+  G5 物理レンジ / G6 来歴必須。**FAIL は正本へ絶対不採用**、結果は行 `gate_status` + `data_quality_log`(`gate_*`) に二重記録。
+
+### 31d. MarkItDown
+- **ローカル未インストール**（`import markitdown`→ModuleNotFoundError）。fitz(PyMuPDF)1.26.5 は利用可。
+- network install は要 Tatsuki 承認のため本作業では導入せず。承認時は v2 取りこぼし検出の二次テキストソース
+  （正本抽出器にはしない／LLM 補完禁止）。当面 G1 カバレッジは fitz の全文照合で代替可能。
+
+### 31e. スコープ外（禁止遵守）/ 次手順
+- `--write` 不使用（`--dry-run` のみ）。staging も正本未作成。pdf_lap_times/race_results 不変。Phase 2B 未着手。push なし。
+- 実装手順（承認後・別タスク）: v2拡張→scratch生成→Gate→FAIL原因調査(#73)→承認→正本 staging 反映→Workbench 参照切替。
+- 新規: `reports/pdf_v2_integration_design_20260625.md`。
+
+---
+
+## 32. Result PDF v2 extractor 拡張 + scratch Gate 実装（2026-06-25 Claude Code 実施）
+
+§31 設計の Tatsuki 採用方針（**スキーマ A=v2拡張で `pdf_lap_times` 互換** / MarkItDown 不採用 /
+#73 は Gate隔離＋正規表現補修優先 / 正本反映と Workbench 切替はまだ）を受け、**正本DB外（`/tmp` scratch）の
+read-only 検証まで**を実装。**正本DB業務テーブルは before==after で不変を機械検証**。Obsidian
+`00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-25 第2タスク）。
+
+### 32a. `pdf_result_extractor_v2.py` 拡張（pdf_lap_times 互換化）
+- `extract_pdf()` の lap dict に `seg1..seg4`/`speed`/`local_time`/`is_pit`/`is_outlap` を追加（既存
+  `lap_no`/`lap_time`/`lap_time_s`/`is_cancelled` は不変＝**無回帰**。`audit_pdf_lap_extraction.py` も正常）。
+- **セグメント写像 `_map_segments()`**: Chronological の読み順 `[r0,r1(=laptime同一行),r2,r3]` →
+  `seg1=r2, seg2=r3, seg3=r0, seg4=r1`。**ASSEN/BALATON/JEREZ の `pdf_lap_times` と全一致で較正**。
+  品質保全のため **4セグ揃い かつ sum(seg)≈lap_time(±0.05s) のラップのみ充填**、他（スタートラップ等）は
+  **NULL**（誤割当・捏造を防ぐ）。`speed`/`local_time`/`is_pit`(P マーカー) は確実に取得。
+  `is_outlap` は race=0 既定（FP/QP の精緻化は将来課題）。
+- `pdf_lap_times_v2` CREATE と `write_to_db()` も新列対応（`EXTRACTOR_VERSION` 来歴付き）。
+
+### 32b. `pdf_v2_scratch_gate.py`（新規・read-only / scratch + Gate）
+- 正本DB `mode=ro`。`/tmp/ts24_pdf_v2_scratch.db` に **`pdf_lap_times_v2_staging`**（互換列＋来歴
+  source_file/extractor_version/generated_at＋gate_status＋自然キー §1c）を生成し v2 抽出を投入。
+- **Gate G1〜G6**（単位=session×rider・真値=`race_results`）: G1 coverage / G2 lap数差≤1 / G3 best差≤0.05s
+  (≤0.5=WARNING) / G4 lap_no重複 / G5 physical range×[0.90,1.60] / G6 来歴必須。FAIL は採用しない。
+- **真値フィルタの確定事項（新発見）**: `race_results` は同一 round ラベルで **COMPANY(=BSB) と WorldSSP が
+  混在**（例 ROUND2/RACE1 = DONINGTON(BSB) + PORTIMAO(SSP)）。Result PDF は WorldSSP のため真値を
+  `data_scope <> 'COMPANY'` に限定 → 偽 FAIL を 87→16 に是正。
+
+### 32c. 検証結果（read-only / `--all` 45 PDF）
+- **正本DB業務テーブル不変**: runs275/laps1202/lap_suspension1202/race_results792/pdf_lap_times7613（before==after）。
+- **重点 ROUND3/RACE1**: #52 **PASS**(18 laps/best97.457一致)・#77 **PASS**(18 laps/best97.350一致＝欠落解消)・
+  #73 **FAIL**（results-only＝原文 Chronological に per-lap データ無し。正規表現バグではなくソース制約のため補完しない）。
+- 全体 rider 単位: PASS 425 / WARNING 805 / FAIL 16。RACE は概ね高 PASS。
+  - **FAIL 16 の主因=results-only 11**（chrono 区間なし）/ 完全欠落2(ROUND6 RACE2 #63/#87)/ best差2 / lap数差1。
+  - **非 RACE(SP/QP/FP/WUP) の WARNING 多数**は `is_outlap`/`is_pit` 未完全導出（out/in ラップが G5 超過）＋
+    `race_results.laps` のレース距離基準と予選/練習の周回意味差。→ 非 RACE clean 化は is_outlap 導出＋
+    session-type 別 Gate が次段階で必要（既知ギャップ）。
+- レポート: `reports/pdf_v2_gate_20260625.md`。py_compile PASS（両スクリプト）。既存 v2 dry-run 無回帰。
+
+### 32d. スコープ外（禁止遵守）/ 次手順
+- 正本DBへの書込なし / 正本DB内 staging 作成なし / v2 `--write` を正本へ実行せず / Workbench 参照先変更なし /
+  Supabase なし / Phase 2B 未着手 / MarkItDown install なし / origin push なし。
+- **次（要 Tatsuki 承認・別タスク）**: ①results-only/FAIL の扱い確定（summary のみ別管理 or 除外）
+  ②PASS 行のみ正本DB内 `pdf_lap_times_v2_staging` へ反映 ③Workbench 参照切替＋データ品質表示（UI 変更）
+  ④非 RACE 向け is_outlap 導出 + session-type 別 Gate。
+- 新規: `pdf_v2_scratch_gate.py` / `reports/pdf_v2_gate_20260625.md`。変更: `pdf_result_extractor_v2.py`。

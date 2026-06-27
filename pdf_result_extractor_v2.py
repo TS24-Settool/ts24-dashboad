@@ -53,6 +53,9 @@ DEFAULT_DB = DATA_ROOT / "02_DATABASE" / "ts24_unified.db"
 
 TARGET_RIDERS = {77, 52}
 
+# 抽出器バージョン（staging の来歴列 extractor_version に記録）
+EXTRACTOR_VERSION = "pdf_result_extractor_v2"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [PDFv2] %(message)s",
@@ -223,6 +226,36 @@ _LAPNO = re.compile(r"^\s*(\d{1,2})\s*$")
 _LAPTIME_INLINE = re.compile(r"^(?!\s*\d{1,2}:)(?:.*\s)?(\d{1,2}'\d{2}\.\d{3})\s*[CP]*\s*$")
 _SEG = re.compile(r"^\s*\d{1,2}\.\d{3}\s*[CP]*\s*$")
 _SPEED = re.compile(r"^\s*\d{3},\d\s*$")
+# 値取り出し用（pdf_lap_times 互換列の抽出に使用）:
+#   _SEG_VAL    … 単独セグメント行 "      27.502"
+#   _COMBINED_SEG … セグメント + ラップタイムが同一行 "      22.316     1'37.997"
+#   _SPEED_VAL  … 速度行 "254,1"（European 小数点 → 254.1）
+_SEG_VAL = re.compile(r"^\s*(\d{1,2}\.\d{3})\s*[CP]*\s*$")
+_COMBINED_SEG = re.compile(r"^\s*(\d{1,2}\.\d{3})\s+\d{1,2}'\d{2}\.\d{3}\s*[CP]*\s*$")
+_SPEED_VAL = re.compile(r"^\s*(\d{3},\d)\s*$")
+
+
+def _map_segments(raw_segs: list[float], lap_time_s: float | None,
+                  tol: float = 0.05) -> tuple:
+    """
+    Chronological のセグメント値（PyMuPDF 読み順）を pdf_lap_times の
+    seg1..seg4 へ写像する。
+
+    2D/Dorna 公式リザルトの Chronological レイアウトでは、1ラップの
+    セグメント値が読み順 [r0, r1(=ラップタイムと同一行), r2, r3] で並び、
+    実測較正（ASSEN/BALATON/JEREZ の pdf_lap_times と全一致）により
+      seg1 = r2, seg2 = r3, seg3 = r0, seg4 = r1
+    が確定している。
+
+    **品質保全のため、4 セグメント揃い、かつ sum(segs) ≈ lap_time_s
+    （許容 tol 秒）を満たすラップのみ写像する。** それ以外（スタート
+    ラップ等でセグメントが 3 個しか無い／合計が合わない）は推測せず
+    (None, None, None, None) を返す（捏造・誤割当を防ぐ）。
+    """
+    if (len(raw_segs) == 4 and lap_time_s is not None
+            and abs(sum(raw_segs) - lap_time_s) <= tol):
+        return (raw_segs[2], raw_segs[3], raw_segs[0], raw_segs[1])
+    return (None, None, None, None)
 # ローカルタイム "14:02'15.506" — HH:MM'SS.mmm（時刻）。
 # 生成系により速度と同一行になる場合がある（"275,5 14:02'52.539"）ため、
 # 行末がローカルタイムであれば一致させる（行頭限定にしない）。
@@ -301,7 +334,11 @@ def parse_chronological(lines: list[str], all_riders: bool) -> dict[int, dict]:
                 lap_no = int(lm.group(1))
                 lap_time = None
                 cancelled = False
+                pit = False
                 local_time_seen = False
+                local_time = None
+                speed = None
+                raw_segs: list[float] = []  # PyMuPDF 読み順のセグメント値
                 # ラップブロックは「ラップ番号 → セグメント群（うち1行にラップタイム）
                 # → 速度 → ローカルタイム」で構成され、必ずローカルタイムで終わる。
                 # ローカルタイムで閉じないブロックは集計表のノイズ → 不採用。
@@ -312,28 +349,64 @@ def parse_chronological(lines: list[str], all_riders: bool) -> dict[int, dict]:
                     s = raw.strip()
                     if _RIDER_HDR.match(s) or _RACETIME.match(s) or _SECTION_END.match(s):
                         break
-                    if _LOCALTIME.search(s):
+                    lt_m = _LOCALTIME.search(s)
+                    if lt_m:
                         local_time_seen = True
+                        local_time = lt_m.group(0).strip()
                         k += 1
                         break
                     if _LAPNO.match(raw):
                         # 次のラップ番号（速度 246,4 等は _LAPNO に当たらない）
                         break
+                    # 速度行（254,1）
+                    sp_m = _SPEED_VAL.match(raw)
+                    if sp_m:
+                        speed = float(sp_m.group(1).replace(",", "."))
+                        k += 1
+                        continue
+                    # セグメント + ラップタイム同一行（読み順 r1 のセグメントを保持）
+                    cs_m = _COMBINED_SEG.match(raw)
                     if lap_time is None:
                         tm = _LAPTIME_INLINE.match(raw)
                         if tm:
                             lap_time = tm.group(1)
-                            cancelled = "C" in s.split(lap_time, 1)[-1]
+                            tail = s.split(lap_time, 1)[-1]
+                            cancelled = "C" in tail
+                            pit = pit or ("P" in tail)
+                            if cs_m:
+                                raw_segs.append(float(cs_m.group(1)))
+                            k += 1
+                            continue
                     elif s == "C":
                         # ASSEN系では C（Lap Time Cancelled）が Seg.4 の後の独立行に出る
                         cancelled = True
+                        k += 1
+                        continue
+                    elif s == "P":
+                        pit = True
+                        k += 1
+                        continue
+                    # 単独セグメント行（27.502 等）— 読み順を保持
+                    seg_m = _SEG_VAL.match(raw)
+                    if seg_m:
+                        raw_segs.append(float(seg_m.group(1)))
+                        if "P" in s:
+                            pit = True
                     k += 1
                 if lap_time and local_time_seen:
+                    lts = parse_time_s(lap_time)
+                    seg1, seg2, seg3, seg4 = _map_segments(raw_segs, lts)
                     cur["laps"].append({
                         "lap_no": lap_no,
                         "lap_time": lap_time,
-                        "lap_time_s": parse_time_s(lap_time),
+                        "lap_time_s": lts,
                         "is_cancelled": int(cancelled),
+                        "is_pit": int(pit),
+                        "is_outlap": 0,   # race chrono にアウトラップ概念なし。FP/QP の精緻化は将来課題
+                        "speed": speed,
+                        "local_time": local_time,
+                        "seg1": seg1, "seg2": seg2, "seg3": seg3, "seg4": seg4,
+                        "raw_segs": raw_segs,
                     })
                     i = k
                     continue
@@ -468,10 +541,16 @@ def _ensure_tables(conn: sqlite3.Connection):
         rider_num     INTEGER,
         rider_name    TEXT,
         lap_no        INTEGER,
+        seg1 REAL, seg2 REAL, seg3 REAL, seg4 REAL,   -- 4セグ揃い & sum≈laptime のみ充填(他はNULL)
         lap_time      TEXT,
         lap_time_s    REAL,
+        speed         REAL,
+        local_time    TEXT,
+        is_outlap     INTEGER DEFAULT 0,
+        is_pit        INTEGER DEFAULT 0,
         is_cancelled  INTEGER DEFAULT 0,
         source_file   TEXT,
+        extractor_version TEXT,
         imported_at   TEXT DEFAULT (datetime('now','localtime'))
     );
     """)
@@ -503,13 +582,16 @@ def write_to_db(result: dict, source_file: str, db_path: Path,
                 conn.execute(
                     """INSERT INTO pdf_lap_times_v2
                        (round, circuit, session_type, date, position, rider_num,
-                        rider_name, lap_no, lap_time, lap_time_s, is_cancelled,
-                        source_file, imported_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        rider_name, lap_no, seg1, seg2, seg3, seg4, lap_time, lap_time_s,
+                        speed, local_time, is_outlap, is_pit, is_cancelled,
+                        source_file, extractor_version, imported_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (m.get("round"), m.get("circuit"), m.get("session_type"), m.get("date"),
                      r.get("position"), num, r.get("rider_name"),
-                     lp["lap_no"], lp["lap_time"], lp["lap_time_s"], lp["is_cancelled"],
-                     source_file, now),
+                     lp["lap_no"], lp.get("seg1"), lp.get("seg2"), lp.get("seg3"), lp.get("seg4"),
+                     lp["lap_time"], lp["lap_time_s"], lp.get("speed"), lp.get("local_time"),
+                     lp.get("is_outlap", 0), lp.get("is_pit", 0), lp["is_cancelled"],
+                     source_file, EXTRACTOR_VERSION, now),
                 )
                 n_lap += 1
     conn.commit()
