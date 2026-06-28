@@ -20,6 +20,7 @@ import streamlit as st
 import plotly.graph_objects as go
 
 from . import engine
+from . import circuit_map
 from .parse_analysis_pdf import parse_analysis_bytes
 
 _DATA_DIR = Path(__file__).parent / "data"
@@ -41,7 +42,9 @@ def _fmt_delta(d):
 def _parse_pdf_cached(data: bytes):
     parsed = parse_analysis_bytes(data)
     df = engine.laps_to_df(parsed)
-    return df, engine.session_label(parsed["meta"])
+    meta = parsed["meta"]
+    slug = circuit_map.detect_slug(meta.get("event")) or circuit_map.detect_slug(meta.get("session"))
+    return df, engine.session_label(meta), slug
 
 
 @st.cache_data(show_spinner=False)
@@ -102,9 +105,10 @@ def _data_source():
 
     if up is not None:
         try:
-            df, label = _parse_pdf_cached(up.getvalue())
+            df, label, slug = _parse_pdf_cached(up.getvalue())
             st.session_state["mgp_df"] = df
             st.session_state["mgp_label"] = label
+            st.session_state["mgp_circuit"] = slug
         except Exception as e:  # noqa: BLE001
             st.error(f"Could not parse this PDF: {e}")
             st.caption("Make sure it is the **Analysis / Chronological Analysis "
@@ -115,6 +119,7 @@ def _data_source():
             df = _load_demo("demo_qatar_motogp_fp1.csv")
             st.session_state["mgp_df"] = df
             st.session_state["mgp_label"] = "DEMO · MotoGP · Qatar · Free Practice 1"
+            st.session_state["mgp_circuit"] = "losail"
         except Exception as e:  # noqa: BLE001
             st.error(f"Demo unavailable: {e}")
 
@@ -200,40 +205,57 @@ def _tab_track_map(df, cls):
     my_no, ref_no, mode, my_lbl, ref_lbl = _rider_pickers(cls, "map")
     if my_no is None or ref_no is None:
         return
-    k = st.slider("Microsectors per official sector", 1, 4, 2,
-                  help="1 = the four real sectors (T1–T4). >1 spreads each "
-                       "sector's delta evenly across equal parts (a display "
-                       "model — refine the boundaries with your own definition).")
-    strip = engine.microsector_strip(df, my_no, ref_no, k=k, mode=mode)
+    deltas = engine.sector_deltas(df, my_no, ref_no, mode)      # 4 REAL sectors
+    labels = ["T1", "T2", "T3", "T4"]
 
-    st.markdown(f"Where **{my_lbl}** gains / loses vs **{ref_lbl}**  "
-                f"·  {4*k} microsectors  ·  basis *{mode}*")
+    st.markdown(f"Where **{my_lbl}** gains / loses vs **{ref_lbl}**  ·  "
+                f"4 official sectors  ·  basis *{mode}*")
 
+    # pick circuit geometry: auto from session, else let the user choose
+    slug = st.session_state.get("mgp_circuit")
+    avail = circuit_map.available_slugs()
+    sel = st.selectbox("Circuit layout", ["(auto)"] + avail,
+                       index=(["(auto)"] + avail).index(slug) if slug in avail else 0)
+    use_slug = slug if sel == "(auto)" else sel
+
+    circ = circuit_map.load_circuit(use_slug) if use_slug else None
+    if circ is not None:
+        fig = circuit_map.build_track_figure(circ, deltas, labels)
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(f"Real **{use_slug}** layout. Colour per sector = real timing "
+                   "delta. Sector *boundaries* are placed by equal track distance "
+                   "(MotoGP does not publish intermediate positions), so treat the "
+                   "split points as approximate — the colour is real.")
+    else:
+        _sector_strip(deltas, labels)
+        st.caption("No bundled layout matched this circuit — showing the 4 real "
+                   "sectors as a strip. (Bundled layouts: "
+                   f"{', '.join(avail) or '—'}.)")
+
+    _colour_legend()
+    valid = [(l, d) for l, d in zip(labels, deltas) if d == d]  # drop NaN
+    if valid:
+        worst = max(valid, key=lambda t: t[1])
+        if worst[1] > 0.03:
+            st.warning(f"Biggest loss: **{worst[0]}** → {_fmt_delta(worst[1])}s")
+    st.info("ℹ️ MotoGP's free timing has only 4 real sectors per lap — there is no "
+            "finer measurement, so we do **not** fake sub-sector splits. Feed a "
+            "mini-sector / GPS source and the tool will show real microsectors.")
+
+
+def _sector_strip(deltas, labels):
     fig = go.Figure()
-    for _, r in strip.iterrows():
-        col = engine.delta_colour(r["delta"])
-        fig.add_shape(type="rect", x0=r["x0"], x1=r["x1"], y0=0, y1=1,
-                      line=dict(color="#FFFFFF", width=1), fillcolor=col, layer="below")
-        fig.add_annotation(x=r["xc"], y=0.5, text=_fmt_delta(r["delta"]),
-                           showarrow=False, font=dict(size=10, color="#111"))
-    # sector boundary labels
-    for si, s in enumerate(["T1", "T2", "T3", "T4"]):
-        fig.add_annotation(x=(si + 0.5) / 4, y=1.18, text=s, showarrow=False,
-                           font=dict(size=12, color="#333", family="Arial"))
+    for i, (lab, d) in enumerate(zip(labels, deltas)):
+        fig.add_shape(type="rect", x0=i / 4, x1=(i + 1) / 4, y0=0, y1=1,
+                      line=dict(color="#FFFFFF", width=1),
+                      fillcolor=engine.delta_colour(d), layer="below")
+        fig.add_annotation(x=(i + 0.5) / 4, y=0.5, text=f"{lab}\n{_fmt_delta(d)}",
+                           showarrow=False, font=dict(size=11, color="#111"))
     fig.update_xaxes(visible=False, range=[0, 1])
-    fig.update_yaxes(visible=False, range=[0, 1.3])
-    fig.update_layout(height=160, margin=dict(l=6, r=6, t=10, b=6),
+    fig.update_yaxes(visible=False, range=[0, 1])
+    fig.update_layout(height=120, margin=dict(l=6, r=6, t=6, b=6),
                       plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF")
     st.plotly_chart(fig, use_container_width=True)
-    _colour_legend()
-
-    worst = strip.loc[strip["delta"].idxmax()] if strip["delta"].notna().any() else None
-    if worst is not None and worst["delta"] > 0.03:
-        st.warning(f"Biggest loss: **{worst['sector']}** "
-                   f"(microsector {int(worst['ms'])}) → {_fmt_delta(worst['delta'])}s")
-    st.caption("Track strip = start→finish lap progression (left→right). "
-               "Sector times are real timing data; sub-sector split is an equal-time "
-               "model for placing colour. A real circuit-layout overlay is the next step.")
 
 
 def _colour_legend():

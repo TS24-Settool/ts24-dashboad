@@ -112,6 +112,14 @@ def rider_sectors(df: pd.DataFrame, rider_no, mode: str = "best") -> dict:
     return {s: getattr(fly[s], agg)() if not fly.empty else np.nan for s in SECTORS}
 
 
+def sector_deltas(df: pd.DataFrame, my_no, ref_no, mode: str = "best") -> list:
+    """[d_T1..d_T4] = (my - ref) per official sector. NaN where unavailable."""
+    mine = rider_sectors(df, my_no, mode)
+    ref = rider_sectors(df, ref_no, mode)
+    return [(mine[s] - ref[s]) if (pd.notna(mine[s]) and pd.notna(ref[s])) else np.nan
+            for s in SECTORS]
+
+
 def sector_delta_table(df: pd.DataFrame, my_no, ref_no) -> pd.DataFrame:
     """Per-sector Avg/Best/Median delta (my - ref). Negative = my rider faster."""
     rows = []
