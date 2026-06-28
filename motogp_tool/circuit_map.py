@@ -111,58 +111,92 @@ def load_circuit(slug: str):
         P = np.roll(P, -start, axis=0)
     if not np.allclose(P[0], P[-1]):
         P = np.vstack([P, P[0]])                              # close the loop
-    return {"slug": slug, "pts": P, "name": raw.get("slug", slug)}
+
+    corners = []
+    for c in raw.get("corners", []):
+        lo = c.get("lonlat")
+        if lo:
+            corners.append({"n": c.get("n"), "frac": c.get("frac"),
+                            "xy": [lo[0] * k, lo[1]]})
+    return {"slug": slug, "pts": P, "name": raw.get("slug", slug),
+            "corners": corners}
 
 
-def _sector_index_ranges(P: np.ndarray, n: int = 4):
-    """Split the closed lap polyline into n contiguous index ranges of equal
-    track distance. Returns list of index arrays (sharing boundary vertices)."""
+def _lap_cumfrac(P: np.ndarray):
     seg = np.sqrt((np.diff(P, axis=0) ** 2).sum(axis=1))
     cum = np.concatenate([[0.0], np.cumsum(seg)])
-    total = cum[-1]
-    bounds = [total * i / n for i in range(n + 1)]
+    return cum / cum[-1]
+
+
+def _sector_index_ranges(P: np.ndarray, bounds):
+    """Split the closed lap polyline at the given internal boundary fractions
+    (e.g. [0.25, 0.5, 0.75]) -> len(bounds)+1 contiguous index ranges."""
+    cf = _lap_cumfrac(P)
+    edges = [0.0] + sorted(float(b) for b in bounds) + [1.0]
     ranges = []
-    for i in range(n):
-        lo, hi = bounds[i], bounds[i + 1]
-        idx = np.where((cum >= lo) & (cum <= hi))[0]
-        if len(idx) < 2:                                      # guarantee a drawable segment
-            j = int(np.argmin(np.abs(cum - (lo + hi) / 2)))
+    for i in range(len(edges) - 1):
+        lo, hi = edges[i], edges[i + 1]
+        idx = np.where((cf >= lo) & (cf <= hi))[0]
+        if len(idx) < 2:
+            j = int(np.argmin(np.abs(cf - (lo + hi) / 2)))
             idx = np.array([max(0, j - 1), j])
         ranges.append(idx)
     return ranges
 
 
-def build_track_figure(circuit: dict, sector_deltas, labels=None) -> go.Figure:
-    """sector_deltas = [d_T1..d_T4] (my - ref, seconds). Colour the real layout."""
+def build_track_figure(circuit: dict, sector_deltas, bounds=None,
+                       labels=None, show_turns=True) -> go.Figure:
+    """Colour the real layout by sector. `bounds` = internal boundary fractions
+    (len = len(sector_deltas)-1); defaults to equal split."""
     P = circuit["pts"]
-    ranges = _sector_index_ranges(P, len(sector_deltas))
+    n = len(sector_deltas)
+    if not bounds:
+        bounds = [i / n for i in range(1, n)]
+    ranges = _sector_index_ranges(P, bounds)
     fig = go.Figure()
-    # faint full outline underneath
     fig.add_trace(go.Scatter(x=P[:, 0], y=P[:, 1], mode="lines",
-                             line=dict(color="#E5E7EB", width=11),
+                             line=dict(color="#E5E7EB", width=12),
                              hoverinfo="skip", showlegend=False))
     for i, idx in enumerate(ranges):
         seg = P[idx]
-        d = sector_deltas[i]
-        lab = (labels[i] if labels else f"T{i+1}")
+        d = sector_deltas[i] if i < len(sector_deltas) else float("nan")
+        lab = (labels[i] if labels and i < len(labels) else f"T{i+1}")
         txt = f"{lab}: {'—' if d is None or (isinstance(d,float) and math.isnan(d)) else f'{d:+.3f}s'}"
         fig.add_trace(go.Scatter(
             x=seg[:, 0], y=seg[:, 1], mode="lines",
             line=dict(color=engine.delta_colour(d), width=7),
             name=txt, hoverinfo="name", showlegend=False))
-        # sector label at its midpoint
         mid = seg[len(seg) // 2]
         fig.add_annotation(x=mid[0], y=mid[1], text=lab, showarrow=False,
-                           font=dict(size=11, color="#111", family="Arial"),
-                           bgcolor="rgba(255,255,255,0.6)")
+                           font=dict(size=12, color="#111", family="Arial"),
+                           bgcolor="rgba(255,255,255,0.7)")
+    # turn-number markers (guides for placing boundaries)
+    if show_turns and circuit.get("corners"):
+        cx = [c["xy"][0] for c in circuit["corners"]]
+        cy = [c["xy"][1] for c in circuit["corners"]]
+        ct = [str(c["n"]) for c in circuit["corners"]]
+        fig.add_trace(go.Scatter(x=cx, y=cy, mode="markers+text",
+                                 marker=dict(size=13, color="#FFFFFF",
+                                             line=dict(color="#111", width=1)),
+                                 text=ct, textfont=dict(size=8, color="#111"),
+                                 textposition="middle center",
+                                 hoverinfo="text", showlegend=False))
+    # sector-boundary markers on track
+    cf = _lap_cumfrac(P)
+    for b in bounds:
+        j = int(np.argmin(np.abs(cf - b)))
+        fig.add_trace(go.Scatter(x=[P[j, 0]], y=[P[j, 1]], mode="markers",
+                                 marker=dict(size=10, color="#111", symbol="line-ns",
+                                             line=dict(width=3, color="#111")),
+                                 hoverinfo="skip", showlegend=False))
     # start/finish marker
     fig.add_trace(go.Scatter(x=[P[0, 0]], y=[P[0, 1]], mode="markers+text",
-                             marker=dict(size=11, color="#111", symbol="square"),
+                             marker=dict(size=12, color="#111", symbol="square"),
                              text=["S/F"], textposition="top center",
                              hoverinfo="skip", showlegend=False))
     fig.update_yaxes(scaleanchor="x", scaleratio=1, visible=False)
     fig.update_xaxes(visible=False)
-    fig.update_layout(height=430, margin=dict(l=4, r=4, t=4, b=4),
+    fig.update_layout(height=460, margin=dict(l=4, r=4, t=4, b=4),
                       plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
                       hovermode="closest")
     return fig
