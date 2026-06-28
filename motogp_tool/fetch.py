@@ -13,6 +13,8 @@ caller.
 """
 from __future__ import annotations
 
+import warnings
+
 import requests
 
 from .parse_analysis_pdf import _laptime_to_s
@@ -20,9 +22,10 @@ from . import circuit_map
 
 BASE = "https://mgp-timings.teknichrono.fr/api"
 
-# category display label -> API path token (per project README)
-CATEGORIES = [("MotoGP", "GP"), ("Moto2", "MOTO2"), ("Moto3", "MOTO3")]
-# common session short codes used in the path
+# category display label -> API path token. The live API uses lowercase
+# 'motogp'/'moto2'/'moto3' (verified against the project's integration tests).
+CATEGORIES = [("MotoGP", "motogp"), ("Moto2", "moto2"), ("Moto3", "moto3")]
+# common session short codes used in the path (case-insensitive on the server)
 SESSIONS = ["FP1", "FP2", "FP3", "FP4", "PR", "P1", "P2",
             "Q1", "Q2", "WUP", "SPR", "RAC"]
 
@@ -30,23 +33,42 @@ _HEADERS = {"User-Agent": "TS24-MotoGP-Tool/1.0"}
 
 
 def _get(url: str, timeout: int = 25):
-    r = requests.get(url, headers=_HEADERS, timeout=timeout)
+    """GET JSON. The public mgp-timings instance has, at times, shipped an
+    expired TLS certificate; since this is a public, read-only data source we
+    verify normally first and fall back to unverified ONLY on a TLS error."""
+    try:
+        r = requests.get(url, headers=_HEADERS, timeout=timeout)
+    except requests.exceptions.SSLError:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            r = requests.get(url, headers=_HEADERS, timeout=timeout, verify=False)
     r.raise_for_status()
     return r.json()
 
 
 def list_events(year: int) -> list[dict]:
-    """Events of a season. Each: {short_name, name, circuitName, test}."""
+    """Events of a season. The season response is an object with `races` and
+    `tests` arrays. Each event: {short_name, name, circuit, test}."""
     data = _get(f"{BASE}/{year}")
+    if isinstance(data, dict):
+        items = [(e, False) for e in (data.get("races") or [])] + \
+                [(e, True) for e in (data.get("tests") or [])]
+    elif isinstance(data, list):
+        items = [(e, bool(e.get("test"))) for e in data]
+    else:
+        items = []
     out = []
-    for e in data if isinstance(data, list) else []:
+    for e, is_test in items:
+        sn = e.get("short_name") or e.get("shortName")
+        if not sn:
+            continue
         out.append({
-            "short_name": e.get("short_name") or e.get("shortName"),
+            "short_name": sn,
             "name": e.get("name") or e.get("sponsored_name") or "",
-            "circuit": e.get("circuitName") or "",
-            "test": bool(e.get("test")),
+            "circuit": e.get("circuitName") or e.get("circuit") or "",
+            "test": is_test,
         })
-    return [e for e in out if e["short_name"]]
+    return out
 
 
 def _sec_float(s):
@@ -58,8 +80,11 @@ def _sec_float(s):
         return None
 
 
-def analysis_to_laps(rows: list) -> list[dict]:
-    """Convert mgp-timings LapAnalysis JSON -> our per-lap records."""
+def analysis_to_laps(rows) -> list[dict]:
+    """Convert mgp-timings analysis JSON -> our per-lap records. The endpoint
+    returns {"analysis": [ ...laps... ]}; also tolerate a bare list."""
+    if isinstance(rows, dict):
+        rows = rows.get("analysis") or rows.get("laps") or []
     laps = []
     for r in rows or []:
         secs = sorted(r.get("sectors") or [], key=lambda s: s.get("sectorNumber", 0))
