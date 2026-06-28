@@ -273,21 +273,21 @@ def _tab_track_map(df, cls):
                        index=(["(auto)"] + avail).index(slug) if slug in avail else 0)
     use_slug = slug if sel == "(auto)" else sel
 
-    circ = circuit_map.load_circuit(use_slug) if use_slug else None
+    circ = _resolve_circuit(use_slug)
     if circ is not None:
+        _timing_plan_ui(use_slug, circ)          # upload plan -> exact boundaries
         bounds, sf_off = _sector_boundary_ui(use_slug)
         fig = circuit_map.build_track_figure(circ, deltas, bounds=bounds,
                                              labels=labels, start_offset=sf_off)
         st.plotly_chart(fig, use_container_width=True)
         st.caption(f"Real **{use_slug}** layout with turn numbers. Colour = real "
-                   "timing delta per sector. **You define the sector boundaries** "
-                   "below (drag to the real T1/T2/T3/T4 split turns) — MotoGP does "
-                   "not publish intermediate positions, so the split is yours to set.")
+                   "timing delta per sector. For **exact** splits, upload the "
+                   "official Timekeeping Points Plan above; or set S/F + boundaries "
+                   "by hand below.")
     else:
         _sector_strip(deltas, labels)
-        st.caption("No bundled layout matched this circuit — showing the 4 real "
-                   "sectors as a strip. (Bundled layouts: "
-                   f"{', '.join(avail) or '—'}.)")
+        st.caption("No layout available for this circuit yet — showing the 4 real "
+                   "sectors as a strip.")
 
     _colour_legend()
     valid = [(l, d) for l, d in zip(labels, deltas) if d == d]  # drop NaN
@@ -295,9 +295,63 @@ def _tab_track_map(df, cls):
         worst = max(valid, key=lambda t: t[1])
         if worst[1] > 0.03:
             st.warning(f"Biggest loss: **{worst[0]}** → {_fmt_delta(worst[1])}s")
-    st.info("ℹ️ MotoGP's free timing has only 4 real sectors per lap — there is no "
-            "finer measurement, so we do **not** fake sub-sector splits. Feed a "
-            "mini-sector / GPS source and the tool will show real microsectors.")
+
+
+@st.cache_data(show_spinner="Fetching circuit layout…", ttl=86400)
+def _osm_circuit_cached(slug):
+    return circuit_map.fetch_osm(slug)
+
+
+def _resolve_circuit(slug):
+    """Bundled geometry first; else fetch from OpenStreetMap (works on Cloud)."""
+    if not slug:
+        return None
+    c = circuit_map.load_circuit(slug)
+    if c is not None:
+        return c
+    try:
+        return _osm_circuit_cached(slug)
+    except Exception:
+        return None
+
+
+def _timing_plan_ui(slug, circ):
+    """Upload the official Timekeeping Points Plan PDF -> place S/F + the three
+    sector splits exactly on FL / IP1 / IP2 / IP3."""
+    from .parse_timekeeping_plan import parse_timekeeping_bytes, sector_points
+    with st.expander("📐 Exact boundaries — upload official Timekeeping Points Plan"):
+        up = st.file_uploader("Timekeeping Points Plan PDF (contains FL/IP1/IP2/IP3 GPS)",
+                              type=["pdf"], key=f"tk_{slug}")
+        if up is None:
+            st.caption("MotoGP publishes this per event. It sets S/F and the 3 "
+                       "sector splits to the real timing positions — no guessing.")
+            return
+        try:
+            plan = parse_timekeeping_bytes(up.getvalue())
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Could not read plan: {e}")
+            return
+        sp = sector_points(plan)
+        if not sp:
+            st.error("FL/IP1/IP2/IP3 not found in this PDF — is it the Timekeeping "
+                     "Points Plan?")
+            return
+        off, bnds = circuit_map.boundaries_from_timing(circ, *sp)
+        skey, bkey = f"sf_{slug}", f"bounds_{slug}"
+        new_sf = int(round(off * 100))
+        new_b = [int(round(b * 100)) for b in bnds]
+        sig = (new_sf, tuple(new_b))
+        if st.session_state.get(f"{bkey}_applied") != sig:
+            st.session_state[f"{skey}_s"] = new_sf
+            st.session_state[skey] = new_sf
+            for i, b in enumerate(new_b):
+                st.session_state[f"{bkey}_{i+1}"] = b
+            st.session_state[bkey] = sorted(new_b)
+            st.session_state[f"{bkey}_applied"] = sig
+            st.success(f"Exact boundaries applied — S/F at {new_sf}%, sector splits "
+                       f"(IP1/IP2/IP3) at {new_b}% of the lap.")
+            st.rerun()
+        st.success(f"Using official plan: S/F {new_sf}%, IP1/IP2/IP3 at {new_b}%.")
 
 
 def _sector_boundary_ui(slug):

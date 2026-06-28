@@ -128,6 +128,63 @@ def _lap_cumfrac(P: np.ndarray):
     return cum / cum[-1]
 
 
+def _proj_factor(P: np.ndarray) -> float:
+    return math.cos(math.radians(float(P[:, 1].mean())))
+
+
+def _point_frac(P: np.ndarray, lon: float, lat: float) -> float:
+    """Lap-distance fraction of the outline vertex nearest a GPS point."""
+    k = _proj_factor(P)
+    q = np.array([lon * k, lat])
+    j = int(np.argmin(((P - q) ** 2).sum(axis=1)))
+    return float(_lap_cumfrac(P)[j])
+
+
+def boundaries_from_timing(circuit: dict, fl, ip1, ip2, ip3):
+    """Given the official timing GPS (FL, IP1, IP2, IP3), return
+    (start_offset, [b1, b2, b3]) so S/F sits on FL and the three sector splits
+    sit on IP1/IP2/IP3 — exact MotoGP 4-sector boundaries, no guessing."""
+    P = circuit["pts"]
+    f_fl = _point_frac(P, *fl)
+    rel = [( _point_frac(P, *ip) - f_fl) % 1.0 for ip in (ip1, ip2, ip3)]
+    return f_fl, sorted(rel)
+
+
+def fetch_osm(slug: str):
+    """Fetch a circuit outline from OpenStreetMap (Overpass) at runtime, for
+    circuits without bundled geometry. Returns the same dict as load_circuit
+    (no corners). Requires internet (works on Streamlit Cloud)."""
+    coords = CIRCUIT_COORDS.get(slug)
+    if not coords:
+        return None
+    import requests
+    lat, lon = coords
+    q = (f"[out:json][timeout:25];way[highway=raceway]"
+         f"(around:3000,{lat},{lon});(._;>;);out;")
+    try:
+        r = requests.get("https://overpass-api.de/api/interpreter",
+                         params={"data": q}, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return None
+    nodes = {e["id"]: (e["lon"], e["lat"]) for e in data.get("elements", [])
+             if e["type"] == "node"}
+    ways = [e for e in data.get("elements", []) if e["type"] == "way"
+            and len(e.get("nodes", [])) > 10]
+    if not ways:
+        return None
+    way = max(ways, key=lambda w: len(w["nodes"]))
+    outline = np.array([nodes[n] for n in way["nodes"] if n in nodes], dtype=float)
+    if len(outline) < 10:
+        return None
+    k = math.cos(math.radians(float(outline[:, 1].mean())))
+    P = np.column_stack([outline[:, 0] * k, outline[:, 1]])
+    if not np.allclose(P[0], P[-1]):
+        P = np.vstack([P, P[0]])
+    return {"slug": slug, "pts": P, "name": slug, "corners": []}
+
+
 def _sector_index_ranges(P: np.ndarray, bounds):
     """Split the closed lap polyline at the given internal boundary fractions
     (e.g. [0.25, 0.5, 0.75]) -> len(bounds)+1 contiguous index ranges."""
