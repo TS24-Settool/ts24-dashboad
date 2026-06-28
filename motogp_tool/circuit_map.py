@@ -25,28 +25,68 @@ from . import engine
 
 _CIRC_DIR = Path(__file__).parent / "circuits"
 
-# event-name keyword -> circuit slug (bundled geometry)
+# Every MotoGP circuit -> (lat, lon) of the venue. Used to fetch the track
+# outline from OpenStreetMap (Overpass) at runtime when no geometry is bundled.
+CIRCUIT_COORDS = {
+    "losail": (25.490, 51.453), "mugello": (43.997, 11.371),
+    "portimao": (37.231, -8.627), "barcelona": (41.570, 2.261),
+    "circuit-of-the-americas": (30.134, -97.641), "red-bull-ring": (47.223, 14.764),
+    "silverstone": (52.071, -1.015), "jerez": (36.708, -6.033),
+    "assen": (52.961, 6.524), "sachsenring": (50.791, 12.690),
+    "misano": (43.961, 12.684), "aragon": (41.082, -0.210),
+    "le-mans": (47.956, 0.207), "mandalika": (-8.905, 116.305),
+    "termas": (-27.521, -64.916), "motegi": (36.534, 140.227),
+    "buriram": (14.957, 103.088), "phillip-island": (-38.502, 145.234),
+    "sepang": (2.760, 101.738), "valencia": (39.488, -0.628),
+    "balaton": (46.880, 17.700), "sokol": (43.060, 76.920),
+    "brno": (49.203, 16.451), "buddh": (28.350, 77.535),
+}
+
+# event-name / country-code keyword -> circuit slug
 _EVENT_SLUG = {
-    "QATAR": "losail", "LOSAIL": "losail", "DOHA": "losail",
-    "ITALIAN": "mugello", "ITALY": "mugello", "MUGELLO": "mugello",
-    "PORTUG": "portimao", "PORTIM": "portimao", "ALGARVE": "portimao",
-    "CATALU": "barcelona", "BARCELONA": "barcelona",
-    "AMERICA": "circuit-of-the-americas", "AUSTIN": "circuit-of-the-americas",
-    "AUSTRIA": "red-bull-ring", "STYRIA": "red-bull-ring", "RED BULL": "red-bull-ring",
-    "BRITISH": "silverstone", "SILVERSTONE": "silverstone", "GREAT BRITAIN": "silverstone",
+    "QATAR": "losail", "LOSAIL": "losail", "DOHA": "losail", "QAT": "losail",
+    "ITALIAN": "mugello", "ITALY": "mugello", "MUGELLO": "mugello", "ITA": "mugello",
+    "PORTUG": "portimao", "PORTIM": "portimao", "ALGARVE": "portimao", "POR": "portimao",
+    "CATALU": "barcelona", "BARCELONA": "barcelona", "CAT": "barcelona",
+    "AMERICA": "circuit-of-the-americas", "AUSTIN": "circuit-of-the-americas", "AME": "circuit-of-the-americas",
+    "AUSTRIA": "red-bull-ring", "STYRIA": "red-bull-ring", "RED BULL": "red-bull-ring", "AUT": "red-bull-ring",
+    "BRITISH": "silverstone", "SILVERSTONE": "silverstone", "GREAT BRITAIN": "silverstone", "GBR": "silverstone",
+    "JEREZ": "jerez", "SPANISH": "jerez", "SPAIN": "jerez", "SPA": "jerez",
+    "DUTCH": "assen", "ASSEN": "assen", "NETHERLAND": "assen", "NED": "assen", "NLD": "assen",
+    "GERMAN": "sachsenring", "SACHSEN": "sachsenring", "GER": "sachsenring", "DEU": "sachsenring",
+    "MISANO": "misano", "MARINO": "misano", "EMILIA": "misano", "RSM": "misano", "SMR": "misano", "EMI": "misano",
+    "ARAGON": "aragon", "ARA": "aragon", "TERUEL": "aragon",
+    "FRENCH": "le-mans", "LE MANS": "le-mans", "FRANCE": "le-mans", "FRA": "le-mans",
+    "INDONESIA": "mandalika", "MANDALIKA": "mandalika", "IDN": "mandalika", "INA": "mandalika",
+    "ARGENTIN": "termas", "TERMAS": "termas", "ARG": "termas",
+    "JAPAN": "motegi", "MOTEGI": "motegi", "JPN": "motegi",
+    "THAI": "buriram", "BURIRAM": "buriram", "CHANG": "buriram", "THA": "buriram",
+    "AUSTRALIA": "phillip-island", "PHILLIP": "phillip-island", "AUS": "phillip-island",
+    "MALAYSIA": "sepang", "SEPANG": "sepang", "MYS": "sepang", "MAL": "sepang",
+    "VALENCIA": "valencia", "RICARDO TORMO": "valencia", "VAL": "valencia", "CForVALENCIANA": "valencia",
+    "BALATON": "balaton", "HUNGAR": "balaton", "HUN": "balaton",
+    "KAZAKH": "sokol", "SOKOL": "sokol", "KAZ": "sokol",
+    "BRNO": "brno", "CZECH": "brno", "CZE": "brno",
+    "INDIA": "buddh", "BUDDH": "buddh", "IND": "buddh",
 }
 
 
 def detect_slug(event_or_circuit: str | None) -> str | None:
     ev = (event_or_circuit or "").upper()
-    for kw, slug in _EVENT_SLUG.items():
+    # longest keywords first so "RED BULL" beats stray short codes
+    for kw in sorted(_EVENT_SLUG, key=len, reverse=True):
         if kw in ev:
-            return slug
+            return _EVENT_SLUG[kw]
     return None
 
 
-def available_slugs() -> list[str]:
+def bundled_slugs() -> list[str]:
     return sorted(p.stem for p in _CIRC_DIR.glob("*.json")) if _CIRC_DIR.exists() else []
+
+
+def available_slugs() -> list[str]:
+    """All circuits the picker can offer: bundled geometry + OSM-fetchable."""
+    return sorted(set(bundled_slugs()) | set(CIRCUIT_COORDS))
 
 
 def load_circuit(slug: str):

@@ -83,7 +83,10 @@ def classification(df: pd.DataFrame) -> pd.DataFrame:
             "top_speed": g["speed"].max(),
             **{f"best_{s}": best_sec[s] for s in SECTORS},
         })
-    out = pd.DataFrame(rows).sort_values("best_lap", na_position="last").reset_index(drop=True)
+    out = pd.DataFrame(rows)
+    if out.empty:                       # no flying laps -> caller shows a notice
+        return out
+    out = out.sort_values("best_lap", na_position="last").reset_index(drop=True)
     if not out.empty and pd.notna(out["best_lap"].iloc[0]):
         out["gap"] = out["best_lap"] - out["best_lap"].iloc[0]
         out["position"] = np.arange(1, len(out) + 1)
