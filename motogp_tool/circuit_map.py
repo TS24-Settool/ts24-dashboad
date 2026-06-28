@@ -144,11 +144,24 @@ def _sector_index_ranges(P: np.ndarray, bounds):
     return ranges
 
 
+def _roll_start(P: np.ndarray, start_offset: float) -> np.ndarray:
+    """Rotate the closed lap so the start/finish moves by `start_offset` of the
+    lap distance (corners are absolute, so they stay put)."""
+    if not start_offset:
+        return P
+    cf = _lap_cumfrac(P)
+    j = int(np.argmin(np.abs(cf - (start_offset % 1.0))))
+    Q = P[:-1] if np.allclose(P[0], P[-1]) else P
+    Q = np.roll(Q, -j, axis=0)
+    return np.vstack([Q, Q[0]])
+
+
 def build_track_figure(circuit: dict, sector_deltas, bounds=None,
-                       labels=None, show_turns=True) -> go.Figure:
+                       labels=None, show_turns=True, start_offset=0.0) -> go.Figure:
     """Colour the real layout by sector. `bounds` = internal boundary fractions
-    (len = len(sector_deltas)-1); defaults to equal split."""
-    P = circuit["pts"]
+    (len = len(sector_deltas)-1); defaults to equal split. `start_offset` rotates
+    where the S/F / lap start sits (fraction of lap distance)."""
+    P = _roll_start(circuit["pts"], start_offset)
     n = len(sector_deltas)
     if not bounds:
         bounds = [i / n for i in range(1, n)]

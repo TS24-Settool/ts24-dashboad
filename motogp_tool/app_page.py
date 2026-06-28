@@ -275,8 +275,9 @@ def _tab_track_map(df, cls):
 
     circ = circuit_map.load_circuit(use_slug) if use_slug else None
     if circ is not None:
-        bounds = _sector_boundary_ui(use_slug)
-        fig = circuit_map.build_track_figure(circ, deltas, bounds=bounds, labels=labels)
+        bounds, sf_off = _sector_boundary_ui(use_slug)
+        fig = circuit_map.build_track_figure(circ, deltas, bounds=bounds,
+                                             labels=labels, start_offset=sf_off)
         st.plotly_chart(fig, use_container_width=True)
         st.caption(f"Real **{use_slug}** layout with turn numbers. Colour = real "
                    "timing delta per sector. **You define the sector boundaries** "
@@ -303,21 +304,25 @@ def _sector_boundary_ui(slug):
     """Per-circuit, user-defined sector boundaries (% of lap distance).
     Defaults to equal quarters; persisted per circuit for the session."""
     key = f"bounds_{slug}"
+    skey = f"sf_{slug}"
     default = st.session_state.get(key, [25, 50, 75])
-    with st.expander("⚙️ Define sector boundaries (T1│T2│T3│T4 split points)"):
-        st.caption("Set where each official sector ends, as % of the lap from "
-                   "S/F. Use the turn numbers on the map as your guide.")
+    with st.expander("⚙️ Define S/F & sector boundaries", expanded=True):
+        sf = st.slider("S/F · lap start position (% around the lap)", 0, 99,
+                       int(st.session_state.get(skey, 0)), key=f"{skey}_s",
+                       help="Rotate the black S/F marker to the real start/finish "
+                            "line. Turn numbers stay fixed — line S/F up using them.")
+        st.session_state[skey] = sf
+        st.caption("Then set where each sector ends (% of lap from S/F):")
         c1, c2, c3 = st.columns(3)
         b1 = c1.slider("T1│T2", 1, 98, int(default[0]), key=f"{key}_1")
         b2 = c2.slider("T2│T3", 2, 99, int(default[1]), key=f"{key}_2")
         b3 = c3.slider("T3│T4", 3, 99, int(default[2]), key=f"{key}_3")
-        vals = sorted([b1, b2, b3])
-        st.session_state[key] = vals
-        if st.button("↺ Reset to equal quarters", key=f"{key}_rst"):
-            for k in (f"{key}_1", f"{key}_2", f"{key}_3", key):
+        st.session_state[key] = sorted([b1, b2, b3])
+        if st.button("↺ Reset", key=f"{key}_rst"):
+            for k in (f"{key}_1", f"{key}_2", f"{key}_3", key, f"{skey}_s", skey):
                 st.session_state.pop(k, None)
             st.rerun()
-    return [v / 100.0 for v in sorted([b1, b2, b3])]
+    return [v / 100.0 for v in sorted([b1, b2, b3])], sf / 100.0
 
 
 def _sector_strip(deltas, labels):
