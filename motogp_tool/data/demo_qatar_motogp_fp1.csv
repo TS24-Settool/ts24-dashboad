@@ -1,0 +1,344 @@
+rider_no,rider_name,manufacturer,team,nation,run_no,front_tyre,rear_tyre,lap_no,lap_time_s,t1,t2,t3,t4,speed,pit,cancelled
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,1,149.58,42.632,35.061,30.943,33.122,106.4,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,2,117.714,26.068,30.602,29.011,32.033,339.6,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,3,116.337,25.578,30.349,28.571,31.839,339.6,False,True
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,4,116.618,25.431,30.567,28.788,31.832,339.6,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,5,115.518,25.254,30.048,28.554,31.662,341.7,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,6,115.576,25.238,30.084,28.456,31.798,341.7,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,7,115.266,25.202,29.978,28.475,31.611,341.7,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,8,124.327,29.566,33.907,30.076,30.778,341.7,True,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,9,126.975,33.68,31.896,29.32,32.079,133.0,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,10,115.94,25.47,30.062,28.666,31.742,341.7,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,11,115.315,25.169,29.924,28.533,31.689,341.7,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,12,115.092,25.107,29.866,28.448,31.671,341.7,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,13,119.944,26.586,32.792,30.094,30.472,339.6,True,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,3,Slick-Hard,Slick-Hard,14,126.636,33.17,32.111,29.501,31.854,154.2,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,3,Slick-Hard,Slick-Hard,15,130.082,30.793,37.164,30.241,31.884,340.6,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,3,Slick-Hard,Slick-Hard,16,114.921,25.166,29.815,28.384,31.556,342.8,False,False
+21,Franco MORBIDELLI,YAMAHA,Petronas Yamaha SRT,,3,Slick-Hard,Slick-Hard,17,126.784,30.025,34.335,30.167,32.257,342.8,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,1,Slick-Hard,Slick-Medium,1,175.803,31.209,31.793,29.485,32.422,178.8,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,1,Slick-Hard,Slick-Medium,2,117.213,25.873,30.704,28.738,31.898,339.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,1,Slick-Hard,Slick-Medium,3,116.061,25.711,30.098,28.559,31.693,340.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,1,Slick-Hard,Slick-Medium,4,115.854,25.277,30.243,28.622,31.712,341.7,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,1,Slick-Hard,Slick-Medium,5,115.57,25.269,30.117,28.566,31.618,341.7,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,1,Slick-Hard,Slick-Medium,6,120.097,26.747,31.701,29.765,31.884,340.6,True,False
+41,Aleix ESPARGARO,APRILIA,,SPA,2,Slick-Hard,Slick-Medium,7,123.272,31.054,31.173,29.106,31.939,167.9,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,2,Slick-Hard,Slick-Medium,8,116.241,25.555,30.372,28.545,31.769,340.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,2,Slick-Hard,Slick-Medium,9,115.802,25.422,30.164,28.488,31.728,340.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,2,Slick-Hard,Slick-Medium,10,124.226,30.931,32.833,30.463,29.999,341.7,True,False
+41,Aleix ESPARGARO,APRILIA,,SPA,3,Slick-Hard,Slick-Medium,11,124.784,32.495,30.95,28.964,32.375,157.8,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,3,Slick-Hard,Slick-Medium,12,115.515,25.447,30.131,28.492,31.445,340.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,3,Slick-Hard,Slick-Medium,13,115.107,25.297,29.882,28.379,31.549,340.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,3,Slick-Hard,Slick-Medium,14,115.046,25.229,29.988,28.311,31.518,340.6,False,False
+41,Aleix ESPARGARO,APRILIA,,SPA,3,Slick-Hard,Slick-Medium,15,123.511,30.38,31.273,28.463,33.395,340.6,False,False
+43,Jack MILLER,DUCATI,,AUS,1,Slick-Medium,Slick-Medium,1,137.687,32.263,32.249,29.972,32.446,167.7,False,False
+43,Jack MILLER,DUCATI,,AUS,1,Slick-Medium,Slick-Medium,2,116.683,25.711,30.483,28.827,31.662,343.9,False,False
+43,Jack MILLER,DUCATI,,AUS,1,Slick-Medium,Slick-Medium,3,116.16,25.25,30.392,28.902,31.616,349.5,False,False
+43,Jack MILLER,DUCATI,,AUS,1,Slick-Medium,Slick-Medium,4,115.862,25.45,30.144,28.66,31.608,350.6,False,False
+43,Jack MILLER,DUCATI,,AUS,1,Slick-Medium,Slick-Medium,5,115.98,25.291,30.224,28.83,31.635,348.3,False,False
+43,Jack MILLER,DUCATI,,AUS,1,Slick-Medium,Slick-Medium,6,120.175,28.852,32.846,29.974,28.503,347.2,True,False
+43,Jack MILLER,DUCATI,,AUS,2,Slick-Medium,Slick-Medium,7,123.925,32.152,31.01,29.06,31.703,136.8,False,False
+43,Jack MILLER,DUCATI,,AUS,3,Slick-Medium,Slick-Medium,9,128.438,33.245,32.207,30.089,32.897,165.1,False,False
+43,Jack MILLER,DUCATI,,AUS,3,Slick-Medium,Slick-Medium,10,116.552,25.654,30.422,28.835,31.641,345.0,False,False
+43,Jack MILLER,DUCATI,,AUS,3,Slick-Medium,Slick-Medium,11,115.533,25.234,30.211,28.683,31.405,347.2,False,False
+43,Jack MILLER,DUCATI,,AUS,3,Slick-Medium,Slick-Medium,12,115.112,25.09,30.084,28.542,31.396,347.2,False,False
+43,Jack MILLER,DUCATI,,AUS,3,Slick-Medium,Slick-Medium,13,116.382,25.416,30.333,28.885,31.748,348.3,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,1,Slick-Medium,Slick-Medium,1,189.662,33.342,33.104,29.744,32.541,164.1,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,1,Slick-Medium,Slick-Medium,2,116.869,25.68,30.678,28.688,31.823,341.7,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,1,Slick-Medium,Slick-Medium,3,116.084,25.561,30.251,28.517,31.755,342.8,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,1,Slick-Medium,Slick-Medium,4,115.65,25.28,30.168,28.513,31.689,342.8,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,1,Slick-Medium,Slick-Medium,5,115.616,25.25,30.161,28.455,31.75,342.8,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,1,Slick-Medium,Slick-Medium,6,116.79,25.253,30.219,29.103,32.215,342.8,True,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,2,Slick-Medium,Slick-Medium,7,131.362,34.267,35.105,29.683,32.307,154.5,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,2,Slick-Medium,Slick-Medium,8,116.187,25.454,30.368,28.626,31.739,343.9,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,2,Slick-Medium,Slick-Medium,9,117.986,25.439,31.115,29.455,31.977,345.0,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,2,Slick-Medium,Slick-Medium,10,116.006,25.363,30.25,28.644,31.749,346.1,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,2,Slick-Medium,Slick-Medium,11,115.719,25.275,30.187,28.549,31.708,345.0,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,2,Slick-Medium,Slick-Medium,12,121.257,29.383,32.195,29.949,29.73,339.6,True,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,3,Slick-Medium,Slick-Medium,13,125.563,32.287,31.996,29.254,32.026,165.6,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,3,Slick-Medium,Slick-Medium,14,115.65,25.332,30.18,28.459,31.679,341.7,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,3,Slick-Medium,Slick-Medium,15,115.316,25.219,30.104,28.343,31.65,342.8,False,False
+20,Fabio QUARTARARO,YAMAHA,Monster Energy Yamaha MotoGP,FRA,3,Slick-Medium,Slick-Medium,16,115.213,25.126,29.95,28.38,31.757,342.8,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,1,Slick-Medium,Slick-Medium,1,162.235,31.998,32.051,29.748,32.282,168.7,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,1,Slick-Medium,Slick-Medium,2,117.519,25.911,30.742,28.942,31.924,343.9,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,1,Slick-Medium,Slick-Medium,3,116.411,25.387,30.415,28.738,31.871,343.9,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,1,Slick-Medium,Slick-Medium,4,116.156,25.303,30.394,28.674,31.785,343.9,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,1,Slick-Medium,Slick-Medium,5,116.059,25.341,30.297,28.647,31.774,342.8,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,1,Slick-Medium,Slick-Medium,6,119.916,27.216,31.968,29.799,30.933,345.0,True,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,2,Slick-Medium,Slick-Medium,7,122.932,30.676,30.907,28.967,32.382,165.6,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,2,Slick-Medium,Slick-Medium,8,116.574,25.645,30.365,28.805,31.759,340.6,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,2,Slick-Medium,Slick-Medium,9,119.499,28.561,30.422,28.704,31.812,340.6,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,2,Slick-Medium,Slick-Medium,10,116.129,25.397,30.411,28.622,31.699,341.7,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,2,Slick-Medium,Slick-Medium,11,121.607,27.224,31.972,32.493,29.918,341.7,True,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,3,Slick-Medium,Slick-Medium,12,122.694,30.763,31.009,29.049,31.873,170.3,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,3,Slick-Medium,Slick-Medium,13,116.106,25.543,30.435,28.558,31.57,341.7,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,3,Slick-Medium,Slick-Medium,14,115.543,25.267,30.197,28.448,31.631,341.7,False,False
+36,Joan SPA,SUZUKI,Team SUZUKI ECSTAR,MIR,3,Slick-Medium,Slick-Medium,15,115.255,25.177,30.106,28.411,31.561,341.7,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,1,198.368,45.376,32.877,29.962,32.65,163.1,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,2,117.581,25.88,30.917,28.799,31.985,342.8,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,3,116.08,25.429,30.262,28.542,31.847,343.9,False,True
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,4,116.491,25.305,30.225,28.394,32.567,345.0,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,5,115.4,25.288,30.155,28.296,31.661,343.9,False,True
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,6,115.451,25.277,30.133,28.361,31.68,343.9,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,7,115.309,25.254,30.121,28.386,31.548,345.0,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,1,Slick-Hard,Slick-Medium,8,116.87,25.196,32.047,29.677,29.95,343.9,True,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,2,Slick-Hard,Slick-Medium,9,134.583,42.293,31.212,28.902,32.176,162.6,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,2,Slick-Hard,Slick-Medium,10,117.465,25.477,30.483,29.42,32.085,342.8,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,2,Slick-Hard,Slick-Medium,11,115.897,25.37,30.306,28.485,31.736,343.9,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,2,Slick-Hard,Slick-Medium,12,115.536,25.256,30.11,28.453,31.717,343.9,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,2,Slick-Hard,Slick-Medium,13,115.322,25.239,30.071,28.351,31.661,341.7,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,2,Slick-Hard,Slick-Medium,14,115.739,25.294,30.251,30.253,29.941,342.8,True,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,3,Slick-Hard,Slick-Medium,15,136.247,43.916,31.258,28.903,32.17,162.8,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,3,Slick-Hard,Slick-Medium,16,117.649,25.486,31.437,28.88,31.846,343.9,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,3,Slick-Hard,Slick-Medium,17,118.339,25.427,30.2,30.829,31.883,345.0,False,False
+12,Maverick VIÑALES,YAMAHA,Monster Energy Yamaha MotoGP,SPA,3,Slick-Hard,Slick-Medium,18,123.006,32.092,30.661,28.592,31.661,345.0,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,1,157.676,32.73,32.42,29.705,32.447,147.7,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,2,117.321,25.853,30.624,28.788,32.056,343.9,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,3,117.474,26.172,30.72,28.723,31.859,345.0,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,4,116.464,25.52,30.417,28.654,31.873,345.0,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,5,116.336,25.533,30.309,28.728,31.766,345.0,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,6,116.023,25.515,30.402,28.485,31.621,349.5,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,1,Slick-Medium,Slick-Hard,7,117.997,27.774,31.971,29.192,29.06,345.0,True,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,2,Slick-Medium,Slick-Hard,8,128.403,35.007,31.851,29.335,32.21,104.3,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,2,Slick-Medium,Slick-Hard,9,117.331,25.869,30.523,28.884,32.055,340.6,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,2,Slick-Medium,Slick-Hard,10,117.168,25.482,30.636,29.083,31.967,340.6,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,2,Slick-Medium,Slick-Hard,11,116.243,25.478,30.361,28.652,31.752,341.7,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,2,Slick-Medium,Slick-Hard,12,120.628,28.853,30.965,30.704,30.106,339.6,True,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,3,Slick-Soft,Slick-Medium,13,125.207,32.66,31.429,29.285,31.833,163.1,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,3,Slick-Soft,Slick-Medium,14,116.008,25.436,30.344,28.618,31.61,341.7,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,3,Slick-Soft,Slick-Medium,15,115.498,25.245,30.171,28.515,31.567,341.7,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,3,Slick-Soft,Slick-Medium,16,115.446,25.246,30.105,28.565,31.53,341.7,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,3,Slick-Soft,Slick-Medium,17,115.353,25.215,30.093,28.51,31.535,342.8,False,False
+42,Alex RINS,SUZUKI,Team SUZUKI ECSTAR,SPA,3,Slick-Soft,Slick-Medium,18,118.748,25.315,30.191,31.36,31.882,342.8,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,1,139.515,34.134,32.851,30.142,32.802,158.3,False,True
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,2,118.08,26.173,30.892,29.084,31.931,342.8,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,3,116.217,25.474,30.381,28.741,31.621,348.3,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,4,116.471,25.662,30.451,28.633,31.725,348.3,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,5,115.563,25.338,30.101,28.557,31.567,348.3,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,6,121.253,28.575,31.462,29.153,32.063,347.2,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,7,115.874,25.384,30.19,28.642,31.658,347.2,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,8,115.365,25.237,30.083,28.481,31.564,347.2,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,1,Slick-Medium,Slick-Medium,9,123.253,29.559,32.238,30.552,30.904,336.4,True,False
+63,Francesco BAGNAIA,DUCATI,,ITA,2,Slick-Medium,Slick-Medium,10,130.519,36.107,31.903,29.96,32.549,90.2,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,2,Slick-Medium,Slick-Medium,11,117.751,25.871,30.718,29.228,31.934,345.0,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,2,Slick-Medium,Slick-Medium,12,116.407,25.462,30.334,28.956,31.655,345.0,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,2,Slick-Medium,Slick-Medium,13,120.87,28.891,31.708,30.11,30.161,346.1,True,False
+63,Francesco BAGNAIA,DUCATI,,ITA,3,Slick-Medium,Slick-Medium,14,125.672,32.019,32.402,29.351,31.9,156.2,False,False
+63,Francesco BAGNAIA,DUCATI,,ITA,3,Slick-Medium,Slick-Medium,15,116.169,25.371,30.306,28.944,31.548,345.0,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,1,136.272,36.093,32.482,30.062,32.593,129.6,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,2,117.51,25.841,30.516,28.972,32.181,342.8,False,True
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,3,117.168,25.61,30.421,29.207,31.93,340.6,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,4,116.174,25.572,30.218,28.601,31.783,338.5,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,5,116.091,25.441,30.136,28.617,31.897,341.7,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,1,Slick-Hard,Slick-Hard,6,120.231,28.851,32.618,29.553,29.209,340.6,True,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,7,125.025,31.936,31.424,29.615,32.05,144.1,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,8,116.334,25.571,30.224,28.721,31.818,340.6,False,True
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,9,116.012,25.29,30.247,28.7,31.775,340.6,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,10,126.959,29.535,31.482,33.93,32.012,340.6,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,11,115.603,25.426,30.027,28.559,31.591,345.0,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,12,116.22,25.466,30.264,28.696,31.794,345.0,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,2,Slick-Hard,Slick-Hard,13,121.378,29.763,32.385,30.002,29.228,324.3,True,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,3,Slick-Medium,Slick-Medium,14,122.416,30.72,30.837,29.079,31.78,159.5,False,False
+46,Valentino ROSSI,YAMAHA,Petronas Yamaha SRT,,3,Slick-Medium,Slick-Medium,15,115.419,25.271,29.97,28.624,31.554,342.8,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,1,Slick-Hard,Slick-Medium,1,142.607,33.749,32.326,30.129,33.092,158.8,False,True
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,1,Slick-Hard,Slick-Medium,2,118.974,26.516,31.091,29.079,32.288,311.2,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,1,Slick-Hard,Slick-Medium,3,117.187,26.036,30.251,28.727,32.173,335.4,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,1,Slick-Hard,Slick-Medium,4,116.583,25.688,30.346,28.8,31.749,345.0,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,1,Slick-Hard,Slick-Medium,5,115.958,25.406,30.268,28.683,31.601,342.8,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,1,Slick-Hard,Slick-Medium,6,118.66,26.939,31.698,29.398,30.625,332.3,True,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,2,Slick-Hard,Slick-Medium,7,128.944,34.011,33.802,29.214,31.917,175.8,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,2,Slick-Hard,Slick-Medium,8,116.482,25.637,30.419,28.709,31.717,341.7,False,True
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,2,Slick-Hard,Slick-Medium,9,116.427,25.327,30.541,28.777,31.782,341.7,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,2,Slick-Hard,Slick-Medium,10,116.388,25.4,30.502,28.796,31.69,340.6,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,2,Slick-Hard,Slick-Medium,11,116.525,25.446,30.448,28.763,31.868,341.7,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,2,Slick-Hard,Slick-Medium,12,119.317,27.122,31.89,30.215,30.09,325.3,True,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,3,Slick-Hard,Slick-Medium,13,125.348,32.044,31.461,29.633,32.21,173.9,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,3,Slick-Hard,Slick-Medium,14,116.009,25.396,30.277,28.714,31.622,341.7,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,3,Slick-Hard,Slick-Medium,15,115.992,25.305,30.294,28.764,31.629,343.9,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,3,Slick-Hard,Slick-Medium,16,119.986,25.43,33.012,29.544,32.0,343.9,False,False
+88,Miguel OLIVEIRA,KTM,Red Bull KTM Factory Racing,POR,3,Slick-Hard,Slick-Medium,17,115.745,25.264,30.21,28.742,31.529,346.1,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,1,137.05,34.029,33.612,30.993,34.128,150.2,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,2,118.824,26.305,31.204,29.112,32.203,339.6,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,3,117.612,25.991,30.638,28.797,32.186,339.6,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,4,116.772,25.714,30.502,28.689,31.867,345.0,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,5,116.651,25.528,30.605,28.687,31.831,345.0,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,6,116.514,25.637,30.377,28.795,31.705,346.1,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,1,Slick-Medium,Slick-Medium,7,115.939,26.433,31.075,29.017,29.414,342.8,True,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,2,Slick-Medium,Slick-Medium,8,124.659,31.104,31.672,29.335,32.548,165.8,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,2,Slick-Medium,Slick-Medium,9,117.606,25.799,30.899,28.923,31.985,341.7,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,2,Slick-Medium,Slick-Medium,10,116.846,25.625,30.641,28.782,31.798,342.8,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,2,Slick-Medium,Slick-Medium,11,116.424,25.642,30.394,28.594,31.794,342.8,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,2,Slick-Medium,Slick-Medium,12,116.345,25.407,30.437,28.669,31.832,342.8,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,2,Slick-Medium,Slick-Medium,13,117.259,26.982,31.169,29.644,29.464,341.7,True,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,3,Slick-Soft,Slick-Medium,14,124.318,30.704,31.924,29.466,32.224,175.6,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,3,Slick-Soft,Slick-Medium,15,116.578,25.714,30.364,28.806,31.694,341.7,False,False
+73,Alex MARQUEZ,HONDA,LCR Honda CASTROL,SPA,3,Slick-Soft,Slick-Medium,16,115.748,25.336,30.186,28.524,31.702,341.7,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,1,150.137,36.65,33.471,30.899,32.922,123.4,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,2,118.086,26.187,30.805,29.033,32.061,327.2,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,3,116.579,25.736,30.401,28.702,31.74,320.4,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,4,116.128,25.467,30.288,28.614,31.759,348.3,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,5,116.719,25.757,30.327,28.755,31.88,326.2,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,6,116.25,25.534,30.328,28.678,31.71,345.0,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,1,Slick-Medium,Slick-Medium,7,121.221,29.041,31.728,29.878,30.574,347.2,True,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,2,Slick-Medium,Slick-Medium,8,132.474,37.41,32.446,29.97,32.648,126.1,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,2,Slick-Medium,Slick-Medium,9,117.493,25.936,30.665,29.046,31.846,346.1,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,2,Slick-Medium,Slick-Medium,10,116.647,25.553,30.458,28.874,31.762,346.1,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,2,Slick-Medium,Slick-Medium,11,116.543,25.514,30.452,28.72,31.857,346.1,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,2,Slick-Medium,Slick-Medium,12,116.245,25.483,30.226,28.804,31.732,346.1,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,2,Slick-Medium,Slick-Medium,13,121.097,28.485,31.823,30.449,30.34,341.7,True,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,3,Slick-Medium,Slick-Medium,14,132.658,35.497,32.248,32.68,32.233,99.5,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,3,Slick-Medium,Slick-Medium,15,116.675,25.772,30.344,28.796,31.763,334.3,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,3,Slick-Medium,Slick-Medium,16,115.754,25.296,30.179,28.599,31.68,346.1,False,False
+30,Takaaki NAKAGAMI,HONDA,LCR Honda IDEMITSU,JPN,3,Slick-Medium,Slick-Medium,17,119.124,26.999,31.024,29.394,31.707,346.1,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,1,Slick-Medium,Slick-Medium,1,165.616,33.004,32.898,30.084,32.363,169.5,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,3,130.702,33.727,33.797,30.365,32.813,164.8,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,4,118.367,26.251,31.11,29.206,31.8,346.1,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,5,117.445,25.718,30.757,29.193,31.777,350.6,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,6,116.733,25.551,30.589,28.908,31.685,349.5,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,7,116.455,25.407,30.419,28.877,31.752,349.5,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,8,119.694,26.952,32.051,28.987,31.704,349.5,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,9,115.977,25.45,30.412,28.579,31.536,348.3,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,2,Slick-Medium,Slick-Medium,10,120.076,25.746,33.072,30.223,31.035,335.4,True,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,3,Slick-Medium,Slick-Medium,11,126.672,32.454,32.364,29.761,32.093,151.8,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,3,Slick-Medium,Slick-Medium,12,116.614,25.606,30.495,28.924,31.589,347.2,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,3,Slick-Medium,Slick-Medium,13,121.88,30.572,30.807,28.928,31.573,349.5,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,3,Slick-Medium,Slick-Medium,14,115.871,25.348,30.313,28.761,31.449,350.6,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,3,Slick-Medium,Slick-Medium,15,116.928,25.455,30.382,29.09,32.001,349.5,False,False
+5,Johann ZARCO,DUCATI,Pramac Racing,FRA,3,Slick-Medium,Slick-Medium,16,116.043,25.319,30.361,28.775,31.588,348.3,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,1,Slick-Hard,Slick-Medium,1,141.003,34.769,34.455,33.262,30.797,137.7,True,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,2,Slick-Hard,Slick-Medium,2,129.544,32.843,33.849,31.891,30.961,152.5,True,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,3,126.861,32.589,32.214,29.686,32.372,158.3,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,4,117.684,25.753,30.815,29.123,31.993,343.9,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,5,117.113,25.476,30.684,29.084,31.869,343.9,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,6,117.27,25.488,30.592,28.963,32.227,345.0,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,7,118.782,27.438,30.605,28.935,31.804,342.8,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,8,116.186,25.352,30.279,28.862,31.693,345.0,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,3,Slick-Hard,Slick-Medium,9,116.314,25.699,31.046,29.295,30.274,342.8,True,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,4,Slick-Hard,Slick-Medium,10,124.012,31.576,31.03,29.304,32.102,155.3,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,4,Slick-Hard,Slick-Medium,11,116.457,25.462,30.392,28.956,31.647,343.9,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,4,Slick-Hard,Slick-Medium,12,116.067,25.335,30.327,28.77,31.635,343.9,False,False
+6,Stefan BRADL,HONDA,Repsol Honda Team,GER,4,Slick-Hard,Slick-Medium,13,115.942,25.239,30.279,28.745,31.679,343.9,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,1,140.639,34.931,33.073,30.218,32.583,137.9,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,2,118.154,26.08,30.763,28.97,32.341,343.9,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,3,116.745,25.563,30.602,28.715,31.865,348.3,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,4,128.023,30.289,32.391,33.014,32.329,350.6,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,5,120.262,25.571,30.561,31.335,32.795,350.6,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,6,116.417,25.702,30.396,28.544,31.775,350.6,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,1,Slick-Medium,Slick-Medium,7,119.893,29.544,31.624,29.498,29.227,351.7,True,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,2,Slick-Medium,Slick-Medium,8,131.44,35.752,34.232,29.533,31.923,124.2,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,10,125.643,31.601,31.614,30.339,32.089,168.4,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,11,117.976,25.696,30.559,29.544,32.177,345.0,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,12,116.574,25.581,30.48,28.875,31.638,346.1,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,13,116.251,25.549,30.309,28.661,31.732,347.2,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,14,128.935,29.42,33.865,33.283,32.367,320.4,False,True
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,15,123.76,26.429,31.608,33.74,31.983,347.2,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,16,116.046,25.403,30.207,28.673,31.763,348.3,False,False
+44,Pol ESPARGARO,HONDA,Repsol Honda Team,SPA,3,Slick-Medium,Slick-Hard,17,118.798,25.594,32.49,28.909,31.805,346.1,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,1,145.319,33.577,32.359,29.965,32.719,162.1,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,2,123.352,31.681,30.733,29.002,31.936,347.2,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,3,116.463,25.665,30.493,28.595,31.71,342.8,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,4,116.057,25.405,30.362,28.64,31.65,347.2,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,5,121.505,30.152,30.722,28.819,31.812,343.9,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,6,116.498,25.617,30.287,28.745,31.849,346.1,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,1,Slick-Hard,Slick-Medium,7,122.271,30.173,32.351,29.362,30.385,346.1,True,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,2,Slick-Hard,Slick-Medium,8,128.054,33.594,32.852,29.485,32.123,118.0,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,2,Slick-Hard,Slick-Medium,9,117.37,25.846,30.643,28.958,31.923,343.9,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,2,Slick-Hard,Slick-Medium,10,116.687,25.624,30.445,28.834,31.784,345.0,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,2,Slick-Hard,Slick-Medium,11,127.671,32.765,30.734,31.801,32.371,343.9,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,2,Slick-Hard,Slick-Medium,12,122.353,30.311,31.919,30.02,30.103,343.9,True,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,3,Slick-Hard,Slick-Medium,13,130.153,31.596,31.304,29.264,37.989,146.9,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,3,Slick-Hard,Slick-Medium,14,116.938,25.792,30.498,28.94,31.708,339.6,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,3,Slick-Hard,Slick-Medium,15,116.224,25.48,30.506,28.61,31.628,343.9,False,False
+33,Brad BINDER,KTM,Red Bull KTM Factory Racing,RSA,3,Slick-Hard,Slick-Medium,16,116.175,25.528,30.293,28.706,31.648,345.0,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,1,Slick-Medium,Slick-Medium,1,142.457,34.913,33.648,31.217,33.595,141.3,False,True
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,1,Slick-Medium,Slick-Medium,2,121.694,27.323,31.628,30.171,32.572,324.3,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,1,Slick-Medium,Slick-Medium,3,118.923,26.031,31.043,29.45,32.399,346.1,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,1,Slick-Medium,Slick-Medium,4,117.763,25.718,30.7,29.27,32.075,346.1,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,1,Slick-Medium,Slick-Medium,5,127.607,25.946,30.821,34.226,36.614,347.2,True,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,2,Slick-Medium,Slick-Medium,6,140.993,31.475,43.107,34.348,32.063,148.9,True,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,3,Slick-Medium,Slick-Medium,7,124.917,31.676,31.48,29.528,32.233,162.4,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,3,Slick-Medium,Slick-Medium,8,117.268,25.674,30.61,29.129,31.855,343.9,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,3,Slick-Medium,Slick-Medium,9,116.701,25.578,30.405,28.92,31.798,346.1,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,3,Slick-Medium,Slick-Medium,10,116.558,25.437,30.271,28.996,31.854,343.9,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,3,Slick-Medium,Slick-Medium,11,129.136,28.6,36.532,32.07,31.934,330.2,True,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,4,Slick-Medium,Slick-Medium,12,126.886,32.981,32.27,29.499,32.136,147.7,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,4,Slick-Medium,Slick-Medium,13,116.791,25.673,30.328,28.949,31.841,342.8,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,4,Slick-Medium,Slick-Medium,14,116.069,25.271,30.24,28.805,31.753,343.9,False,False
+10,Luca MARINI,DUCATI,SKY VR46 Esponsorama,ITA,4,Slick-Medium,Slick-Medium,15,116.705,25.278,30.263,28.844,32.32,343.9,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,1,149.778,32.73,34.693,30.917,33.1,155.1,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,2,118.407,26.149,30.931,29.175,32.152,337.5,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,3,118.855,27.1,30.663,28.97,32.122,349.5,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,4,116.958,25.685,30.416,28.893,31.964,349.5,False,True
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,5,117.011,25.882,30.474,28.735,31.92,348.3,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,6,116.198,25.427,30.291,28.753,31.727,347.2,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,1,Slick-Soft,Slick-Medium,7,118.026,26.637,31.231,29.654,30.504,347.2,True,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,2,Slick-Soft,Slick-Medium,8,123.874,31.686,31.165,29.15,31.873,144.1,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,2,Slick-Soft,Slick-Medium,9,116.877,25.566,30.419,29.05,31.842,346.1,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,2,Slick-Soft,Slick-Medium,10,116.191,25.439,30.303,28.802,31.647,346.1,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,2,Slick-Soft,Slick-Medium,11,117.951,25.943,31.194,29.021,31.793,348.3,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,2,Slick-Soft,Slick-Medium,12,116.218,25.4,30.37,28.824,31.624,346.1,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,2,Slick-Soft,Slick-Medium,13,117.463,26.702,30.907,29.544,30.31,343.9,True,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,3,Slick-Soft,Slick-Medium,14,124.748,32.503,31.085,29.139,32.021,141.3,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,3,Slick-Soft,Slick-Medium,15,117.844,25.514,30.321,28.824,33.185,342.8,False,False
+23,Enea BASTIANINI,DUCATI,Esponsorama Racing,,3,Slick-Soft,Slick-Medium,16,119.243,26.537,31.017,29.805,31.884,331.2,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,1,Slick-Medium,Slick-Medium,1,151.71,33.303,31.641,29.616,32.654,137.5,False,True
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,1,Slick-Medium,Slick-Medium,2,117.414,25.918,30.629,28.741,32.126,342.8,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,1,Slick-Medium,Slick-Medium,3,116.767,25.495,30.582,28.626,32.064,341.7,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,1,Slick-Medium,Slick-Medium,4,116.351,25.324,30.432,28.605,31.99,343.9,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,1,Slick-Medium,Slick-Medium,5,123.896,29.661,31.144,30.836,32.255,340.6,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,1,Slick-Medium,Slick-Medium,6,120.222,26.568,32.53,30.439,30.685,343.9,True,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,2,Slick-Medium,Slick-Medium,7,130.236,32.277,31.799,30.703,35.457,140.0,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,2,Slick-Medium,Slick-Medium,8,116.23,25.314,30.304,28.626,31.986,340.6,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,2,Slick-Medium,Slick-Medium,9,124.965,29.025,34.308,29.534,32.098,341.7,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,2,Slick-Medium,Slick-Medium,10,116.378,25.38,30.381,28.76,31.857,342.8,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,2,Slick-Medium,Slick-Medium,11,122.615,25.358,32.886,31.328,33.043,342.8,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,2,Slick-Medium,Slick-Medium,12,122.829,27.841,33.515,29.8,31.673,342.8,True,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,3,Slick-Medium,Slick-Medium,13,128.093,32.149,30.861,29.445,35.638,160.4,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,3,Slick-Medium,Slick-Medium,14,124.768,25.295,30.462,35.271,33.74,338.5,False,False
+9,Danilo PETRUCCI,KTM,Tech 3 KTM Factory Racing,,3,Slick-Medium,Slick-Medium,15,116.476,25.346,30.489,28.696,31.945,341.7,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,1,Slick-Medium,Slick-Medium,1,142.206,33.465,32.235,30.182,32.852,159.5,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,1,Slick-Medium,Slick-Medium,2,121.047,25.948,30.895,31.98,32.224,351.7,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,1,Slick-Medium,Slick-Medium,3,117.555,25.7,30.8,29.066,31.989,354.0,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,1,Slick-Medium,Slick-Medium,4,117.703,25.761,30.941,29.096,31.905,354.0,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,1,Slick-Medium,Slick-Medium,5,126.154,28.592,32.802,32.148,32.612,350.6,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,1,Slick-Medium,Slick-Medium,6,118.279,26.714,30.74,30.419,30.406,354.0,True,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,2,Slick-Medium,Slick-Medium,7,124.258,31.001,31.244,29.832,32.181,160.9,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,2,Slick-Medium,Slick-Medium,8,117.481,25.652,30.754,29.125,31.95,348.3,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,2,Slick-Medium,Slick-Medium,9,117.296,25.627,30.772,29.098,31.799,348.3,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,2,Slick-Medium,Slick-Medium,10,120.964,27.576,31.54,29.473,32.375,348.3,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,2,Slick-Medium,Slick-Medium,11,115.918,25.769,31.047,30.105,28.997,349.5,True,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,3,Slick-Soft,Slick-Medium,12,124.441,32.197,31.225,29.142,31.877,169.0,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,3,Slick-Soft,Slick-Medium,13,116.671,25.703,30.466,28.865,31.637,336.4,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,3,Slick-Soft,Slick-Medium,14,118.765,27.693,30.527,28.792,31.753,350.6,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,3,Slick-Soft,Slick-Medium,15,116.541,25.443,30.463,28.887,31.748,350.6,False,False
+89,Jorge MARTIN,DUCATI,Pramac Racing,SPA,3,Slick-Soft,Slick-Medium,16,120.425,25.42,30.749,30.607,33.649,350.6,False,True
+32,Lorenzo SAVADORI,APRILIA,,ITA,1,Slick-Hard,Slick-Medium,1,142.234,36.974,33.159,30.717,33.196,92.2,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,1,Slick-Hard,Slick-Medium,2,118.639,26.456,30.924,29.094,32.165,323.3,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,1,Slick-Hard,Slick-Medium,3,126.841,29.79,35.77,29.08,32.201,340.6,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,1,Slick-Hard,Slick-Medium,4,118.069,25.881,30.757,29.026,32.405,342.8,False,True
+32,Lorenzo SAVADORI,APRILIA,,ITA,1,Slick-Hard,Slick-Medium,5,124.693,29.685,34.033,30.223,30.752,338.5,True,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,2,Slick-Hard,Slick-Medium,6,124.887,32.171,31.39,29.206,32.12,167.4,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,2,Slick-Hard,Slick-Medium,7,118.183,25.705,30.839,29.123,32.516,337.5,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,2,Slick-Hard,Slick-Medium,8,133.366,34.007,36.925,29.816,32.618,338.5,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,2,Slick-Hard,Slick-Medium,9,117.813,25.897,30.95,28.891,32.075,337.5,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,2,Slick-Hard,Slick-Medium,10,117.112,25.529,30.564,29.012,32.007,341.7,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,2,Slick-Hard,Slick-Medium,11,129.1,33.104,33.549,30.827,31.62,340.6,True,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,3,Slick-Hard,Slick-Medium,12,133.33,34.399,33.571,33.22,32.14,157.8,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,3,Slick-Hard,Slick-Medium,13,116.842,25.632,30.401,28.899,31.91,338.5,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,3,Slick-Hard,Slick-Medium,14,116.559,25.468,30.445,28.724,31.922,340.6,False,False
+32,Lorenzo SAVADORI,APRILIA,,ITA,3,Slick-Hard,Slick-Medium,15,128.107,31.392,33.518,30.434,32.763,338.5,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,1,142.562,33.014,33.068,30.722,33.391,151.6,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,2,118.67,26.492,30.915,29.144,32.119,331.2,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,3,117.532,25.87,30.437,28.915,32.31,348.3,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,4,117.139,25.898,30.483,28.803,31.955,339.6,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,5,123.243,31.529,30.855,28.875,31.984,347.2,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,6,117.081,25.831,30.415,28.869,31.966,345.0,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,1,Slick-Hard,Slick-Medium,7,119.644,25.604,33.991,29.589,30.46,346.1,True,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,2,Slick-Hard,Slick-Medium,8,126.371,31.086,31.734,29.636,33.915,173.9,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,2,Slick-Hard,Slick-Medium,9,117.878,26.013,30.737,28.946,32.182,322.3,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,2,Slick-Hard,Slick-Medium,10,116.927,25.645,30.486,28.887,31.909,343.9,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,2,Slick-Hard,Slick-Medium,11,116.653,25.522,30.318,28.854,31.959,341.7,False,True
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,2,Slick-Hard,Slick-Medium,12,117.647,25.545,30.382,28.882,32.838,345.0,True,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,3,Slick-Hard,Slick-Medium,13,127.813,32.487,33.751,29.452,32.123,156.9,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,3,Slick-Hard,Slick-Medium,14,117.042,25.545,30.494,28.887,32.116,342.8,False,False
+27,Iker LECUONA,KTM,Tech 3 KTM Factory Racing,SPA,3,Slick-Hard,Slick-Medium,15,116.943,25.519,30.362,28.883,32.179,343.9,False,False
