@@ -2039,3 +2039,74 @@ read-only 検証まで**を実装。**正本DB業務テーブルは before==afte
   ②PASS 行のみ正本DB内 `pdf_lap_times_v2_staging` へ反映 ③Workbench 参照切替＋データ品質表示（UI 変更）
   ④非 RACE 向け is_outlap 導出 + session-type 別 Gate。
 - 新規: `pdf_v2_scratch_gate.py` / `reports/pdf_v2_gate_20260625.md`。変更: `pdf_result_extractor_v2.py`。
+
+---
+
+## 33. Result PDF v2 正本 staging 反映 実装計画（read-only 事前確認）— 2026-06-27 Claude Code 実施
+
+§32 の Gate 結果を受け、Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-27）の指示で
+**正本反映の前段：read-only 事前確認と実装計画**を作成。**正本DB書込・table作成・Workbench 変更・push なし**。
+計画書 = `reports/pdf_v2_canonical_staging_plan_20260627.md`。
+
+### 33a. read-only 再確認
+- `pdf_v2_scratch_gate.py --all` を `mode=ro` 再実行 → 業務テーブル **before==after 不変**。PASS lap 行=6756（seg充填6286）。
+- **セッション種別の差**: RACE=PASS399/WARN69/FAIL3（race_results が完全分類＝Gate 有効）/
+  非RACE=PASS26/WARN736。**非RACE WARNING の主因=「race_results に該当行なし」714**＝予選/練習は per-rider 真値が
+  部分的（Gate の真値モデルが非RACEに不適合）。v2 の品質劣化ではない。
+
+### 33b. PASS-only 反映計画（要承認）
+- 正本DB内 **新規** `pdf_lap_times_v2_staging`（業務テーブルは ALTER せず追加のみ＝§20b と同非破壊）。
+  自然キー `(round,session_type,rider_num,lap_no,date)`（§1c）/ `INSERT OR REPLACE` 冪等。
+- 段階: **Step1=RACE PASS(399)**（Race Analysis 欠落を直接解消）→ Step2=RACE WARNING(実ラップ・flag付)
+  → Step3=非RACE（is_outlap 導出 + session 内ゲート整備まで保留）。FAIL は不採用。
+- 安全策: 事前フルバックアップ / before==after assert / ロールバック=`DROP TABLE`（業務テーブル無影響）。
+  staging 反映と Workbench 切替は**別承認・別タスクに分離**（staging 作成だけでは現行挙動不変）。
+
+### 33c. Workbench 参照切替（最小案・要承認）
+- `RaceAnalysisTab` は `pdf_lap_times` を **11箇所のSQLリテラル**で参照（L4935/4937/4957/4960/4984/5132/5210/
+  5283/5378/5448/5567）。使用列は seg1-4/is_outlap/is_pit/is_cancelled 等で v2 拡張と整合。
+- **推奨案A**: 正本 **VIEW `race_lap_detail`**（v2-PASS を overlay、無い rider-session は旧 `pdf_lap_times` に
+  フォールバック＝**非RACE 無回帰**）。Workbench はクラス定数 `RACE_LAP_SRC` を追加し 11 リテラルを置換、view へ。
+- **品質表示**: フィルタ中 (round,session) の PASS/WARN/FAIL・#73=results-only・来歴(source_file/extractor_version/
+  generated_at) を表示。欠落の 0 埋め/推測補完はしない（§12）。
+
+### 33d. FAIL/WARNING 扱い
+- FAIL16 不採用: results-only11（明細が原文 PDF に無い＝作らない／summary のみ別表示可）/ 完全欠落2 / best差2 / lap数差1（要調査）。
+- RACE WARNING(69)=実ラップ（extra35/range外34）→ flag 付き採用可。非RACE WARNING(736)=真値モデル不適合 → 保留。
+
+### 33e. 要 Tatsuki 承認 / スコープ外
+- 承認要: ①staging 作成+PASS反映（正本書込）②VIEW 作成（正本書込）③Workbench 参照切替（UI）④Step2拡大
+  ⑤Supabase/Excel/dashboard 反映要否 ⑥origin push。
+- 本作業は **read-only のみ**: `/tmp` scratch 生成のみ・正本DB書込/insert なし・Workbench 未変更・push なし。
+- 新規: `reports/pdf_v2_canonical_staging_plan_20260627.md`。
+
+---
+
+## 34. Result PDF v2 staging 反映スクリプト（既定 dry-run）— 2026-06-27 着手/2026-06-28 実行 Claude Code
+
+§33 計画に基づき、Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-27）の指示で **反映スクリプトを実装し dry-run のみ実行**。
+**`--apply` は実行せず・正本DBへの書込/ table作成/ VIEW作成/ Workbench 変更なし**。
+
+### 34a. `apply_pdf_v2_staging.py`（新規）
+- **既定 dry-run**（`--apply` 無し）。dry-run は正本DBを `mode=ro` でしか開かない。
+- 対象初期値: `session_type IN ('RACE1','RACE2')` かつ `gate_status='PASS'`（RACE 先行）。入力=`/tmp/ts24_pdf_v2_scratch.db`。
+- SQL 生成を純関数に分離（`ddl_staging()` / `insert_sql()` / `ddl_view()`）→ レビュー用 `.sql` に出力。
+  **VIEW `race_lap_detail` は SQL 出力のみ**で、apply パスでも作らない（別承認）。
+- `--apply` パス（**本タスク未実行**・承認後 Tatsuki 実行用）: 事前フルバックアップ
+  （`02_DATABASE/_backup_pdf_v2_staging_<TS>/`）→ `CREATE TABLE IF NOT EXISTS` + UNIQUE INDEX →
+  PASS 行 `INSERT OR REPLACE` → **業務テーブル before==after assert（違反で rollback）** → commit。
+
+### 34b. dry-run 結果（2026-06-28 実行・正本DB `mode=ro`）
+- 投入予定 **6616 lap 行 / 399 rider-session**（RACE のみ・PASS のみ）。seg 充填 6165（93.2%、スタートラップ等は NULL=正常）。
+- 投入前検証 **全 clean**: 自然キー重複0 / date NULL0 / lap_time_s NULL0 / 来歴欠落0 / 物理レンジ外0。
+- **正本DB業務テーブル before==after 不変**、staging/view は正本に未作成（0）。
+- ROUND6/RACE2 のみ rows30/riders2/seg0（PASS が2名のみ＝§32 の #63/#87 完全欠落の裏返し。要留意）。
+- 出力: `reports/pdf_v2_staging_dry_run_20260627.md` / `reports/pdf_v2_staging_ddl_20260627.sql` /
+  （gate 再生成）`reports/pdf_v2_gate_20260628.md`。py_compile PASS。
+
+### 34c. スコープ外（禁止遵守）/ 承認後の手順
+- `--apply` 未実行 / 正本DB table作成・insert・update・delete なし / VIEW 作成なし / Workbench 変更なし /
+  Supabase なし / Excel・dashboard 再生成なし / Phase 2B 未着手 / origin push なし。
+- 承認後（Tatsuki 実行）: ① `python3 apply_pdf_v2_staging.py --apply`（RACE PASS を正本 staging へ・業務不変 assert）
+  ②（別承認）VIEW `race_lap_detail` 作成 → Workbench を `RACE_LAP_SRC=race_lap_detail` へ切替＋品質表示。
+- 新規: `apply_pdf_v2_staging.py` / `reports/pdf_v2_staging_dry_run_20260627.md` / `reports/pdf_v2_staging_ddl_20260627.sql`。
