@@ -2110,3 +2110,81 @@ read-only 検証まで**を実装。**正本DB業務テーブルは before==afte
 - 承認後（Tatsuki 実行）: ① `python3 apply_pdf_v2_staging.py --apply`（RACE PASS を正本 staging へ・業務不変 assert）
   ②（別承認）VIEW `race_lap_detail` 作成 → Workbench を `RACE_LAP_SRC=race_lap_detail` へ切替＋品質表示。
 - 新規: `apply_pdf_v2_staging.py` / `reports/pdf_v2_staging_dry_run_20260627.md` / `reports/pdf_v2_staging_ddl_20260627.sql`。
+
+---
+
+## 35. ROUND7 (MISANO) 非2Dデータ反映計画 + 新システム検証 — 2026-06-28 Claude Code 実施
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-28）の指示で、ROUND7 の Report/Original/Result PDF（**2D は無し＝対象外**）を
+DB へ反映する **dry-run 計画と新システム検証**を実施。**正本DB書込・Supabase・Excel/dashboard 再生成・push なし**。
+計画書 = `reports/round7_non_2d_db_update_plan_20260628.md`。
+
+### 35a. 棚卸し・2D 不在
+- ROUND7 6 PDF + `20260612-ROUND7-JA52.xlsx` + `Data_Base_TS24_ORIGINAL.xlsx`（全て 2026-06-28 更新）を hash 記録。
+- **`DATA 2D/` 最新は ROUND6（20260529）。ROUND7 の 2D data は無い** → `runs`/`laps`/`lap_suspension` と 2D 由来指標は反映対象外。
+
+### 35b. ★MISANO レイアウト差を検出 → `pdf_result_extractor_v2.py` を安全側に修正
+- MISANO の Chronological は ASSEN と版が異なり、① 速度がローカルタイム同一行（`240,0 14:04'...`）② セグメント読み順が
+  ラップ間で不安定。修正前は **speed 欠落 + seg 誤割当リスク**だった。
+- 修正: 速度を両レイアウトで取得。**PDF 単位レイアウト判定**（`_SPEED_LOCALTIME` 検出＝MISANO 系 → `seg_trust=False` で
+  seg1..seg4 を NULL）。lap_no/lap_time/best/is_cancelled/is_pit/speed は両系で取得。
+- 再検証（seg_sum_bad=0・無回帰）: ASSEN/BALATON/JEREZ=seg 充填維持（ASSEN #77 は PDF 単位判定で 17 に復帰）、
+  MISANO=speed 取得・seg 安全 NULL。
+
+### 35c. 検証（Gate `--all` 51 PDF）/ ROUND7 の扱い
+- **正本DB業務テーブル before==after 不変**。集計 PASS425 / WARNING1006 / FAIL16。
+  **既存ラウンド無回帰**（PASS425・FAIL16 不変、+201 WARNING は全て ROUND7）。
+- ROUND7 6 PDF は例外なく解析（RACE 33 riders/各約570 lap 行）。だが **`race_results` に ROUND7=0 行（真値なし）** のため
+  Gate は ROUND7 を全 WARNING（extra）に。**apply dry-run の RACE PASS には ROUND7 は含まれない**（ROUND7 PASS=0）。
+  → **ROUND7 は先に Result PDF → `race_results` を反映**して初めて lap 明細 Gate が機能する。
+
+### 35d. 反映可否（2D 不在）/ 順序
+- 可: `race_results`（Result PDF・最優先）→ その後 pdf lap 明細 staging（MISANO は seg NULL・lap/best/speed 有効）。
+  管理テーブル(registry/queue)は非破壊で可。
+- 不可: `runs`/`laps`/`lap_suspension`/2D 由来指標（2D 到着後）。`problem_log`/`setup_decision_log` と Original setup は
+  run_id（2D）依存のため保留・照合参照のみ。
+- 順序: 管理テーブル → race_results(§1c 自然キー UPSERT) → lap 明細 staging → DB Master 安全再生成 → Supabase 監査(提案のみ)。各 dry-run→承認→apply。
+
+### 35e. スコープ外（禁止遵守）/ 要承認
+- 正本DB書込なし / 2D 取込なし / 2D 由来値作成なし / Supabase なし / Excel・dashboard 再生成なし / Phase 2B なし / push なし。
+- 変更コード: `pdf_result_extractor_v2.py`（MISANO 対応・read-only 抽出器）のみ。新規: `reports/round7_non_2d_db_update_plan_20260628.md`。
+- 要 Tatsuki 承認: ①ROUND7 race_results 反映 ②ROUND7 lap 明細 staging 反映 ③DB Master 再生成 ④Supabase ⑤registry/queue 更新 ⑥push。
+
+---
+
+## 36. ROUND7 race_results 反映 dry-run + MISANO 取消検出修正 + Multi-agent check — 2026-06-29 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `race_results` 反映の **dry-run 準備**と
+**複数エージェント組織運用の自己点検**を実施。**正本DB write なし**（`--apply` 未実行）。
+レポート = `reports/round7_race_results_apply_dry_run_20260629.md`。
+
+### 36a. `apply_round7_race_results.py`（新規・既定 dry-run）
+- ROUND7 6 PDF → `race_results` 候補生成。**既存慣行に整合**: RACE1/RACE2=フルフィールド、FP/QP/WUP=TS24 チーム(#77/#52)のみ
+  （既存 race_results 実データの分布に一致。`--full-nonrace` で全員に変更可）。
+- 自然キー（ローカル UPSERT）= **(round, session_type, rider_num)**（`apply_pdf_positions_v2.py` と同一）。
+- `--apply`（**未実行**・承認後 Tatsuki 用）: 事前フルバックアップ → 自然キー UPSERT(COALESCE) →
+  **runs/laps/lap_suspension/pdf_lap_times 不変 assert（違反で rollback）**・race_results は候補数だけ増加。
+
+### 36b. dry-run 結果（正本DB `mode=ro`）
+- 候補 **74 行**（RACE1 33 / RACE2 33 / FP 2 / QP 2 / WUP1 2 / WUP2 2）。
+- Quality Gate **全 clean**: 自然キー重複0 / 既存衝突0（ROUND7=0 行確認）/ 必須キー NULL0 / best NULL0 / 物理レンジ外0 / 型不正0。
+- **正本DB業務テーブル before==after 不変**。
+
+### 36c. ★Quality Gate が MISANO 取消検出漏れを発見 → 修正
+- RACE best/laps 整合チェックで **2件 mismatch**（#94=0.21s, #22=0.018s）を検出。原因 = MISANO は取消マーカー `C` が
+  **速度+ローカルタイム行の先頭**（`C 231,8 14:30'54.853`）に付き、従来パーサが行頭 `C` を検出できず取消ラップを valid 扱い。
+- **race_results 候補はヘッダ best（権威値）を使うため元から正しい**が、lap 明細品質の問題。`pdf_result_extractor_v2.py` の
+  ローカルタイム分岐で **行頭の C/P フラグと速度を抽出**するよう修正 → MISANO RACE1/RACE2 の best 不整合 **2→0**。
+- 再検証: ASSEN(#77 canc1/#5 canc2)・BALATON 無回帰、Gate `--all` PASS425/WARN1006/FAIL16（**不変**）、staging dry-run 6616 不変。
+
+### 36d. Multi-agent operating check（§1/§20・PROJECT_RULES・decision 照合）
+- Codex/Handoff・Claude Code/Implementation・Extraction・Quality Gate・DB Integration・Documentation は成果物上で充足。
+  Supervisor は承認境界で write 停止。Case Search/Hypothesis は反映後フェーズ（スコープ外）。Tatsuki=決める は承認待ち。
+
+### 36e. スコープ外（禁止遵守）/ 承認後
+- race_results への write なし / staging apply なし / VIEW なし / Workbench 変更なし / 2D 取込なし / Supabase なし /
+  Excel・dashboard なし / Phase 2B なし / origin push なし。
+- 承認後: ① `apply_round7_race_results.py --apply`（race_results 反映・非対象業務テーブル不変 assert）
+  ② `pdf_v2_scratch_gate.py --all` 再実行（ROUND7 RACE が真値を得て PASS/WARNING/FAIL 判定可能に）。
+- 新規: `apply_round7_race_results.py` / `reports/round7_race_results_apply_dry_run_20260629.md`。
+  変更: `pdf_result_extractor_v2.py`（MISANO 取消検出）。

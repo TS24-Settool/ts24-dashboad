@@ -233,6 +233,11 @@ _SPEED = re.compile(r"^\s*\d{3},\d\s*$")
 _SEG_VAL = re.compile(r"^\s*(\d{1,2}\.\d{3})\s*[CP]*\s*$")
 _COMBINED_SEG = re.compile(r"^\s*(\d{1,2}\.\d{3})\s+\d{1,2}'\d{2}\.\d{3}\s*[CP]*\s*$")
 _SPEED_VAL = re.compile(r"^\s*(\d{3},\d)\s*$")
+# 速度が行頭にあり後続にローカルタイム等が続くレイアウト（MISANO 系: "240,0 14:04'03.535"）
+_SPEED_LEAD = re.compile(r"^\s*(\d{3},\d)\s+")
+# 「速度 + ローカルタイム」が同一行 = MISANO 系レイアウトの確実な指標（PDF 単位で判定）。
+# この系はセグメント読み順がラップ間で不安定なため seg1..seg4 を写像しない。
+_SPEED_LOCALTIME = re.compile(r"^\s*\d{3},\d\s+\d{1,2}:\d{2}'\d{2}\.\d{3}\s*$")
 
 
 def _map_segments(raw_segs: list[float], lap_time_s: float | None,
@@ -271,13 +276,18 @@ _SECTION_END = re.compile(
 )
 
 
-def parse_chronological(lines: list[str], all_riders: bool) -> dict[int, dict]:
+def parse_chronological(lines: list[str], all_riders: bool,
+                        seg_trust: bool = True) -> dict[int, dict]:
     """
     連結済み行リストから Chronological Analysis を解析。
     返り値: {rider_num: {position, rider_num, rider_name, best_lap, best_lap_s,
-                         laps: [ {lap_no, lap_time, lap_time_s, is_cancelled} ]}}
+                         laps: [ {lap_no, lap_time, lap_time_s, is_cancelled, ...} ]}}
     複数ページにまたがる同一ライダーのラップ列も、連結ストリーム上では
     途切れず連続するため、次のライダーヘッダーが来るまで全ラップを収集する。
+
+    seg_trust=False のとき seg1..seg4 は写像せず NULL のままにする
+    （MISANO 系レイアウト＝セグメント読み順が不安定で位置→sector が保証できない）。
+    lap_no/lap_time/lap_time_s/is_cancelled/is_pit/speed/local_time は両系で取得する。
     """
     riders: dict[int, dict] = {}
     i = 0
@@ -352,13 +362,25 @@ def parse_chronological(lines: list[str], all_riders: bool) -> dict[int, dict]:
                     lt_m = _LOCALTIME.search(s)
                     if lt_m:
                         local_time_seen = True
-                        local_time = lt_m.group(0).strip()
+                        ltt = re.search(r"\d{1,2}:\d{2}'\d{2}\.\d{3}", s)
+                        local_time = ltt.group(0) if ltt else lt_m.group(0).strip()
+                        # MISANO 系: ローカルタイム行の先頭に「C(取消)/P(ピット)」フラグと速度が付く
+                        # 例 "C 231,8 14:30'54.853" / "240,0 14:04'03.535"。
+                        head = s[:ltt.start()] if ltt else ""
+                        if "C" in head:
+                            cancelled = True
+                        if "P" in head:
+                            pit = True
+                        if speed is None:
+                            sm = re.search(r"(\d{3},\d)", head)
+                            if sm:
+                                speed = float(sm.group(1).replace(",", "."))
                         k += 1
                         break
                     if _LAPNO.match(raw):
                         # 次のラップ番号（速度 246,4 等は _LAPNO に当たらない）
                         break
-                    # 速度行（254,1）
+                    # 速度専用行（254,1）= ASSEN 系レイアウト
                     sp_m = _SPEED_VAL.match(raw)
                     if sp_m:
                         speed = float(sp_m.group(1).replace(",", "."))
@@ -395,7 +417,14 @@ def parse_chronological(lines: list[str], all_riders: bool) -> dict[int, dict]:
                     k += 1
                 if lap_time and local_time_seen:
                     lts = parse_time_s(lap_time)
-                    seg1, seg2, seg3, seg4 = _map_segments(raw_segs, lts)
+                    # seg1..seg4 は **較正済みレイアウト（seg_trust=True）のみ**写像する。
+                    # MISANO 系（PDF 単位で _SPEED_LOCALTIME を検出 → seg_trust=False）は
+                    # セグメント読み順がラップ間で不安定なため誤割当を避け NULL のままにする
+                    # （sum は不変でも seg1↔seg3 等のラベルが狂うリスク）。lap_time/best/speed は両系で正。
+                    if seg_trust:
+                        seg1, seg2, seg3, seg4 = _map_segments(raw_segs, lts)
+                    else:
+                        seg1 = seg2 = seg3 = seg4 = None
                     cur["laps"].append({
                         "lap_no": lap_no,
                         "lap_time": lap_time,
@@ -489,10 +518,15 @@ def extract_pdf(pdf_path: Path, all_riders: bool = False) -> dict:
     lines = concat_pages(doc)
     doc.close()
 
+    # レイアウト判定（PDF 単位）: 「速度 + ローカルタイム」同一行が現れる = MISANO 系。
+    # この系はセグメント読み順が不安定なため seg1..seg4 を写像しない（seg_trust=False）。
+    seg_trust = not any(_SPEED_LOCALTIME.match(l.strip()) for l in lines)
+    meta["seg_layout"] = "assen" if seg_trust else "misano"
+
     riders: dict[int, dict] = {}
     source = "none"
     if has_chrono:
-        riders = parse_chronological(lines, all_riders)
+        riders = parse_chronological(lines, all_riders, seg_trust=seg_trust)
         # ラップが 1 本でも取れていれば chronological を採用
         if any(r["laps"] for r in riders.values()) or riders:
             source = "chronological"

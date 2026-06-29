@@ -1,4 +1,4 @@
-# Result PDF v2 staging 反映 dry-run — 2026-06-28 10:04
+# Result PDF v2 staging 反映 dry-run — 2026-06-29 14:15
 
 **dry-run（正本DBは `mode=ro`・無変更）**。`apply_pdf_v2_staging.py`（`--apply` 無し）。
 対象: `session_type IN ('RACE1', 'RACE2')` かつ `gate_status IN ('PASS',)`。 入力 scratch=`/tmp/ts24_pdf_v2_scratch.db`。反映先(承認後)=正本DB内 **新規** `pdf_lap_times_v2_staging`。
