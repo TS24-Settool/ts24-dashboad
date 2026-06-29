@@ -21,7 +21,7 @@ import plotly.graph_objects as go
 
 from . import engine
 from . import circuit_map
-from . import fetch
+from . import fetch_official
 from .parse_analysis_pdf import parse_analysis_bytes
 
 _DATA_DIR = Path(__file__).parent / "data"
@@ -55,14 +55,26 @@ def _load_demo(name: str):
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def _events_cached(year: int):
-    return fetch.list_events(year)
+def _of_events(year: int):
+    sid = fetch_official.season_id(year)
+    return (sid, fetch_official.events(sid)) if sid else (None, [])
 
 
-@st.cache_data(show_spinner="Fetching session…", ttl=900)
-def _fetch_session_cached(year: int, ev: str, cat: str, sess: str):
-    laps, label, slug = fetch.fetch_session(year, ev, cat, sess)
-    return engine.prepare_df(pd.DataFrame(laps)), label, slug
+@st.cache_data(show_spinner=False, ttl=3600)
+def _of_categories(event_uuid: str):
+    return fetch_official.categories(event_uuid)
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _of_sessions(event_uuid: str, category_uuid: str):
+    return fetch_official.sessions(event_uuid, category_uuid)
+
+
+@st.cache_data(show_spinner="Fetching official session…", ttl=1800)
+def _of_fetch(ev_uuid, ev_test, ev_short, ses_uuid, year, ev_label, ses_label):
+    event = {"id": ev_uuid, "test": ev_test, "short_name": ev_short}
+    return fetch_official.fetch_session(year, event, None, {"id": ses_uuid},
+                                        ev_label, ses_label)
 
 
 def _rider_no_from_label(cls: pd.DataFrame, label: str):
@@ -144,37 +156,55 @@ def _data_source():
 
 
 def _online_fetch_ui():
-    """Auto-fetch a session from the public mgp-timings API (no PDF upload)."""
-    with st.expander("🌐 Fetch online — MotoGP / Moto2 / Moto3 (mgp-timings)"):
-        c1, c2 = st.columns(2)
-        year = c1.selectbox("Year", list(range(2026, 2004, -1)), key="f_year")
-        cat_label = c2.selectbox("Class", [c[0] for c in fetch.CATEGORIES], key="f_cat")
-        cat_token = dict(fetch.CATEGORIES)[cat_label]
-
-        events = []
+    """Fetch a session from the OFFICIAL MotoGP timing backend (PulseLive) and
+    parse its official Analysis PDF. Reliable for any completed session."""
+    with st.expander("🌐 Fetch online — official MotoGP / Moto2 / Moto3 timing"):
+        year = st.selectbox("Year", list(range(2026, 2004, -1)), key="of_year")
         try:
-            events = _events_cached(year)
+            _, evs = _of_events(year)
         except Exception as e:  # noqa: BLE001
-            st.caption(f"Event list unavailable ({e}). Enter the event short name manually.")
-
-        if events:
-            labels = [f"{e['short_name']} — {e['circuit'] or e['name']}"
-                      + (" (TEST)" if e["test"] else "") for e in events]
-            i = st.selectbox("Event", range(len(events)),
-                             format_func=lambda i: labels[i], key="f_ev")
-            ev_short = events[i]["short_name"]
-        else:
-            ev_short = st.text_input("Event short name (e.g. QAT, ITA, VAL)", key="f_evm").strip()
-
-        sess = st.selectbox("Session", fetch.SESSIONS, key="f_sess")
-        if st.button("⬇️ Fetch session", use_container_width=True, key="f_go", type="primary"):
-            if not ev_short:
-                st.warning("Pick or enter an event.")
-                return
+            st.caption(f"Official timing API unreachable ({e}).")
+            return
+        if not evs:
+            st.caption("No events found for this year.")
+            return
+        evl = [f"{e.get('short_name') or '?'} — {e.get('name') or ''}"
+               + (" (TEST)" if e.get("test") else "") for e in evs]
+        ei = st.selectbox("Event", range(len(evs)), format_func=lambda i: evl[i],
+                          key="of_ev")
+        ev = evs[ei]
+        try:
+            cats = _of_categories(ev["id"])
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"Could not list classes ({e}).")
+            return
+        if not cats:
+            st.caption("No classes for this event yet.")
+            return
+        cl = [c.get("name", "?") for c in cats]
+        ci = st.selectbox("Class", range(len(cats)), format_func=lambda i: cl[i],
+                          key="of_cls")
+        cat = cats[ci]
+        try:
+            sess = _of_sessions(ev["id"], cat["id"])
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"Could not list sessions ({e}).")
+            return
+        if not sess:
+            st.caption("No sessions for this class yet.")
+            return
+        sl = [fetch_official.session_label(s) for s in sess]
+        si = st.selectbox("Session", range(len(sess)), format_func=lambda i: sl[i],
+                          key="of_ses")
+        if st.button("⬇️ Fetch session", use_container_width=True, key="of_go",
+                     type="primary"):
             try:
-                df, label, slug = _fetch_session_cached(year, ev_short, cat_token, sess)
+                df, label, slug = _of_fetch(ev["id"], bool(ev.get("test")),
+                                            ev.get("short_name") or "",
+                                            sess[si]["id"], year, evl[ei], sl[si])
                 if df is None or df.empty:
-                    st.warning("No laps returned — this session may not exist for that event.")
+                    st.warning("No Analysis PDF for this session yet (very recent "
+                               "events publish a few hours after the session).")
                 else:
                     st.session_state["mgp_df"] = df
                     st.session_state["mgp_label"] = label
@@ -182,7 +212,6 @@ def _online_fetch_ui():
                     st.rerun()
             except Exception as e:  # noqa: BLE001
                 st.error(f"Fetch failed: {e}")
-                st.caption("Check the year/event/class/session combination exists on motogp.com.")
 
 
 # ── tab: classification ─────────────────────────────────────────────────────
