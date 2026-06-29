@@ -2224,3 +2224,34 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `rac
 - **staging dry-run**: 投入予定 6616→**7710 行**（ROUND7 RACE PASS=1094 が候補入り）・検証全 clean・業務テーブル不変。
 - **これは初の正本業務テーブル書込（race_results）**。以降の lap 明細 staging apply / DB Master 再生成 / Supabase /
   Workbench 切替 / push は引き続き別承認。記録: 本§ / `reports/round7_race_results_apply_readiness_20260629.md` / Obsidian。
+
+---
+
+## 38. Result PDF v2 staging apply 承認前最終チェック（ROUND7 反映後・GO待ち）— 2026-06-29 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `race_results` 反映後の最新状態で
+**`pdf_lap_times_v2_staging` への apply 承認前 readiness パッケージ**を作成。**`apply_pdf_v2_staging.py --apply` は未実行**（GO待ち）。
+レポート = `reports/pdf_v2_staging_apply_readiness_20260629.md`。
+
+### 38a. 承認前再確認（正本DB無変更）
+- HEAD `ff643c4`。py_compile（apply_pdf_v2_staging / pdf_v2_scratch_gate / pdf_result_extractor_v2）PASS。
+- 正本DB: `race_results` 866（ROUND7=74）。**`pdf_lap_times_v2_staging` は正本に未作成（=0）→ 新規作成 apply**（既存衝突・置換なし）。VIEW も未作成。
+- Gate `--all` 再実行: PASS489/WARNING942/FAIL16・業務テーブル before==after 不変。
+
+### 38b. apply 対象 / 検証（dry-run 実測）
+- 対象 = 新規 `pdf_lap_times_v2_staging`、`RACE1/RACE2` × `gate_status='PASS'` の lap 明細。
+  **7710 lap 行 / 461 rider-session**（うち ROUND7 由来 **1094 行**・seg 充填 6165）。
+- 投入前検査 **全 clean**: 自然キー重複0 / date NULL0 / lap_time_s NULL0 / 来歴 NULL0 / 物理レンジ外0 / 業務テーブル不変。
+  MISANO(ROUND7) は seg=NULL（安全・Workbench セクター分析で `seg1 IS NOT NULL` により自然除外）。
+
+### 38c. apply 方針（GO 後）/ rollback / 検証
+- command: `python3 apply_pdf_v2_staging.py --apply`（事前フルバックアップ `02_DATABASE/_backup_pdf_v2_staging_<TS>/` →
+  CREATE + UNIQUE INDEX → INSERT OR REPLACE → 既存業務テーブル不変 assert → commit）。
+- rollback: 新規テーブルゆえ `DROP TABLE pdf_lap_times_v2_staging`、またはバックアップから差し戻し。
+- apply 後検証: staging 件数=7710 / ROUND7 RACE=1094 / 重複0・NULL0 / 既存業務テーブル不変 / gate 再実行。
+
+### 38d. スコープ外（禁止遵守）/ 要承認
+- `--apply` なし / VIEW なし / Workbench 変更なし / DB Master 再生成なし / Supabase なし / 2D 補完なし / push なし。
+- **重要**: この staging apply 自体は **Workbench 表示を変えない**（VIEW 作成と参照切替は別承認）。
+- 次の別承認: ①VIEW `race_lap_detail` 作成 ②Workbench 参照切替 ③品質表示 ④DB Master 再生成 ⑤Supabase ⑥push。
+- 新規: `reports/pdf_v2_staging_apply_readiness_20260629.md`。
