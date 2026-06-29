@@ -77,6 +77,51 @@ def _of_fetch(ev_uuid, ev_test, ev_short, ses_uuid, year, ev_label, ses_label):
                                         ev_label, ses_label)
 
 
+@st.cache_data(show_spinner="Loading the latest race…", ttl=1800)
+def _latest_race(cls_name: str = "MotoGP"):
+    """Most recent completed race for a class (auto-load on login)."""
+    secs = fetch_official.seasons()
+    years = sorted({s.get("year") for s in secs if s.get("year")}, reverse=True)
+    for year in years[:2]:                       # this season, then last
+        sid = next((s["id"] for s in secs if s.get("year") == year), None)
+        if not sid:
+            continue
+        evs = [e for e in fetch_official.events(sid) if not e.get("test")]
+        evs.sort(key=lambda e: e.get("date_end") or e.get("date_start") or "", reverse=True)
+        for ev in evs[:8]:
+            try:
+                cats = fetch_official.categories(ev["id"])
+                cat = next((c for c in cats if cls_name.lower() in (c.get("name") or "").lower()), None)
+                if not cat:
+                    continue
+                sess = fetch_official.sessions(ev["id"], cat["id"])
+                rac = next((s for s in sess if (s.get("type") or "").upper() == "RAC"), None)
+                if not rac:
+                    continue
+                df, label, slug = fetch_official.fetch_session(
+                    year, ev, cat, rac, ev.get("name", ""), "RAC")
+                if df is not None and not df.empty:
+                    return df, label, slug
+            except Exception:  # noqa: BLE001
+                continue
+    return None, None, None
+
+
+def _auto_load_once():
+    """On first visit after login, auto-download the latest race."""
+    if st.session_state.get("mgp_df") is not None or st.session_state.get("mgp_auto_tried"):
+        return
+    st.session_state["mgp_auto_tried"] = True
+    try:
+        df, label, slug = _latest_race("MotoGP")
+    except Exception:  # noqa: BLE001
+        return
+    if df is not None and not df.empty:
+        st.session_state["mgp_df"] = df
+        st.session_state["mgp_label"] = label
+        st.session_state["mgp_circuit"] = slug
+
+
 def _rider_no_from_label(cls: pd.DataFrame, label: str):
     row = cls[cls.apply(lambda r: engine._rider_label(r) == label, axis=1)]
     return row["rider_no"].iloc[0] if not row.empty else None
@@ -86,10 +131,10 @@ def _rider_no_from_label(cls: pd.DataFrame, label: str):
 def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
-    st.caption("Official timing → every rider · every lap · every sector. "
-               "Upload a session's **Analysis PDF** (motogp.com → Results → Analysis) "
-               "or open the demo.")
+    st.caption("Official timing → every rider · every lap · every sector.  "
+               "·  build: **official-source v3** (auto-loads latest race on login)")
 
+    _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
     if df is None or df.empty:
         st.info("⬆️ Upload an **Analysis** PDF (MotoGP / Moto2 / Moto3) or tap "
