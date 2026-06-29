@@ -86,7 +86,12 @@ def _latest_race(cls_name: str = "MotoGP"):
         sid = next((s["id"] for s in secs if s.get("year") == year), None)
         if not sid:
             continue
-        evs = [e for e in fetch_official.events(sid) if not e.get("test")]
+        # Only completed GP rounds (skip tests + not-yet-run races). Without the
+        # FINISHED filter, mid-season the latest 8-by-date are all future events,
+        # so the scan would skip every completed round and fall back to last year.
+        evs = [e for e in fetch_official.events(sid)
+               if not e.get("test")
+               and (e.get("status") or "").upper() == "FINISHED"]
         evs.sort(key=lambda e: e.get("date_end") or e.get("date_start") or "", reverse=True)
         for ev in evs[:8]:
             try:

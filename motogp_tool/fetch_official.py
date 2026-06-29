@@ -96,10 +96,21 @@ def analysis_pdf_url(session_uuid: str, test: bool = False):
     return None
 
 
+def _session_analysis_url(session: dict):
+    """Direct Analysis-PDF URL carried by the PulseLive /sessions response
+    (session_files.analysis.url). Verified live: this is the canonical link, so
+    prefer it over re-fetching /classification and rewriting Classification.pdf
+    -> Analysis.pdf. Returns None when the session dict lacks the files block
+    (e.g. the manual picker passes only {'id': ...})."""
+    sf = session.get("session_files") or {}
+    return (sf.get("analysis") or {}).get("url") or None
+
+
 def fetch_session(year, event, category, session, event_label="", sess_label=""):
     """event/category/session are PulseLive dicts (need their 'id' + flags).
     Returns (df, label, circuit_slug)."""
-    url = analysis_pdf_url(session["id"], test=bool(event.get("test")))
+    url = (_session_analysis_url(session)
+           or analysis_pdf_url(session["id"], test=bool(event.get("test"))))
     if not url:
         return None, None, None
     pdf = _get(url, _binary=True)
