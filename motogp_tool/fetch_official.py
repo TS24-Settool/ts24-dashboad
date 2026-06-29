@@ -14,6 +14,7 @@ Makes outbound HTTPS calls; works wherever there is internet (Streamlit Cloud).
 """
 from __future__ import annotations
 
+import re
 import warnings
 
 import requests
@@ -81,9 +82,18 @@ def session_label(s: dict) -> str:
 
 
 def analysis_pdf_url(session_uuid: str, test: bool = False):
+    """The Analysis PDF URL. Prefer files.analysis; otherwise derive it from the
+    classification `file` URL (.../Classification.pdf -> .../Analysis.pdf), which
+    is how the official results are laid out."""
     res = _get(f"{BASE}/session/{session_uuid}/classification",
-               test=str(bool(test)).lower())
-    return ((res or {}).get("files") or {}).get("analysis")
+               test=str(bool(test)).lower()) or {}
+    url = (res.get("files") or {}).get("analysis")
+    if url:
+        return url
+    f = res.get("file") or ""
+    if re.search(r"[Cc]lassification\.pdf$", f):
+        return re.sub(r"[Cc]lassification\.pdf$", "Analysis.pdf", f)
+    return None
 
 
 def fetch_session(year, event, category, session, event_label="", sess_label=""):
