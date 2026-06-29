@@ -2294,3 +2294,35 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、staging app
 - 次の別承認: ①VIEW 作成 ②Workbench 参照切替 ③品質表示 ④DB Master 再生成 ⑤Supabase ⑥push。
 - **2段階分離可能**: VIEW 作成だけでは表示不変、`RACE_LAP_SRC` 切替で初めて反映。
 - 本作業: 正本DB・`ts24_workbench.py` とも不変。scratch(`/tmp`)検証のみ。新規: `reports/race_lap_detail_view_workbench_readiness_20260629.md`。
+
+---
+
+## 40. ★VIEW race_lap_detail 作成 + Workbench 参照切替 実行（2026-06-29・Tatsuki GO 受領）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29「実行ゲート」）。Tatsuki が本セッションで「GO認証します」と明示GO
+（=`VIEW + Workbench switch GO`）→ 実行。レポート = `reports/race_lap_detail_view_workbench_apply_20260629.md`。
+
+### 40a. VIEW 作成（正本DB）
+- 事前バックアップ `02_DATABASE/_backup_view_workbench_20260629_155958/`。
+- `race_lap_detail`（`pdf_v2_staging_ddl_20260627.sql` (3)・v2 PASS overlay + legacy NOT EXISTS フォールバック）作成。
+- 検証: total=**12763**（v2 7710 + legacy 5053）・自然キー重複0・ROUND7/RACE1 #77/#52=18・非RACE ROUND3/SP=235（空でない）・
+  **業務テーブル不変**（runs275/laps1202/lap_suspension1202/race_results866/pdf_lap_times7613）。
+
+### 40b. Workbench `RaceAnalysisTab` 最小差分（`ts24_workbench.py`）
+- クラス定数 **`RACE_LAP_SRC = "race_lap_detail"`** 追加（rollback: `"pdf_lap_times"`）。
+- `pdf_lap_times` 直接参照 **11 箇所**を `{self.RACE_LAP_SRC}` へ置換（論理不変・参照先のみ）。SQL の `FROM pdf_lap_times` 残存=0。
+- 最小品質表示: bar2 に `_lbl_quality` 追加、`_refresh_charts`→`_update_quality()` で現フィルタの source_tag(v2/legacy)/件数/
+  rider数/extractor_version を 1 行表示（欠落を 0 埋めしない）。
+
+### 40c. 検証
+- `py_compile` PASS。**offscreen スモークテスト**（`QT_QPA_PLATFORM=offscreen`）: `RaceAnalysisTab` 構築 OK、
+  ROUND7/RACE1 で `_refresh_charts` 例外なし・品質表示 `lap source: v2 528行/30名 [pdf_result_extractor_v2]`。
+  **ROUND3/RACE1 #77 = 18 laps（旧 0 の欠落解消）**・セクター seg(NOT NULL)=17、ROUND7 #77=18（MISANO seg=NULL で
+  セクター分析は自然除外・例外なし）、非RACE は legacy で空でない。
+- 注: #77/#52 は team rider で `JA52`/`DA77` チェックボックス管理（field combo とは別系統＝既存仕様）。
+- **GUI 目視（最終）は Tatsuki ローカル**（`python3 ts24_workbench.py`・ヘッドレス不可）。
+
+### 40d. rollback / スコープ外
+- rollback: `DROP VIEW race_lap_detail` / `RACE_LAP_SRC` を `pdf_lap_times` に戻す。staging は触らない。
+- 未実施（別承認）: DB Master 再生成 / Supabase audit・sync / origin push。
+- 新規: `reports/race_lap_detail_view_workbench_apply_20260629.md`。変更: `ts24_workbench.py`。正本DBに VIEW 追加（業務テーブル不変）。

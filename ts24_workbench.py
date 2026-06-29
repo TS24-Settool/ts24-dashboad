@@ -4538,6 +4538,11 @@ class RaceAnalysisTab(QWidget):
         ( 40, 160, 200),
     ]
 
+    # ラップ明細のデータソース（2026-06-29 Tatsuki GO で v2 overlay VIEW へ切替）。
+    # VIEW race_lap_detail = v2 PASS（RACE）を優先し、無い rider-session は旧 pdf_lap_times に
+    # フォールバック（非RACE 無回帰）。rollback 時は "pdf_lap_times" に戻す。
+    RACE_LAP_SRC = "race_lap_detail"
+
     def __init__(self, db: WorkbenchDB, parent=None):
         super().__init__(parent)
         self._db = db
@@ -4640,6 +4645,14 @@ class RaceAnalysisTab(QWidget):
         self._spin_tol.setToolTip("Tolerance: ベストラップからこの秒数以内のラップを有効とする")
         self._spin_tol.valueChanged.connect(self._refresh_charts)
         b2h.addWidget(self._spin_tol)
+
+        # ラップ明細データソースの品質表示（2026-06-29・v2 overlay 切替に伴い追加）
+        self._lbl_quality = QLabel("")
+        self._lbl_quality.setStyleSheet("font-size: 10px; color: #555;")
+        self._lbl_quality.setToolTip(
+            "ラップ明細データソース: v2 = Quality Gate PASS の Result PDF v2 抽出（pdf_lap_times_v2_staging）/ "
+            "legacy = 旧 pdf_lap_times。VIEW race_lap_detail 経由（RACE は v2 優先・非RACEは legacy）。")
+        b2h.addWidget(self._lbl_quality)
 
         b2h.addStretch()
 
@@ -4932,9 +4945,9 @@ class RaceAnalysisTab(QWidget):
 
     def _load_meta(self):
         rounds = self._query(
-            "SELECT DISTINCT round FROM pdf_lap_times ORDER BY round")
+            f"SELECT DISTINCT round FROM {self.RACE_LAP_SRC} ORDER BY round")
         sessions = self._query(
-            "SELECT DISTINCT session_type FROM pdf_lap_times ORDER BY session_type")
+            f"SELECT DISTINCT session_type FROM {self.RACE_LAP_SRC} ORDER BY session_type")
 
         self._combo_round.blockSignals(True)
         self._combo_round.clear()
@@ -4954,10 +4967,10 @@ class RaceAnalysisTab(QWidget):
         rnd = self._combo_round.currentText()
         if rnd == "全ラウンド":
             rows = self._query(
-                "SELECT DISTINCT session_type FROM pdf_lap_times ORDER BY session_type")
+                f"SELECT DISTINCT session_type FROM {self.RACE_LAP_SRC} ORDER BY session_type")
         else:
             rows = self._query(
-                "SELECT DISTINCT session_type FROM pdf_lap_times WHERE round=? ORDER BY session_type",
+                f"SELECT DISTINCT session_type FROM {self.RACE_LAP_SRC} WHERE round=? ORDER BY session_type",
                 (rnd,))
         self._combo_session.blockSignals(True)
         self._combo_session.clear()
@@ -4981,7 +4994,7 @@ class RaceAnalysisTab(QWidget):
         where, params = self._where_clause()
         sql = f"""
             SELECT DISTINCT rider_num, rider_name
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             {where}
             ORDER BY rider_num
         """
@@ -5042,12 +5055,43 @@ class RaceAnalysisTab(QWidget):
     def _refresh_charts(self, *_):
         if not self._haspg:
             return
+        self._update_quality()
         self._draw_lap_trend()
         self._draw_lap_table()
         self._draw_gap()
         self._draw_sector()
         self._draw_round_best()
         self._draw_statistics()
+
+    def _update_quality(self):
+        """現フィルタのラップ明細データソース品質を1行表示（v2/legacy・件数・抽出器バージョン）。
+
+        データ源は VIEW `race_lap_detail`（RACE は v2 PASS 優先・非RACE は旧 pdf_lap_times フォールバック）。
+        `source_tag`(v2/legacy) / `gate_status` / `extractor_version` を要約表示し、欠落を 0 埋めしない。
+        """
+        if not hasattr(self, "_lbl_quality"):
+            return
+        where, params = self._where_clause()
+        try:
+            rows = self._query(
+                f"SELECT source_tag, COUNT(*) n, COUNT(DISTINCT rider_num) riders, "
+                f"MAX(extractor_version) ev FROM {self.RACE_LAP_SRC} {where} "
+                f"GROUP BY source_tag ORDER BY source_tag", params)
+        except Exception:
+            self._lbl_quality.setText("")
+            return
+        if not rows:
+            self._lbl_quality.setText("lap source: （該当データなし）")
+            return
+        parts, ev = [], None
+        for r in rows:
+            parts.append(f"{r['source_tag']} {r['n']}行/{r['riders']}名")
+            if r.get("ev"):
+                ev = r["ev"]
+        txt = "lap source: " + " ・ ".join(parts)
+        if ev:
+            txt += f"  [{ev}]"
+        self._lbl_quality.setText(txt)
 
     # ─────────────────────────────────────────────────────────────
     # ユーティリティ
@@ -5129,7 +5173,7 @@ class RaceAnalysisTab(QWidget):
         pit = self._pit_filter()
         sql = f"""
             SELECT rider_num, rider_name, lap_no, lap_time_s
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             {where}
             AND is_outlap=0 AND is_cancelled=0 {pit}
             AND lap_time_s IS NOT NULL AND lap_time_s BETWEEN 60 AND 400
@@ -5207,7 +5251,7 @@ class RaceAnalysisTab(QWidget):
         pit = self._pit_filter()
         sql = f"""
             SELECT rider_num, rider_name, lap_no, lap_time_s
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             {where}
             AND is_outlap=0 AND is_cancelled=0 {pit}
             AND lap_time_s IS NOT NULL AND lap_time_s > 60
@@ -5280,7 +5324,7 @@ class RaceAnalysisTab(QWidget):
         sql = f"""
             SELECT rider_num, rider_name, lap_no,
                    seg1, seg2, seg3, seg4, lap_time_s
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             {where}
             AND is_outlap=0 AND is_cancelled=0 {pit}
             AND seg1 IS NOT NULL AND seg2 IS NOT NULL
@@ -5375,7 +5419,7 @@ class RaceAnalysisTab(QWidget):
         sql = f"""
             SELECT round, rider_num, rider_name,
                    MIN(lap_time_s) as best
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             WHERE session_type = ?
               AND is_outlap=0 AND is_cancelled=0 {pit}
               AND lap_time_s IS NOT NULL AND lap_time_s > 60
@@ -5445,7 +5489,7 @@ class RaceAnalysisTab(QWidget):
         pit = self._pit_filter()
         sql = f"""
             SELECT rider_num, lap_no, lap_time_s
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             {where}
             AND is_outlap=0 AND is_cancelled=0 {pit}
             AND rider_num IN (52, 77)
@@ -5564,7 +5608,7 @@ class RaceAnalysisTab(QWidget):
         pit = self._pit_filter()
         sql = f"""
             SELECT rider_num, lap_no, lap_time_s
-            FROM pdf_lap_times
+            FROM {self.RACE_LAP_SRC}
             {where}
             AND is_outlap=0 AND is_cancelled=0 {pit}
             AND rider_num IN (52, 77)
