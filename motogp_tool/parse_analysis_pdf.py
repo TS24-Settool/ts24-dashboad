@@ -49,6 +49,15 @@ _MANUFACTURERS = {
 _SESSION_KEYS = ("Free Practice", "Practice", "Qualifying", "Warm Up",
                  "Warm-Up", "Race", "Sprint", "Tissot")
 
+# A line that is *only* the class name (with optional ™). The class is printed on
+# page 1, not page 0, so we scan the whole document for it. Must be anchored so we
+# never pick up the "Official MotoGP Timing by" brand line on page 0.
+_RE_CLASS_LINE = re.compile(r"^Moto(?:GP|2|3|E)™?$")
+
+# Canonical session names as they appear on the header line ("RACE", "SPRINT"…).
+_SESSION_NAMES = ("RACE", "SPRINT", "FREE PRACTICE", "PRACTICE", "QUALIFYING",
+                  "WARM UP", "WARM-UP")
+
 
 def _laptime_to_s(tok: str):
     """'1\\'57.714' -> 117.714  (seconds, float). Returns None if unparseable."""
@@ -81,24 +90,69 @@ def _row_tokens(row):
     return sorted([(w[0], w[4]) for w in row], key=lambda t: t[0])
 
 
-def _extract_meta(page0_text: str) -> dict:
-    meta = {"category": None, "session": None, "event": None, "circuit_len_m": None}
-    for raw in page0_text.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if meta["category"] is None and re.search(r"Moto(GP|2|3|E)", line):
-            meta["category"] = re.search(r"Moto(?:GP|2|3|E)", line).group(0)
-        if meta["session"] is None and any(k in line for k in _SESSION_KEYS) \
-                and "Results and timing" not in line and "Tissot" not in line:
-            meta["session"] = line
-        if meta["circuit_len_m"] is None:
-            m = re.search(r"(\d{3,5})\s*m\.", line)
-            if m:
-                meta["circuit_len_m"] = int(m.group(1))
-        if meta["event"] is None and line.isupper() and len(line) > 6 \
-                and "RESULTS" not in line and "ANALYSIS" not in line:
-            meta["event"] = line
+def _clean_event(line: str) -> str:
+    """Older PDF revisions occasionally glue the GP title to the sprint/sponsor
+    title (e.g. '…NETHERLANDS TISSOT GRAND PRIX OF…'). Keep only the first title
+    by cutting at a repeated 'GRAND PRIX' / 'GRAN PREMIO'."""
+    occ = [m.start() for m in re.finditer(r"GRAND PRIX|GRAN PREMIO", line)]
+    if len(occ) >= 2:
+        line = line[:occ[1]]
+    return line.strip()
+
+
+def _extract_meta(page0_text: str, full_text: str | None = None) -> dict:
+    """Pull session identity from the Analysis PDF header.
+
+    Layout (page 0): EVENT title (UPPER, contains 'GRAND PRIX'), then the venue
+    (mixed case), then the session word ('RACE'…), then 'CHRONOLOGICAL ANALYSIS
+    OF PERFORMANCES', then '4801 m.'. The class ('Moto3™') is printed on page 1,
+    so it is read from `full_text`. Track temperature / weather are NOT present in
+    this PDF, so they stay None (the UI hides them)."""
+    meta = {"category": None, "session": None, "event": None,
+            "circuit": None, "circuit_len_m": None,
+            "track_temp": None, "weather": None}
+    lines = [l.strip() for l in page0_text.splitlines() if l.strip()]
+
+    # event = first UPPER line carrying 'GRAND PRIX' / 'GRAN PREMIO'
+    ev_idx = None
+    for i, line in enumerate(lines):
+        if line.isupper() and re.search(r"GRAND PRIX|GRAN PREMIO", line):
+            meta["event"], ev_idx = _clean_event(line), i
+            break
+    if meta["event"] is None:                       # non-GP fallback (tests etc.)
+        for i, line in enumerate(lines):
+            if line.isupper() and len(line) > 6 and not any(
+                    k in line for k in ("RESULTS", "ANALYSIS", "PERFORMANCES",
+                                        "TIMING", "CANCELLED", "INTERMED")):
+                meta["event"], ev_idx = line, i
+                break
+
+    # circuit = the mixed-case venue line right after the event title
+    if ev_idx is not None:
+        for line in lines[ev_idx + 1: ev_idx + 3]:
+            if not line.isupper() and len(line) > 3 and "m." not in line:
+                meta["circuit"] = line
+                break
+
+    # session = the header session word ('RACE', 'FREE PRACTICE', …)
+    for line in lines:
+        up = line.upper()
+        if any(up == w or up.startswith(w + " ") for w in _SESSION_NAMES):
+            meta["session"] = line.title() if line.isupper() else line
+            break
+
+    # circuit length ('4801 m.')
+    for line in lines:
+        m = re.search(r"(\d{3,5})\s*m\.", line)
+        if m:
+            meta["circuit_len_m"] = int(m.group(1))
+            break
+
+    # class lives on page 1 — scan the whole document for the anchored token
+    for raw in (full_text or page0_text).splitlines():
+        if _RE_CLASS_LINE.match(raw.strip()):
+            meta["category"] = raw.strip().rstrip("™")
+            break
     return meta
 
 
@@ -117,7 +171,8 @@ def parse_analysis_bytes(data: bytes) -> dict:
 def _parse_doc(doc) -> dict:
     if fitz is None or doc is None:
         raise RuntimeError("PyMuPDF (fitz) is required: pip install pymupdf")
-    meta = _extract_meta(doc[0].get_text())
+    full_text = "\n".join(doc[p].get_text() for p in range(doc.page_count))
+    meta = _extract_meta(doc[0].get_text(), full_text)
 
     laps = []
     # Rider/run context persists across columns AND pages: in the two-column
@@ -246,12 +301,67 @@ def _name_tokens(words, nation=None):
     return out
 
 
+def _is_upper_token(t: str) -> bool:
+    """True for an ALL-CAPS alphabetic token of length >1 (a SURNAME / brand),
+    tolerant of apostrophes, hyphens and accents (MUÑOZ, O'SHEA, ORTOLÁ)."""
+    core = t.replace("'", "").replace("-", "").replace(".", "")
+    return len(core) > 1 and core.isupper() and any(ch.isalpha() for ch in core)
+
+
+def _split_identity(words: list[str]) -> dict:
+    """Split a single clustered identity row into rider fields. These PDFs lay it
+    out uniformly across all classes as:
+        [ordinal, number, Given… , SURNAME, Team…, NATION]
+    e.g. ['1st','64','David','MUÑOZ','LIQUI','MOLY','Dynavolt','SPA'] or
+         ['1st','93','Marc','MARQUEZ','DUCATI','SPA'].
+    The rider name ends at the FIRST all-caps token (the surname) that follows a
+    given name; everything after it (before the trailing 3-letter nation) is the
+    team. Returns None fields when the row doesn't carry them."""
+    out = {"no": None, "name": None, "team": None, "manuf": None, "nation": None}
+    toks = list(words)
+    if toks and _RE_ORDINAL.match(toks[0]):
+        toks = toks[1:]
+    # rider number = first pure integer token
+    for k, t in enumerate(toks):
+        if _RE_INT.match(t):
+            out["no"] = int(t)
+            toks = toks[:k] + toks[k + 1:]
+            break
+    # nation = trailing 3-letter all-caps token
+    if toks and _RE_NATION.match(toks[-1]):
+        out["nation"] = toks[-1]
+        toks = toks[:-1]
+    # split name (up to & incl first all-caps surname after a given name) vs team
+    name_end, seen_given = None, False
+    for k, t in enumerate(toks):
+        if not any(ch.isalpha() for ch in t):
+            continue
+        if _is_upper_token(t) and (seen_given or name_end is None):
+            name_end = k
+            if seen_given:
+                break
+        else:
+            seen_given = True
+    if name_end is not None:
+        out["name"] = " ".join(toks[:name_end + 1])
+        team_toks = toks[name_end + 1:]
+    else:
+        out["name"] = " ".join(toks) or None
+        team_toks = []
+    if team_toks:
+        out["team"] = " ".join(team_toks)
+    for t in (team_toks or toks):
+        if t.upper() in _MANUFACTURERS:
+            out["manuf"] = t
+            break
+    return out
+
+
 def _read_rider_header(word_rows, runs_idx):
-    """Read the rider header above the 'Runs=' row. The header tokens
-    (position, number, name, manufacturer, nation, team) may be spread across a
-    few rows or merged onto one clustered row, e.g.
-    ['1st','21','Franco','MORBIDELLI','YAMAHA'] then ['Petronas','Yamaha','SRT'].
-    Anchor on the row carrying the position ordinal; only rider_no is essential."""
+    """Read the rider header above the 'Runs=' row. Prefer the single clustered
+    identity row (position, number, name, team, nation on one line — the modern
+    layout); fall back to multi-row discovery (name on the line above the ordinal,
+    team on a line below) for older layouts. Only rider_no is essential."""
     rider = {"no": None, "name": None, "team": None, "manuf": None, "nation": None}
     lo = max(0, runs_idx - 6)
 
@@ -264,33 +374,21 @@ def _read_rider_header(word_rows, runs_idx):
     if ident_i is None:
         return rider
 
-    words = word_rows[ident_i]
-    nums = [t for t in words if _RE_INT.match(t)]
-    if nums:
-        rider["no"] = int(nums[0])
-    for t in words:
-        if t.upper() in _MANUFACTURERS:
-            rider["manuf"] = t
-            break
-    for t in words:
-        if _RE_NATION.match(t) and t.upper() not in _MANUFACTURERS:
-            rider["nation"] = t
-            break
-    nm = _name_tokens(words, rider["nation"])
-    # name may live on the row just above the ordinal row instead
-    if not nm and ident_i - 1 >= lo:
-        nm = _name_tokens(word_rows[ident_i - 1], rider["nation"])
-    if nm:
-        rider["name"] = " ".join(nm)
+    rider = _split_identity(word_rows[ident_i])
 
-    # team = first plain row (no '=', no ordinal, not lap data) below identity
-    for j in range(ident_i + 1, runs_idx):
-        t = word_rows[j]
-        if t and "=" not in " ".join(t) and not _is_lapish(t) \
-                and not any(_RE_ORDINAL.match(x) for x in t) \
-                and t[0].upper() not in _MANUFACTURERS:
-            rider["team"] = " ".join(t)
-            break
+    # fallbacks for older multi-row layouts
+    if not rider["name"] and ident_i - 1 >= lo:
+        nm = _name_tokens(word_rows[ident_i - 1], rider["nation"])
+        if nm:
+            rider["name"] = " ".join(nm)
+    if not rider["team"]:
+        for j in range(ident_i + 1, runs_idx):
+            t = word_rows[j]
+            if t and "=" not in " ".join(t) and not _is_lapish(t) \
+                    and not any(_RE_ORDINAL.match(x) for x in t) \
+                    and t[0].upper() not in _MANUFACTURERS:
+                rider["team"] = " ".join(t)
+                break
     return rider
 
 

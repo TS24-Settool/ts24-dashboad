@@ -45,7 +45,30 @@ def _parse_pdf_cached(data: bytes):
     df = engine.laps_to_df(parsed)
     meta = parsed["meta"]
     slug = circuit_map.detect_slug(meta.get("event")) or circuit_map.detect_slug(meta.get("session"))
-    return df, engine.session_label(meta), slug
+    return df, engine.session_label(meta), slug, meta
+
+
+def _session_meta(label: str | None):
+    """Return the parsed PDF meta for the overview card, or a minimal dict
+    derived from the session label when meta is unavailable (e.g. online/demo)."""
+    meta = st.session_state.get("mgp_meta")
+    if meta:
+        return meta
+    parts = [p.strip() for p in (label or "").split("·")] if label else []
+
+    def _get(i):
+        return parts[i] if i < len(parts) and parts[i] else None
+
+    return {"category": _get(0), "event": _get(1), "session": _get(2),
+            "circuit": None, "circuit_len_m": None,
+            "track_temp": None, "weather": None}
+
+
+def _slug(text: str) -> str:
+    """Filesystem-safe slug from a label: lowercase, non-alnum -> '_'."""
+    import re
+    s = re.sub(r"[^a-z0-9]+", "_", (text or "session").lower()).strip("_")
+    return s or "session"
 
 
 @st.cache_data(show_spinner=False)
@@ -137,7 +160,8 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **official-source v3** (auto-loads latest race on login)")
+               "·  build: **review-tools v4** (session overview · sector diagnosis · "
+               "consistency · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
@@ -146,8 +170,7 @@ def render_motogp_page():
                 "**Open demo session** to explore.")
         return
 
-    st.success(f"**{label}**  —  {df['rider_no'].nunique()} riders · "
-               f"{int(df['is_flying'].sum())} flying laps")
+    _session_overview(df, label)
 
     cls = engine.classification(df)
     if cls.empty:
@@ -171,6 +194,70 @@ def render_motogp_page():
         _tab_lap_detail(df, cls)
 
 
+# ── session overview cards + export ─────────────────────────────────────────
+def _session_overview(df, label):
+    s = engine.session_summary(df, _session_meta(label), label)
+
+    head = s.get("event") or label or "Session"
+    sub_bits = []
+    if s.get("circuit"):
+        sub_bits.append(s["circuit"])
+    if s.get("circuit_len_m"):
+        sub_bits.append(f"{s['circuit_len_m']:,} m")
+    sub = "  ·  ".join(sub_bits)
+    st.markdown(f"#### {head}")
+    if sub:
+        st.caption(sub)
+
+    # First KPI row
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Class", s.get("klass") or "—")
+    c2.metric("Session", s.get("session") or "—")
+    c3.metric("Riders", s.get("riders") or 0)
+    c4.metric("Flying laps", s.get("flying_laps") or 0)
+
+    # Second KPI row — best / ideal lap
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Best lap", _fmt_lap(s.get("best_lap")))
+    if s.get("best_lap_rider"):
+        d1.caption(s["best_lap_rider"])
+    d2.metric("Ideal lap", _fmt_lap(s.get("ideal_lap")))
+    d2.caption("fastest T1–T4 by anyone")
+    d3.metric("Total laps", s.get("total_laps") or 0)
+
+    # Track temp / weather — keep the code path, show only when present
+    extra = []
+    if s.get("track_temp") is not None:
+        extra.append(f"Track {s['track_temp']}°C")
+    if s.get("weather") is not None:
+        extra.append(str(s["weather"]))
+    if extra:
+        st.caption("  ·  ".join(extra))
+
+    _export_ui(df, label)
+
+
+def _export_ui(df, label):
+    meta = _session_meta(label)
+    base = _slug(label)
+    with st.expander("⬇️ Export session data (JSON / CSV)"):
+        c1, c2 = st.columns(2)
+        try:
+            c1.download_button("JSON", engine.export_json(df, meta, label),
+                               file_name=f"{base}.json",
+                               mime="application/json",
+                               use_container_width=True, key="exp_json")
+        except Exception as e:  # noqa: BLE001
+            c1.caption(f"JSON unavailable: {e}")
+        try:
+            c2.download_button("CSV (per-lap)", engine.export_csv(df),
+                               file_name=f"{base}.csv",
+                               mime="text/csv",
+                               use_container_width=True, key="exp_csv")
+        except Exception as e:  # noqa: BLE001
+            c2.caption(f"CSV unavailable: {e}")
+
+
 # ── data source (upload / demo) ─────────────────────────────────────────────
 def _data_source():
     up = st.file_uploader("Analysis PDF", type=["pdf"], label_visibility="collapsed")
@@ -179,14 +266,16 @@ def _data_source():
     if c2.button("✖︎ Clear", use_container_width=True):
         st.session_state.pop("mgp_df", None)
         st.session_state.pop("mgp_label", None)
+        st.session_state.pop("mgp_meta", None)
         st.rerun()
 
     if up is not None:
         try:
-            df, label, slug = _parse_pdf_cached(up.getvalue())
+            df, label, slug, meta = _parse_pdf_cached(up.getvalue())
             st.session_state["mgp_df"] = df
             st.session_state["mgp_label"] = label
             st.session_state["mgp_circuit"] = slug
+            st.session_state["mgp_meta"] = meta
         except Exception as e:  # noqa: BLE001
             st.error(f"Could not parse this PDF: {e}")
             st.caption("Make sure it is the **Analysis / Chronological Analysis "
@@ -265,26 +354,91 @@ def _online_fetch_ui():
 
 
 # ── tab: classification ─────────────────────────────────────────────────────
+def _clean_str(v):
+    return "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v)
+
+
+def _gap_str(d):
+    return "" if pd.isna(d) or d == 0 else f"+{d:.3f}"
+
+
+def _sec_str(v):
+    return f"{v:.3f}" if pd.notna(v) else "—"
+
+
 def _tab_classification(cls: pd.DataFrame):
+    # Rider highlight selector
+    opts = engine.rider_options(cls)
+    pick = st.selectbox("Highlight my rider / team", opts, index=0,
+                        key="cls_highlight") if opts else None
+    pick_no = _rider_no_from_label(cls, pick) if pick else None
+    pick_team = None
+    if pick_no is not None:
+        prow = cls[cls["rider_no"] == pick_no]
+        if not prow.empty:
+            pick_team = _clean_str(prow["team"].iloc[0]).strip() or None
+
     show = pd.DataFrame({
         "Pos": cls.get("position"),
         "No": cls["rider_no"],
-        "Rider": cls["rider_name"],
-        "Bike": cls.get("manufacturer"),
+        "Rider": cls["rider_name"].map(_clean_str),
+        "Team": cls.get("team", pd.Series([None] * len(cls))).map(_clean_str),
+        "Bike": cls.get("manufacturer", pd.Series([None] * len(cls))).map(_clean_str),
         "Best Lap": cls["best_lap"].map(_fmt_lap),
-        "Gap": cls.get("gap", pd.Series([np.nan] * len(cls))).map(
-            lambda d: "" if pd.isna(d) or d == 0 else f"+{d:.3f}"),
+        "Gap": cls.get("gap", pd.Series([np.nan] * len(cls))).map(_gap_str),
         "Ideal": cls["ideal_lap"].map(_fmt_lap),
-        "T1": cls["best_t1"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "T2": cls["best_t2"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "T3": cls["best_t3"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "T4": cls["best_t4"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "Top kph": cls["top_speed"].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
+        "Ideal Gap": cls.get("ideal_gap", pd.Series([np.nan] * len(cls))).map(_gap_str),
+        "Lost": cls.get("lost_potential", pd.Series([np.nan] * len(cls))).map(
+            lambda d: "" if pd.isna(d) else f"+{d:.3f}"),
+        "T1": cls["best_t1"].map(_sec_str),
+        "T2": cls["best_t2"].map(_sec_str),
+        "T3": cls["best_t3"].map(_sec_str),
+        "T4": cls["best_t4"].map(_sec_str),
+        "Top Speed": cls["top_speed"].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
         "Laps": cls["laps"],
     })
-    st.dataframe(show, hide_index=True, use_container_width=True)
+
+    # which rows to highlight (selected rider + teammates)
+    teams = cls.get("team", pd.Series([None] * len(cls))).map(
+        lambda v: _clean_str(v).strip())
+    nos = cls["rider_no"]
+    mine_mask = (nos == pick_no).to_numpy() if pick_no is not None else \
+        np.zeros(len(cls), dtype=bool)
+    team_mask = (teams == pick_team).to_numpy() if pick_team else \
+        np.zeros(len(cls), dtype=bool)
+
+    # session-fastest sector value per column (column min) for green highlight
+    fastest = {f"T{i}": cls[f"best_t{i}"].min() for i in range(1, 5)}
+
+    def _style_row(row):
+        styles = [""] * len(row)
+        i = row.name
+        if mine_mask[i]:
+            styles = ["background-color:#FFF3CD;font-weight:700"] * len(row)
+        elif team_mask[i]:
+            styles = ["background-color:#FFFBEA"] * len(row)
+        return styles
+
+    def _style_fastest(col):
+        if col.name not in fastest:
+            return [""] * len(col)
+        target = fastest[col.name]
+        out = []
+        for i in range(len(col)):
+            raw = cls[f"best_t{col.name[1]}"].iloc[i]
+            out.append("background-color:#C6F6D5;font-weight:700"
+                       if pd.notna(raw) and pd.notna(target) and abs(raw - target) < 1e-6
+                       else "")
+        return out
+
+    sty = (show.style
+           .apply(_style_row, axis=1)
+           .apply(_style_fastest, axis=0))
+    st.dataframe(sty, hide_index=True, use_container_width=True)
     st.caption("**Ideal** = sum of each rider's best T1–T4 (theoretical best lap). "
-               "Green/red sector colours appear in Head-to-Head & Track Map.")
+               "**Lost** = Best − Ideal (time left on the table). Green cell = "
+               "session-fastest sector. Highlighted row = selected rider "
+               "(teammates lightly shaded).")
 
 
 # ── tab: head-to-head ───────────────────────────────────────────────────────
@@ -298,26 +452,48 @@ def _rider_pickers(cls: pd.DataFrame, key: str):
     return _rider_no_from_label(cls, my), _rider_no_from_label(cls, ref), mode, my, ref
 
 
+def _sector_lbl(s):
+    """('T2', -0.15) -> 'T2 −0.150s'  (None -> '—')."""
+    if not s:
+        return "—"
+    return f"{s[0]} {s[1]:+.3f}s"
+
+
 def _tab_head_to_head(df, cls):
     my_no, ref_no, mode, my_lbl, ref_lbl = _rider_pickers(cls, "h2h")
     if my_no is None or ref_no is None:
         return
-    tbl = engine.sector_delta_table(df, my_no, ref_no)
-    sub = tbl[tbl["mode"] == mode].reset_index(drop=True)
-    total = sub["delta"].sum(skipna=True)
+
+    h = engine.h2h_summary(df, my_no, ref_no, mode)
+    total = h["total"]
 
     st.markdown(f"**{my_lbl}**  vs  **{ref_lbl}**  ·  basis: *{mode}*")
-    m1, m2 = st.columns(2)
-    m1.metric("Σ sector delta", f"{total:+.3f} s",
-              help="Sum of the four sector deltas (my rider − reference).")
-    m2.metric("Verdict", "faster ▲" if total < 0 else ("equal" if abs(total) < 0.03 else "slower ▼"))
+
+    # Three summary cards
+    m1, m2, m3 = st.columns(3)
+    if pd.isna(total):
+        verdict = "—"
+        total_str = "—"
+    else:
+        verdict = ("faster ▲" if total < -0.03 else
+                   ("slower ▼" if total > 0.03 else "even"))
+        total_str = f"{total:+.3f} s"
+    m1.metric("Σ delta", total_str, verdict,
+              help="Sum of the four sector deltas (my rider − reference). "
+                   "Negative = faster.")
+    gain = h["gain_sector"]
+    loss = h["loss_sector"]
+    m2.metric("Biggest gain", _sector_lbl(gain) if gain and gain[1] < 0 else "—")
+    m3.metric("Biggest loss", _sector_lbl(loss) if loss and loss[1] > 0 else "—")
 
     # coloured sector bar chart
+    labels = ["T1", "T2", "T3", "T4"]
+    deltas = h["deltas"]
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=sub["sector"], y=sub["delta"],
-        marker_color=[engine.delta_colour(d) for d in sub["delta"]],
-        text=[_fmt_delta(d) for d in sub["delta"]], textposition="outside",
+        x=labels, y=deltas,
+        marker_color=[engine.delta_colour(d) for d in deltas],
+        text=[_fmt_delta(d) for d in deltas], textposition="outside",
     ))
     fig.add_hline(y=0, line_width=1.5, line_dash="dot", line_color="#666")
     fig.update_layout(
@@ -329,6 +505,13 @@ def _tab_head_to_head(df, cls):
     fig.update_yaxes(autorange="reversed", gridcolor="#E5E7EB", zeroline=False)
     st.plotly_chart(fig, use_container_width=True)
 
+    # plain-language diagnosis
+    if h.get("diagnosis"):
+        st.info(h["diagnosis"])
+
+    # per-sector mine / ref / Δ table
+    tbl = engine.sector_delta_table(df, my_no, ref_no)
+    sub = tbl[tbl["mode"] == mode].reset_index(drop=True)
     disp = pd.DataFrame({
         "Sector": sub["sector"],
         f"{my_lbl}": sub["mine"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
@@ -339,6 +522,18 @@ def _tab_head_to_head(df, cls):
 
 
 # ── tab: track map (microsector strip) ──────────────────────────────────────
+def _track_loss_gain(labels, deltas):
+    valid = [(l, d) for l, d in zip(labels, deltas) if d == d]   # drop NaN
+    if not valid:
+        return
+    best = min(valid, key=lambda t: t[1])
+    worst = max(valid, key=lambda t: t[1])
+    if best[1] < -0.03:
+        st.success(f"Biggest gain: **{best[0]}** → {_fmt_delta(best[1])}s")
+    if worst[1] > 0.03:
+        st.warning(f"Biggest loss: **{worst[0]}** → {_fmt_delta(worst[1])}s")
+
+
 def _tab_track_map(df, cls):
     my_no, ref_no, mode, my_lbl, ref_lbl = _rider_pickers(cls, "map")
     if my_no is None or ref_no is None:
@@ -384,11 +579,7 @@ def _tab_track_map(df, cls):
                    "strip.")
 
     _colour_legend()
-    valid = [(l, d) for l, d in zip(labels, deltas) if d == d]  # drop NaN
-    if valid:
-        worst = max(valid, key=lambda t: t[1])
-        if worst[1] > 0.03:
-            st.warning(f"Biggest loss: **{worst[0]}** → {_fmt_delta(worst[1])}s")
+    _track_loss_gain(labels, deltas)
 
 
 @st.cache_data(show_spinner="Fetching circuit layout…", ttl=86400)
@@ -603,28 +794,105 @@ def _colour_legend():
 
 
 # ── tab: lap detail ─────────────────────────────────────────────────────────
+_STATUS_COLOUR = {
+    "valid": "#1B9E3E", "slow": "#E8800A", "out": "#9AA0A6",
+    "pit": "#1F77B4", "cancelled": "#D62728",
+}
+
+
 def _tab_lap_detail(df, cls):
     opts = engine.rider_options(cls)
     lbl = st.selectbox("Rider", opts, index=0, key="lap_rider")
     no = _rider_no_from_label(cls, lbl)
-    g = df[df["rider_no"] == no].sort_values("lap_no")
-    if g.empty:
+    ld = engine.lap_detail(df, no)
+    if ld is None or ld.empty:
         st.info("No laps for this rider.")
         return
+    cs = engine.consistency_stats(df, no)
+
+    # Top stat cards
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Best", _fmt_lap(cs.get("best")))
+    c2.metric("Top-3 avg", _fmt_lap(cs.get("top3_avg")))
+    c3.metric("Median", _fmt_lap(cs.get("median")))
+    std = cs.get("consistency_std")
+    c4.metric("Consistency", "—" if std is None else f"±{std:.3f}s")
+    c4.caption(f"over {cs.get('pace_laps', 0)} pace laps")
+    rng = cs.get("consistency_range")
+    c5.metric("Range", "—" if rng is None else f"{rng:.3f}s")
+    ws = cs.get("worst_sector")
+    if ws:
+        sstd = (cs.get("sector_std") or {}).get(ws)
+        st.caption(f"Most variable sector: **{ws.upper()}**"
+                   + (f" (±{sstd:.3f}s)" if sstd is not None else ""))
+
+    # Lap-time trend, coloured by status
+    fly = ld[ld["is_flying"]] if "is_flying" in ld.columns else ld
+    trend = go.Figure()
+    trend.add_trace(go.Scatter(
+        x=ld["lap_no"], y=ld["lap_time_s"], mode="lines",
+        line=dict(color="#CBD5E1", width=1.5), showlegend=False,
+        hoverinfo="skip"))
+    for status, grp in ld.groupby("lap_status"):
+        trend.add_trace(go.Scatter(
+            x=grp["lap_no"], y=grp["lap_time_s"], mode="markers",
+            name=status,
+            marker=dict(size=8, color=_STATUS_COLOUR.get(status, "#666")),
+            hovertemplate="Lap %{x}: %{y:.3f}s<extra>" + status + "</extra>"))
+    trend.update_layout(
+        height=300, margin=dict(l=10, r=10, t=10, b=10),
+        yaxis_title="Lap time (s)", xaxis_title="Lap",
+        plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+        legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
+    trend.update_xaxes(gridcolor="#EEE")
+    trend.update_yaxes(gridcolor="#EEE")
+    st.markdown("**Lap-time trend**")
+    st.plotly_chart(trend, use_container_width=True)
+
+    # T1–T4 trend over flying laps (one multi-line plot)
+    if not fly.empty:
+        sec_fig = go.Figure()
+        sec_colours = {"t1": "#1F77B4", "t2": "#2CA02C",
+                       "t3": "#FF7F0E", "t4": "#D62728"}
+        for s in ("t1", "t2", "t3", "t4"):
+            if s in fly.columns:
+                sec_fig.add_trace(go.Scatter(
+                    x=fly["lap_no"], y=fly[s], mode="lines+markers",
+                    name=s.upper(),
+                    line=dict(color=sec_colours[s], width=1.5),
+                    marker=dict(size=5)))
+        sec_fig.update_layout(
+            height=300, margin=dict(l=10, r=10, t=10, b=10),
+            yaxis_title="Sector time (s)", xaxis_title="Lap",
+            plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+            legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
+        sec_fig.update_xaxes(gridcolor="#EEE")
+        sec_fig.update_yaxes(gridcolor="#EEE")
+        st.markdown("**Sector trend (flying laps)**")
+        st.plotly_chart(sec_fig, use_container_width=True)
+
+    # Lap table with Status, non-valid rows greyed
     show = pd.DataFrame({
-        "Lap": g["lap_no"],
-        "Run": g.get("run_no"),
-        "Lap Time": g["lap_time_s"].map(_fmt_lap),
-        "T1": g["t1"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "T2": g["t2"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "T3": g["t3"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "T4": g["t4"].map(lambda v: f"{v:.3f}" if pd.notna(v) else "—"),
-        "Speed": g["speed"].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
-        "Flag": g.apply(lambda r: ("PIT" if r["pit"] else "")
-                        + (" ✗" if r["cancelled"] else "")
-                        + ("" if r["is_flying"] else " out"), axis=1),
+        "Lap": ld["lap_no"],
+        "Run": ld.get("run_no"),
+        "Lap Time": ld["lap_time_s"].map(_fmt_lap),
+        "T1": ld["t1"].map(_sec_str),
+        "T2": ld["t2"].map(_sec_str),
+        "T3": ld["t3"].map(_sec_str),
+        "T4": ld["t4"].map(_sec_str),
+        "Speed": ld["speed"].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
+        "Status": ld["lap_status"],
     })
-    st.dataframe(show, hide_index=True, use_container_width=True)
-    best = g[g["is_flying"]]["lap_time_s"].min()
-    st.caption(f"Best flying lap: **{_fmt_lap(best)}**  ·  {int(g['is_flying'].sum())} "
-               f"flying / {len(g)} total laps")
+    statuses = ld["lap_status"].to_numpy()
+
+    def _grey_rows(row):
+        st_val = statuses[row.name]
+        if st_val == "valid":
+            return [""] * len(row)
+        return ["color:#9AA0A6;background-color:#F4F4F5"] * len(row)
+
+    sty = show.style.apply(_grey_rows, axis=1)
+    st.dataframe(sty, hide_index=True, use_container_width=True)
+    st.caption(f"Best flying lap: **{_fmt_lap(cs.get('best'))}**  ·  "
+               f"{cs.get('flying', 0)} flying / {len(ld)} total laps. "
+               "Greyed rows = out / pit / cancelled / slow.")
