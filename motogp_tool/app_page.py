@@ -330,10 +330,52 @@ def _resolve_circuit(slug):
         return None
 
 
+def _stitch_linestrings(lines):
+    """Join OSM/GeoJSON LineStrings into one continuous path of (lon,lat)."""
+    lines = [list(l) for l in lines if l and len(l) >= 2]
+    if not lines:
+        return []
+    lines.sort(key=len, reverse=True)
+    chain = lines.pop(0)
+    tol = 3e-4 ** 2  # ~30m
+    d2 = lambda a, b: (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+    changed = True
+    while changed and lines:
+        changed = False
+        for i, l in enumerate(lines):
+            if d2(chain[-1], l[0]) <= tol:
+                chain += l[1:]; lines.pop(i); changed = True; break
+            if d2(chain[-1], l[-1]) <= tol:
+                chain += l[::-1][1:]; lines.pop(i); changed = True; break
+            if d2(chain[0], l[-1]) <= tol:
+                chain = l[:-1] + chain; lines.pop(i); changed = True; break
+            if d2(chain[0], l[0]) <= tol:
+                chain = l[::-1][:-1] + chain; lines.pop(i); changed = True; break
+    return chain
+
+
 def _parse_gps_trace(up):
-    """Extract (lon, lat) points from a GPX or CSV lap trace."""
+    """Extract (lon, lat) points from a GPX, CSV, or GeoJSON lap/track file."""
     name = up.name.lower()
     data = up.getvalue()
+    if name.endswith((".geojson", ".json")):
+        import json
+        try:
+            obj = json.loads(data)
+        except Exception:  # noqa: BLE001
+            return []
+        feats = obj.get("features", [obj]) if isinstance(obj, dict) else []
+        lines = []
+        for f in feats:
+            g = (f.get("geometry") or f) if isinstance(f, dict) else {}
+            t, c = g.get("type"), g.get("coordinates")
+            if t == "LineString":
+                lines.append(c)
+            elif t == "MultiLineString":
+                lines.extend(c)
+            elif t == "Polygon" and c:
+                lines.append(c[0])
+        return [(p[0], p[1]) for p in _stitch_linestrings(lines) if len(p) >= 2]
     if name.endswith(".gpx"):
         import xml.etree.ElementTree as ET
         try:
@@ -373,7 +415,8 @@ def _gps_trace_ui(slug):
                 for k in (f"trace_{slug}", f"trace_h_{slug}"):
                     st.session_state.pop(k, None)
                 st.rerun()
-        up = st.file_uploader("GPX or CSV with longitude/latitude", type=["gpx", "csv"],
+        up = st.file_uploader("GPX / CSV / GeoJSON (lon-lat) — e.g. an OSM raceway export",
+                              type=["gpx", "csv", "geojson", "json"],
                               key=f"trace_up_{slug}")
         if up is None:
             return
