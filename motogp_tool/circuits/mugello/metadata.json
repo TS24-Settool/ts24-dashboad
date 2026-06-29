@@ -1,6 +1,7 @@
 {
   "circuit_id": "mugello",
   "name": "Mugello Circuit",
+  "status": "supported",
   "source": "generated_from_bundled_gps_outline",
   "intended_source": "Sporting Maps",
   "source_url": "https://www.sportingmaps.com/motorsports/motogp",

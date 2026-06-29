@@ -11,7 +11,6 @@ Entry point: render_motogp_page()
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -160,7 +159,7 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v5** (session review · sector diagnosis · "
+               "·  build: **review-tools v6** (session review · sector diagnosis · "
                "consistency · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
@@ -631,243 +630,37 @@ def _tab_track_map(df, cls):
     st.markdown(f"Where **{my_lbl}** gains / loses vs **{ref_lbl}**  ·  "
                 f"4 official sectors  ·  basis *{mode}*")
 
-    # pick circuit geometry: auto from session, else let the user choose
-    slug = st.session_state.get("mgp_circuit")
-    avail = circuit_map.available_slugs()
-    sel = st.selectbox("Circuit layout", ["(auto)"] + avail,
-                       index=(["(auto)"] + avail).index(slug) if slug in avail else 0)
-    use_slug = slug if sel == "(auto)" else sel
+    # Only circuits with a vetted image asset get a real track map. Everything
+    # else shows the sector-comparison bar — never a half-baked GPS layout.
+    supported = circuit_map.supported_track_map_slugs()
+    auto_slug = st.session_state.get("mgp_circuit")            # inferred from session
+    auto_ok = circuit_map.is_track_map_supported(auto_slug)
+    auto_lbl = f"(auto: {auto_slug})" if auto_ok else "(auto)"
+    sel = st.selectbox("Circuit", [auto_lbl] + supported, index=0, key="map_circuit")
+    use_slug = auto_slug if sel == auto_lbl else sel
 
-    # Preferred: a real track-map image asset (circuits/<slug>/track_map.png),
-    # unless the user uploaded their own GPS trace for this circuit (that wins).
-    asset = circuit_map.load_image_asset(use_slug)
-    trace = st.session_state.get(f"trace_{use_slug}")
-    if asset is not None and trace is None:
-        fig = circuit_map.build_image_track_figure(asset, deltas, labels=labels)
-        st.plotly_chart(fig, use_container_width=True)
-        _asset_source_caption(asset)
-        _colour_legend()
-        _track_loss_gain(labels, deltas)
-        with st.expander("🛰️ Use a GPS lap trace instead (GPX / CSV / GeoJSON)"):
-            st.caption("The track image above is the default layout. Upload a GPS "
-                       "lap to override it with your own traced layout.")
-        _gps_trace_ui(use_slug)
-        return
-
-    _gps_trace_ui(use_slug)                       # upload GPS trace -> real layout
-    circ = trace or _resolve_circuit(use_slug)
-    if circ is not None and not circ.get("ordered", True):
-        # map-traced layout: show the real shape + official timing markers, and
-        # the exact per-sector deltas as a strip (the curve can't be reliably
-        # sector-coloured because a traced outline isn't in racing order).
-        st.plotly_chart(circuit_map.build_shape_figure(circ), use_container_width=True)
-        st.caption(f"Real **{use_slug}** shape with the official timing points "
-                   "(FL/IP1/IP2/IP3) from the Timekeeping Plan. Per-sector deltas "
-                   "below. For a sector-coloured curve, upload a **GPS lap trace** "
-                   "above (a GPS lap is in racing order).")
-        _sector_strip(deltas, labels)
-    elif circ is not None:
-        _timing_plan_ui(use_slug, circ)          # upload plan -> exact boundaries
-        bounds, sf_off = _sector_boundary_ui(use_slug)
-        fig = circuit_map.build_track_figure(circ, deltas, bounds=bounds,
-                                             labels=labels, start_offset=sf_off)
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption(f"**{use_slug}** layout. Colour = real timing delta per sector. "
-                   "For **exact** splits, upload the official Timekeeping Points "
-                   "Plan above; or set S/F + boundaries by hand below.")
+    if circuit_map.is_track_map_supported(use_slug):
+        try:
+            asset = circuit_map.load_image_asset(use_slug)
+            fig = circuit_map.build_image_track_figure(asset, deltas, labels=labels)
+            st.plotly_chart(fig, use_container_width=True, key="map_image",
+                            config={"displayModeBar": False})
+            _asset_source_caption(asset)
+        except Exception as e:  # noqa: BLE001 — never crash the tab on a bad asset
+            _sector_strip(deltas, labels)
+            st.caption(f"⚠️ Couldn't render the track map for **{use_slug}** "
+                       f"({e}). Showing the sector comparison only.")
     else:
         _sector_strip(deltas, labels)
-        st.caption("No layout available yet — upload a GPS lap trace above to draw "
-                   "the real circuit, or the analysis above is fully usable as a "
-                   "strip.")
+        if not use_slug:
+            st.caption("🗺️ Couldn't identify this session's circuit — showing the "
+                       "sector comparison only.")
+        else:
+            st.caption(f"🗺️ Track map asset not available for **{use_slug}** yet — "
+                       "showing the sector comparison only.")
 
     _colour_legend()
     _track_loss_gain(labels, deltas)
-
-
-@st.cache_data(show_spinner="Fetching circuit layout…", ttl=86400)
-def _osm_circuit_cached(slug):
-    return circuit_map.fetch_osm(slug)
-
-
-def _resolve_circuit(slug):
-    """Bundled geometry first; else fetch from OpenStreetMap (works on Cloud)."""
-    if not slug:
-        return None
-    c = circuit_map.load_circuit(slug)
-    if c is not None:
-        return c
-    try:
-        return _osm_circuit_cached(slug)
-    except Exception:
-        return None
-
-
-def _stitch_linestrings(lines):
-    """Join OSM/GeoJSON LineStrings into one continuous path of (lon,lat)."""
-    lines = [list(l) for l in lines if l and len(l) >= 2]
-    if not lines:
-        return []
-    lines.sort(key=len, reverse=True)
-    chain = lines.pop(0)
-    tol = 3e-4 ** 2  # ~30m
-    d2 = lambda a, b: (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
-    changed = True
-    while changed and lines:
-        changed = False
-        for i, l in enumerate(lines):
-            if d2(chain[-1], l[0]) <= tol:
-                chain += l[1:]; lines.pop(i); changed = True; break
-            if d2(chain[-1], l[-1]) <= tol:
-                chain += l[::-1][1:]; lines.pop(i); changed = True; break
-            if d2(chain[0], l[-1]) <= tol:
-                chain = l[:-1] + chain; lines.pop(i); changed = True; break
-            if d2(chain[0], l[0]) <= tol:
-                chain = l[::-1][:-1] + chain; lines.pop(i); changed = True; break
-    return chain
-
-
-def _parse_gps_trace(up):
-    """Extract (lon, lat) points from a GPX, CSV, or GeoJSON lap/track file."""
-    name = up.name.lower()
-    data = up.getvalue()
-    if name.endswith((".geojson", ".json")):
-        import json
-        try:
-            obj = json.loads(data)
-        except Exception:  # noqa: BLE001
-            return []
-        feats = obj.get("features", [obj]) if isinstance(obj, dict) else []
-        lines = []
-        for f in feats:
-            g = (f.get("geometry") or f) if isinstance(f, dict) else {}
-            t, c = g.get("type"), g.get("coordinates")
-            if t == "LineString":
-                lines.append(c)
-            elif t == "MultiLineString":
-                lines.extend(c)
-            elif t == "Polygon" and c:
-                lines.append(c[0])
-        return [(p[0], p[1]) for p in _stitch_linestrings(lines) if len(p) >= 2]
-    if name.endswith(".gpx"):
-        import xml.etree.ElementTree as ET
-        try:
-            root = ET.fromstring(data)
-        except Exception:  # noqa: BLE001
-            return []
-        pts = []
-        for el in root.iter():
-            if el.tag.split("}")[-1] in ("trkpt", "rtept", "wpt"):
-                lon, lat = el.get("lon"), el.get("lat")
-                if lon and lat:
-                    pts.append((float(lon), float(lat)))
-        return pts
-    import io
-    try:
-        df = pd.read_csv(io.BytesIO(data), sep=None, engine="python")
-    except Exception:  # noqa: BLE001
-        return []
-    cols = {str(c).strip().lower(): c for c in df.columns}
-    loncol = next((cols[k] for k in ("lon", "longitude", "lng", "long", "x",
-                                     "gps_lon", "v_gps_lon") if k in cols), None)
-    latcol = next((cols[k] for k in ("lat", "latitude", "y",
-                                     "gps_lat", "v_gps_lat") if k in cols), None)
-    if not (loncol and latcol):
-        return []
-    sub = df[[loncol, latcol]].dropna()
-    return list(zip(sub[loncol].astype(float), sub[latcol].astype(float)))
-
-
-def _gps_trace_ui(slug):
-    """Upload a GPS lap trace (GPX/CSV) to draw the real circuit layout."""
-    with st.expander("🛰️ Draw the real layout — upload a GPS lap trace (GPX / CSV)"):
-        st.caption("One lap of GPS (longitude/latitude) from telemetry draws the "
-                   "exact circuit. Then the Timekeeping Plan places exact splits.")
-        if st.session_state.get(f"trace_{slug}") is not None:
-            if st.button("✖ Remove uploaded layout", key=f"trace_rm_{slug}"):
-                for k in (f"trace_{slug}", f"trace_h_{slug}"):
-                    st.session_state.pop(k, None)
-                st.rerun()
-        up = st.file_uploader("GPX / CSV / GeoJSON (lon-lat) — e.g. an OSM raceway export",
-                              type=["gpx", "csv", "geojson", "json"],
-                              key=f"trace_up_{slug}")
-        if up is None:
-            return
-        if st.session_state.get(f"trace_h_{slug}") == hash(up.getvalue()):
-            return
-        pts = _parse_gps_trace(up)
-        circ = circuit_map.outline_from_lonlat(pts, slug) if pts else None
-        if circ is None:
-            st.error("Couldn't find enough longitude/latitude points in that file.")
-            return
-        st.session_state[f"trace_{slug}"] = circ
-        st.session_state[f"trace_h_{slug}"] = hash(up.getvalue())
-        st.success(f"Layout drawn from {len(pts)} GPS points.")
-        st.rerun()
-
-
-def _timing_plan_ui(slug, circ):
-    """Upload the official Timekeeping Points Plan PDF -> place S/F + the three
-    sector splits exactly on FL / IP1 / IP2 / IP3."""
-    from .parse_timekeeping_plan import parse_timekeeping_bytes, sector_points
-    with st.expander("📐 Exact boundaries — upload official Timekeeping Points Plan"):
-        up = st.file_uploader("Timekeeping Points Plan PDF (contains FL/IP1/IP2/IP3 GPS)",
-                              type=["pdf"], key=f"tk_{slug}")
-        if up is None:
-            st.caption("MotoGP publishes this per event. It sets S/F and the 3 "
-                       "sector splits to the real timing positions — no guessing.")
-            return
-        try:
-            plan = parse_timekeeping_bytes(up.getvalue())
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Could not read plan: {e}")
-            return
-        sp = sector_points(plan)
-        if not sp:
-            st.error("FL/IP1/IP2/IP3 not found in this PDF — is it the Timekeeping "
-                     "Points Plan?")
-            return
-        off, bnds = circuit_map.boundaries_from_timing(circ, *sp)
-        skey, bkey = f"sf_{slug}", f"bounds_{slug}"
-        new_sf = int(round(off * 100))
-        new_b = [int(round(b * 100)) for b in bnds]
-        sig = (new_sf, tuple(new_b))
-        if st.session_state.get(f"{bkey}_applied") != sig:
-            st.session_state[f"{skey}_s"] = new_sf
-            st.session_state[skey] = new_sf
-            for i, b in enumerate(new_b):
-                st.session_state[f"{bkey}_{i+1}"] = b
-            st.session_state[bkey] = sorted(new_b)
-            st.session_state[f"{bkey}_applied"] = sig
-            st.success(f"Exact boundaries applied — S/F at {new_sf}%, sector splits "
-                       f"(IP1/IP2/IP3) at {new_b}% of the lap.")
-            st.rerun()
-        st.success(f"Using official plan: S/F {new_sf}%, IP1/IP2/IP3 at {new_b}%.")
-
-
-def _sector_boundary_ui(slug):
-    """Per-circuit, user-defined sector boundaries (% of lap distance).
-    Defaults to equal quarters; persisted per circuit for the session."""
-    key = f"bounds_{slug}"
-    skey = f"sf_{slug}"
-    default = st.session_state.get(key, [25, 50, 75])
-    with st.expander("⚙️ Define S/F & sector boundaries", expanded=True):
-        sf = st.slider("S/F · lap start position (% around the lap)", 0, 99,
-                       int(st.session_state.get(skey, 0)), key=f"{skey}_s",
-                       help="Rotate the black S/F marker to the real start/finish "
-                            "line. Turn numbers stay fixed — line S/F up using them.")
-        st.session_state[skey] = sf
-        st.caption("Then set where each sector ends (% of lap from S/F):")
-        c1, c2, c3 = st.columns(3)
-        b1 = c1.slider("T1│T2", 1, 98, int(default[0]), key=f"{key}_1")
-        b2 = c2.slider("T2│T3", 2, 99, int(default[1]), key=f"{key}_2")
-        b3 = c3.slider("T3│T4", 3, 99, int(default[2]), key=f"{key}_3")
-        st.session_state[key] = sorted([b1, b2, b3])
-        if st.button("↺ Reset", key=f"{key}_rst"):
-            for k in (f"{key}_1", f"{key}_2", f"{key}_3", key, f"{skey}_s", skey):
-                st.session_state.pop(k, None)
-            st.rerun()
-    return [v / 100.0 for v in sorted([b1, b2, b3])], sf / 100.0
 
 
 def _sector_strip(deltas, labels):
@@ -882,7 +675,8 @@ def _sector_strip(deltas, labels):
     fig.update_yaxes(visible=False, range=[0, 1])
     fig.update_layout(height=120, margin=dict(l=6, r=6, t=6, b=6),
                       plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="map_sector_strip",
+                    config={"displayModeBar": False})
 
 
 def _colour_legend():

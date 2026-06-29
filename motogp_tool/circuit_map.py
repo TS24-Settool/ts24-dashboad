@@ -391,12 +391,35 @@ def load_image_asset(slug: str):
 
 
 def image_asset_slugs() -> list[str]:
-    """Circuits that have an image-based Track Map asset."""
+    """Circuits that have image-asset files on disk (may not be vetted)."""
     if not _CIRC_DIR.exists():
         return []
     return sorted(p.name for p in _CIRC_DIR.iterdir()
                   if p.is_dir() and (p / "track_map.png").exists()
                   and (p / "layout.json").exists())
+
+
+def track_map_registry() -> dict:
+    """slug -> metadata for circuits whose image asset is explicitly marked ready
+    (metadata 'status' in {'supported','ready'}). ONLY these render an image Track
+    Map; every other circuit falls back to the sector-comparison bar. The status
+    gate keeps half-finished assets (a draft outline, a wrong-orientation image)
+    from ever reaching users."""
+    reg = {}
+    for slug in image_asset_slugs():
+        a = load_image_asset(slug)
+        meta = (a or {}).get("metadata", {}) or {}
+        if str(meta.get("status", "")).lower() in ("supported", "ready"):
+            reg[slug] = meta
+    return reg
+
+
+def supported_track_map_slugs() -> list[str]:
+    return sorted(track_map_registry().keys())
+
+
+def is_track_map_supported(slug) -> bool:
+    return bool(slug) and slug in track_map_registry()
 
 
 def _hex_to_rgba(h: str, a: float = 0.85) -> str:
