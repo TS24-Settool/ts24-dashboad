@@ -38,6 +38,32 @@ def _fmt_delta(d):
     return "—" if pd.isna(d) else f"{d:+.3f}"
 
 
+def seconds_to_lap_time_label(seconds) -> str:
+    """Lap time in seconds -> `M'SS.mmm` (e.g. 100.720 -> 1'40.720, 63.5 -> 1'03.500).
+    Missing values -> "". Internal numbers stay float; this is display-only and is
+    the single helper used for lap-time axes / hovers across the app."""
+    if seconds is None or (isinstance(seconds, float) and pd.isna(seconds)):
+        return ""
+    s = float(seconds)
+    if s < 0:
+        return ""
+    m = int(s // 60)
+    return f"{m}'{s - 60 * m:06.3f}"
+
+
+def _laptime_ticks(ymin: float, ymax: float, max_ticks: int = 6):
+    """Nice `M'SS.mmm` y-axis ticks spanning [ymin, ymax]."""
+    span = max(ymax - ymin, 0.001)
+    raw = span / max_ticks
+    step = next((s for s in (0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20) if s >= raw), 20)
+    start = (ymin // step) * step
+    vals, v = [], start
+    while v <= ymax + step:
+        vals.append(round(v, 3))
+        v += step
+    return vals, [seconds_to_lap_time_label(v) for v in vals]
+
+
 @st.cache_data(show_spinner=False)
 def _parse_pdf_cached(data: bytes):
     parsed = parse_analysis_bytes(data)
@@ -159,8 +185,8 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v6** (session review · sector diagnosis · "
-               "consistency · image track maps)")
+               "·  build: **review-tools v7** (lap-time M'SS.mmm · session review · "
+               "sector diagnosis · consistency · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
@@ -390,21 +416,24 @@ def _tab_session_review(df, cls):
     if sub:
         st.caption(sub)
     if r.get("ref"):
-        auto = "  (recommended — one place ahead)" if ref_pick.startswith("(auto") else ""
-        st.caption(f"Compared vs **{r['ref']}**{auto}")
+        if ref_pick.startswith("(auto"):
+            st.caption(f"Compared vs **{r['ref']}**  ·  auto-selected: the rider one "
+                       "place ahead — your nearest target. Override with **Compare vs**.")
+        else:
+            st.caption(f"Compared vs **{r['ref']}**  ·  manually selected.")
 
     # pace vs the class
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Best lap", _fmt_lap(r["best_lap"]), _gap_delta(r["best_gap"]),
               delta_color="inverse")
-    k1.caption(f"class best {_fmt_lap(r['class_best'])}")
+    k1.caption(f"vs Class Best {_fmt_lap(r['class_best'])}")
     k2.metric("Ideal lap", _fmt_lap(r["ideal_lap"]), _gap_delta(r["ideal_gap"]),
               delta_color="inverse")
-    k2.caption(f"class ideal {_fmt_lap(r['class_ideal'])}")
+    k2.caption(f"vs Class Ideal {_fmt_lap(r['class_ideal'])}")
     k3.metric("Lost potential",
               "—" if r["lost_potential"] is None else f"{r['lost_potential']:.3f}s")
-    k3.caption("best − ideal")
-    k4.metric("Consistency",
+    k3.caption("Best − Ideal")
+    k4.metric("Pace spread",
               "—" if r["consistency_std"] is None else f"±{r['consistency_std']:.3f}s")
     k4.caption(f"over {r.get('pace_laps', 0)} pace laps")
 
@@ -449,6 +478,7 @@ def _tab_classification(cls: pd.DataFrame):
         if not prow.empty:
             pick_team = _clean_str(prow["team"].iloc[0]).strip() or None
 
+    # column order: identity → pace → sectors → theoretical → laps
     show = pd.DataFrame({
         "Pos": cls.get("position"),
         "No": cls["rider_no"],
@@ -457,15 +487,15 @@ def _tab_classification(cls: pd.DataFrame):
         "Bike": cls.get("manufacturer", pd.Series([None] * len(cls))).map(_clean_str),
         "Best Lap": cls["best_lap"].map(_fmt_lap),
         "Gap": cls.get("gap", pd.Series([np.nan] * len(cls))).map(_gap_str),
-        "Ideal": cls["ideal_lap"].map(_fmt_lap),
-        "Ideal Gap": cls.get("ideal_gap", pd.Series([np.nan] * len(cls))).map(_gap_str),
-        "Lost": cls.get("lost_potential", pd.Series([np.nan] * len(cls))).map(
-            lambda d: "" if pd.isna(d) else f"+{d:.3f}"),
         "T1": cls["best_t1"].map(_sec_str),
         "T2": cls["best_t2"].map(_sec_str),
         "T3": cls["best_t3"].map(_sec_str),
         "T4": cls["best_t4"].map(_sec_str),
         "Top Speed": cls["top_speed"].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
+        "Ideal": cls["ideal_lap"].map(_fmt_lap),
+        "Ideal Gap": cls.get("ideal_gap", pd.Series([np.nan] * len(cls))).map(_gap_str),
+        "Lost": cls.get("lost_potential", pd.Series([np.nan] * len(cls))).map(
+            lambda d: "" if pd.isna(d) else f"+{d:.3f}"),
         "Laps": cls["laps"],
     })
 
@@ -505,11 +535,19 @@ def _tab_classification(cls: pd.DataFrame):
     sty = (show.style
            .apply(_style_row, axis=1)
            .apply(_style_fastest, axis=0))
-    st.dataframe(sty, hide_index=True, use_container_width=True)
+    colcfg = {
+        "Rider": st.column_config.TextColumn(width="medium"),
+        "Team": st.column_config.TextColumn(width="medium"),
+        "Best Lap": st.column_config.TextColumn(width="small"),
+        "Pos": st.column_config.TextColumn(width="small"),
+        "No": st.column_config.TextColumn(width="small"),
+    }
+    st.dataframe(sty, hide_index=True, use_container_width=True,
+                 column_config=colcfg)
     st.caption("**Ideal** = sum of each rider's best T1–T4 (theoretical best lap). "
-               "**Lost** = Best − Ideal (time left on the table). Green cell = "
-               "session-fastest sector. Highlighted row = selected rider "
-               "(teammates lightly shaded).")
+               "**Lost** = Lost potential (Best − Ideal, time left on the table). "
+               "Green cell = session-fastest sector. Highlighted row = selected "
+               "rider (teammates lightly shaded).")
 
 
 # ── tab: head-to-head ───────────────────────────────────────────────────────
@@ -520,6 +558,9 @@ def _rider_pickers(cls: pd.DataFrame, key: str):
     ref_default = 1 if len(opts) > 1 else 0
     ref = c2.selectbox("Reference (compare vs)", opts, index=ref_default, key=f"{key}_ref")
     mode = st.radio("Basis", ["best", "avg", "median"], horizontal=True, key=f"{key}_mode")
+    st.caption("**Basis** — *best*: each rider's fastest in each sector (theoretical "
+               "ceiling) · *avg*: mean over flying laps (race pace) · *median*: "
+               "typical lap, ignores one-off mistakes.")
     return _rider_no_from_label(cls, my), _rider_no_from_label(cls, ref), mode, my, ref
 
 
@@ -574,7 +615,8 @@ def _tab_head_to_head(df, cls):
         font=dict(family="Arial", color="#111"),
     )
     fig.update_yaxes(autorange="reversed", gridcolor="#E5E7EB", zeroline=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="h2h_bar",
+                    config={"displayModeBar": False})
 
     # plain-language diagnosis
     if h.get("diagnosis"):
@@ -710,10 +752,10 @@ def _tab_lap_detail(df, cls):
     # Top stat cards
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Best", _fmt_lap(cs.get("best")))
-    c2.metric("Top-3 avg", _fmt_lap(cs.get("top3_avg")))
+    c2.metric("Top 3 avg", _fmt_lap(cs.get("top3_avg")))
     c3.metric("Median", _fmt_lap(cs.get("median")))
     std = cs.get("consistency_std")
-    c4.metric("Consistency", "—" if std is None else f"±{std:.3f}s")
+    c4.metric("Pace spread", "—" if std is None else f"±{std:.3f}s")
     c4.caption(f"over {cs.get('pace_laps', 0)} pace laps")
     rng = cs.get("consistency_range")
     c5.metric("Range", "—" if rng is None else f"{rng:.3f}s")
@@ -723,28 +765,44 @@ def _tab_lap_detail(df, cls):
         st.caption(f"Most variable sector: **{ws.upper()}**"
                    + (f" (±{sstd:.3f}s)" if sstd is not None else ""))
 
-    # Lap-time trend, coloured by status
+    # Lap-time trend — valid/slow laps only, so out/pit laps don't blow up the
+    # y-range. Y axis & hover use M'SS.mmm (matches the rest of the app).
     fly = ld[ld["is_flying"]] if "is_flying" in ld.columns else ld
-    trend = go.Figure()
-    trend.add_trace(go.Scatter(
-        x=ld["lap_no"], y=ld["lap_time_s"], mode="lines",
-        line=dict(color="#CBD5E1", width=1.5), showlegend=False,
-        hoverinfo="skip"))
-    for status, grp in ld.groupby("lap_status"):
-        trend.add_trace(go.Scatter(
-            x=grp["lap_no"], y=grp["lap_time_s"], mode="markers",
-            name=status,
-            marker=dict(size=8, color=_STATUS_COLOUR.get(status, "#666")),
-            hovertemplate="Lap %{x}: %{y:.3f}s<extra>" + status + "</extra>"))
-    trend.update_layout(
-        height=300, margin=dict(l=10, r=10, t=10, b=10),
-        yaxis_title="Lap time (s)", xaxis_title="Lap",
-        plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
-        legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
-    trend.update_xaxes(gridcolor="#EEE")
-    trend.update_yaxes(gridcolor="#EEE")
     st.markdown("**Lap-time trend**")
-    st.plotly_chart(trend, use_container_width=True)
+    pace = ld[ld["lap_status"].isin(["valid", "slow"])].sort_values("lap_no")
+    yv = pace["lap_time_s"].dropna()
+    if yv.empty:
+        st.caption("No valid laps to plot for this rider.")
+    else:
+        trend = go.Figure()
+        trend.add_trace(go.Scatter(
+            x=pace["lap_no"], y=pace["lap_time_s"], mode="lines",
+            line=dict(color="#CBD5E1", width=1.5), showlegend=False,
+            hoverinfo="skip"))
+        for status in ("valid", "slow"):
+            grp = pace[pace["lap_status"] == status]
+            if grp.empty:
+                continue
+            trend.add_trace(go.Scatter(
+                x=grp["lap_no"], y=grp["lap_time_s"], mode="markers", name=status,
+                marker=dict(size=8, color=_STATUS_COLOUR.get(status, "#666")),
+                customdata=[seconds_to_lap_time_label(v) for v in grp["lap_time_s"]],
+                hovertemplate="Lap %{x}<br>Lap time: %{customdata}<extra>"
+                              + status + "</extra>"))
+        ymin, ymax = float(yv.min()), float(yv.max())
+        pad = max((ymax - ymin) * 0.10, 0.20)
+        tickvals, ticktext = _laptime_ticks(ymin, ymax)
+        trend.update_layout(
+            height=300, margin=dict(l=10, r=10, t=10, b=10), xaxis_title="Lap",
+            plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+            legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
+        trend.update_xaxes(gridcolor="#EEE")
+        trend.update_yaxes(title="Lap time", tickvals=tickvals, ticktext=ticktext,
+                           range=[ymin - pad, ymax + pad], gridcolor="#EEE")
+        st.plotly_chart(trend, use_container_width=True, key="lap_trend",
+                        config={"displayModeBar": False})
+        st.caption("Shows valid / slow laps only (out / pit laps excluded so the "
+                   "scale stays readable). Full list in the table below.")
 
     # T1–T4 trend over flying laps (one multi-line plot)
     if not fly.empty:
@@ -765,8 +823,9 @@ def _tab_lap_detail(df, cls):
             legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
         sec_fig.update_xaxes(gridcolor="#EEE")
         sec_fig.update_yaxes(gridcolor="#EEE")
-        st.markdown("**Sector trend (flying laps)**")
-        st.plotly_chart(sec_fig, use_container_width=True)
+        st.markdown("**Sector trend (flying laps)**  ·  T1–T4 in seconds")
+        st.plotly_chart(sec_fig, use_container_width=True, key="lap_sector_trend",
+                        config={"displayModeBar": False})
 
     # Lap table with Status, non-valid rows greyed
     show = pd.DataFrame({
