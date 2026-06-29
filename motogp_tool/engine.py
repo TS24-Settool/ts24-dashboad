@@ -118,8 +118,9 @@ def rider_options(cls: pd.DataFrame) -> list[str]:
 
 def _rider_label(row) -> str:
     no = row.get("rider_no")
-    nm = row.get("rider_name") or "?"
-    return f"#{int(no)} {nm}" if pd.notna(no) else str(nm)
+    nm = row.get("rider_name")
+    nm = nm.strip() if isinstance(nm, str) and nm.strip() else "?"   # never "nan"
+    return f"#{int(no)} {nm}" if pd.notna(no) else nm
 
 
 # ── 3. representative sector times for a rider ──────────────────────────────
@@ -461,6 +462,17 @@ def _f(v):
     return None if v is None or (isinstance(v, float) and pd.isna(v)) else float(v)
 
 
+def _opt_str(v):
+    """-> a non-empty string, or None. Coerces NaN / numbers / blanks to None so
+    display code can safely join the result (NaN is truthy and would crash join)."""
+    if isinstance(v, str):
+        return v.strip() or None
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    s = str(v).strip()
+    return s or None
+
+
 def recommend_reference(cls: pd.DataFrame, rider_no):
     """Who to compare against: the rider one place ahead in classification (the
     nearest target). If the rider is already P1, suggest P2 (the nearest threat).
@@ -508,7 +520,7 @@ def session_review(df: pd.DataFrame, cls: pd.DataFrame, rider_no,
 
     out = {
         "rider_no": int(rider_no), "rider": _rider_label(row),
-        "team": (row.get("team") or None), "bike": (row.get("manufacturer") or None),
+        "team": _opt_str(row.get("team")), "bike": _opt_str(row.get("manufacturer")),
         "position": int(row["position"]) if pd.notna(row.get("position")) else None,
         "best_lap": _f(best), "class_best": _f(class_best),
         "class_best_rider": _rider_label(leader) if leader is not None else None,

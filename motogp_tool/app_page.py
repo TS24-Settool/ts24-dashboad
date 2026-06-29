@@ -414,7 +414,8 @@ def _tab_session_review(df, cls):
     st.markdown(f"### {r['rider']}")
     sub = "  ·  ".join([x for x in [
         r.get("team"), r.get("bike"),
-        (f"P{r['position']}" if r.get("position") else None)] if x])
+        (f"P{r['position']}" if r.get("position") else None)]
+        if isinstance(x, str) and x])
     if sub:
         st.caption(sub)
     if r.get("ref"):
