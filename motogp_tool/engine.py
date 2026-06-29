@@ -97,6 +97,15 @@ def classification(df: pd.DataFrame) -> pd.DataFrame:
         out["ideal_gap"] = out["ideal_lap"] - out["ideal_lap"].min()
     else:
         out["ideal_gap"] = np.nan
+    # top-speed rank (1 = fastest) and lap-vs-speed rank delta. A large positive
+    # rank_delta (lap position worse than speed rank) hints at corner/sector loss
+    # — NOT necessarily engine power (slipstream / gearing / traffic also count).
+    if out["top_speed"].notna().any():
+        out["speed_rank"] = out["top_speed"].rank(ascending=False,
+                                                   method="min").astype("Int64")
+    else:
+        out["speed_rank"] = pd.array([pd.NA] * len(out), dtype="Int64")
+    out["rank_delta"] = out["position"].astype("Int64") - out["speed_rank"]
     return out
 
 
@@ -325,9 +334,37 @@ def h2h_summary(df: pd.DataFrame, my_no, ref_no, mode: str = "best") -> dict:
     total = sum(d for _, d in valid) if valid else np.nan
     loss = max(valid, key=lambda t: t[1]) if valid else None   # most positive
     gain = min(valid, key=lambda t: t[1]) if valid else None   # most negative
-    return {"deltas": deltas, "pairs": pairs, "total": total,
-            "loss_sector": loss, "gain_sector": gain,
-            "diagnosis": _h2h_diagnosis(total, gain, loss)}
+    sp_my, sp_ref = rider_top_speed(df, my_no), rider_top_speed(df, ref_no)
+    sp_delta = (sp_my - sp_ref) if sp_my is not None and sp_ref is not None else None
+    out = {"deltas": deltas, "pairs": pairs, "total": total,
+           "loss_sector": loss, "gain_sector": gain,
+           "diagnosis": _h2h_diagnosis(total, gain, loss),
+           "speed_my": sp_my, "speed_ref": sp_ref, "speed_delta": sp_delta,
+           "speed_note": None}
+    out["speed_note"] = _h2h_speed_note(out)
+    return out
+
+
+def rider_top_speed(df: pd.DataFrame, rider_no):
+    """Best speed-trap reading over the rider's flying laps (km/h), or None."""
+    g = df[(df["rider_no"] == rider_no) & (df["is_flying"])]
+    v = g["speed"].max() if "speed" in g else np.nan
+    return None if pd.isna(v) else float(v)
+
+
+def _h2h_speed_note(h: dict):
+    sd = h.get("speed_delta")
+    if sd is None:
+        return None
+    note = f"{sd:+.1f} km/h top speed"
+    loss = h.get("loss_sector")
+    if loss and loss[1] > 0.03:
+        note += f", but {loss[1]:+.3f}s slower in {loss[0]}"
+    note += "."
+    if abs(sd) >= 1.0:
+        note += (" Top speed reflects slipstream, corner exit, gearing and traffic "
+                 "— not engine power alone.")
+    return note
 
 
 # ── 9. track_segments — internal structure, ready for microsectors ──────────
@@ -680,3 +717,93 @@ def _focus_text(o: dict) -> str:
     if loss and loss[1] > 0.03:
         text += f" Priority — {_SECTOR_HINT.get(loss[0], loss[0])}."
     return text
+
+
+# ── top-speed analysis (read alongside lap/sector times, never alone) ────────
+def sector_gaps_vs_class(df: pd.DataFrame, cls: pd.DataFrame, rider_no):
+    """Per-sector gap of the rider's best sector vs the field's best of that
+    sector (positive = slower than the field). Returns (gaps, worst_sectors)."""
+    if cls is None or cls.empty:
+        return {}, []
+    row = cls[cls["rider_no"] == rider_no]
+    if row.empty:
+        return {}, []
+    row = row.iloc[0]
+    gaps = {}
+    for s in SECTORS:
+        cb, rb = cls[f"best_{s}"].min(), row.get(f"best_{s}")
+        if pd.notna(cb) and pd.notna(rb):
+            gaps[s] = float(rb - cb)
+    worst = sorted([s for s in gaps if gaps[s] > 0.03], key=lambda s: -gaps[s])
+    return gaps, [s.upper() for s in worst[:2]]
+
+
+def top_speed_review(df: pd.DataFrame, cls: pd.DataFrame, rider_no) -> dict:
+    """Top-speed context for one rider: value, gap to class best, speed rank, and
+    how that rank compares to their lap-time rank — with a cautious insight."""
+    out = {"top_speed": None, "class_best_speed": None, "speed_gap": None,
+           "speed_rank": None, "lap_rank": None, "rank_delta": None, "insight": None}
+    if cls is None or cls.empty:
+        return out
+    row = cls[cls["rider_no"] == rider_no]
+    if row.empty:
+        return out
+    row = row.iloc[0]
+    ts, cbest = row.get("top_speed"), cls["top_speed"].max()
+    out["top_speed"] = None if pd.isna(ts) else float(ts)
+    out["class_best_speed"] = None if pd.isna(cbest) else float(cbest)
+    if pd.notna(ts) and pd.notna(cbest):
+        out["speed_gap"] = float(ts - cbest)                 # <= 0
+    out["speed_rank"] = int(row["speed_rank"]) if pd.notna(row.get("speed_rank")) else None
+    out["lap_rank"] = int(row["position"]) if pd.notna(row.get("position")) else None
+    if out["speed_rank"] is not None and out["lap_rank"] is not None:
+        out["rank_delta"] = out["lap_rank"] - out["speed_rank"]
+    out["insight"] = _speed_insight(df, cls, rider_no, out)
+    return out
+
+
+def _speed_insight(df, cls, rider_no, ts) -> str | None:
+    sr, lr, rd = ts["speed_rank"], ts["lap_rank"], ts["rank_delta"]
+    if sr is None or lr is None:
+        return None
+    _, worst = sector_gaps_vs_class(df, cls, rider_no)
+    where = "/".join(worst) if worst else None
+    cap = max(3, len(cls) // 4)
+    if rd is not None and rd >= 3 and sr <= cap:
+        s = f"High top speed (P{sr}) but lap time only P{lr}"
+        s += f" — time is lost in {where}." if where else "."
+        return s + (" Look at corner speed, lines and gearing (and slipstream / "
+                    "traffic), not engine power.")
+    if rd is not None and rd <= -3:
+        s = f"Lap time (P{lr}) is stronger than the top-speed rank (P{sr})"
+        s += f"; biggest sector loss is {where}." if where else "."
+        return s + (" Carrying corner speed well; a tow or gearing can flatter "
+                    "straight-line figures.")
+    if where:
+        return (f"Top speed P{sr}, lap time P{lr}. Biggest sector loss vs the "
+                f"field is {where} — confirm against slipstream / traffic.")
+    return f"Top speed P{sr}, lap time P{lr} — well matched."
+
+
+def speed_profile(df: pd.DataFrame, rider_no) -> dict:
+    """Best-lap speed vs the rider's max speed-trap, and whether they're the same
+    lap (max speed on a non-best lap often means a tow or a lift-and-coast lap)."""
+    out = {"top_speed": None, "best_lap_no": None, "best_lap_speed": None,
+           "max_speed": None, "max_speed_lap_no": None, "coincide": None}
+    fly = df[(df["rider_no"] == rider_no) & (df["is_flying"])]
+    if fly.empty:
+        return out
+    sp = fly["speed"].dropna()
+    if not sp.empty:
+        out["max_speed"] = float(sp.max())
+        out["max_speed_lap_no"] = int(fly.loc[sp.idxmax(), "lap_no"])
+        out["top_speed"] = out["max_speed"]
+    lt = fly["lap_time_s"].dropna()
+    if not lt.empty:
+        bi = lt.idxmin()
+        out["best_lap_no"] = int(fly.loc[bi, "lap_no"])
+        bs = fly.loc[bi, "speed"]
+        out["best_lap_speed"] = None if pd.isna(bs) else float(bs)
+    if out["best_lap_no"] is not None and out["max_speed_lap_no"] is not None:
+        out["coincide"] = bool(out["best_lap_no"] == out["max_speed_lap_no"])
+    return out

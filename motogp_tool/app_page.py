@@ -185,8 +185,8 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v8** (run review · lap-time M'SS.mmm · "
-               "session review · sector diagnosis · image track maps)")
+               "·  build: **review-tools v9** (top-speed analysis · run review · "
+               "lap-time M'SS.mmm · session review · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
@@ -447,6 +447,23 @@ def _tab_session_review(df, cls):
     g2.metric("Biggest sector gain",
               _sector_lbl(gain) if gain and gain[1] < 0 else "—")
 
+    # top speed in context (read alongside the sectors, not on its own)
+    ts = engine.top_speed_review(df, cls, my_no)
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric("Top speed",
+              "—" if ts["top_speed"] is None else f"{ts['top_speed']:.1f} km/h")
+    t2.metric("vs Class Best",
+              "—" if ts["speed_gap"] is None else f"{ts['speed_gap']:+.1f} km/h",
+              delta_color="off")
+    t3.metric("Top-speed rank",
+              "—" if ts["speed_rank"] is None else f"P{ts['speed_rank']}")
+    t4.metric("Lap − Speed rank",
+              "—" if ts["rank_delta"] is None else f"{ts['rank_delta']:+d}",
+              help="Lap-time rank minus top-speed rank. Large + = quicker in a "
+                   "straight line than on the clock (look at the corners).")
+    if ts.get("insight"):
+        st.caption("🛈 " + ts["insight"])
+
     if r.get("focus_text"):
         st.info("🎯 " + r["focus_text"])
     if r.get("consistency_warning"):
@@ -494,6 +511,10 @@ def _tab_classification(cls: pd.DataFrame):
         "T3": cls["best_t3"].map(_sec_str),
         "T4": cls["best_t4"].map(_sec_str),
         "Top Speed": cls["top_speed"].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
+        "Spd Rk": cls.get("speed_rank", pd.Series([pd.NA] * len(cls))).map(
+            lambda v: f"P{int(v)}" if pd.notna(v) else "—"),
+        "Lap−Spd": cls.get("rank_delta", pd.Series([pd.NA] * len(cls))).map(
+            lambda v: f"{int(v):+d}" if pd.notna(v) else "—"),
         "Ideal": cls["ideal_lap"].map(_fmt_lap),
         "Ideal Gap": cls.get("ideal_gap", pd.Series([np.nan] * len(cls))).map(_gap_str),
         "Lost": cls.get("lost_potential", pd.Series([np.nan] * len(cls))).map(
@@ -548,8 +569,11 @@ def _tab_classification(cls: pd.DataFrame):
                  column_config=colcfg)
     st.caption("**Ideal** = sum of each rider's best T1–T4 (theoretical best lap). "
                "**Lost** = Lost potential (Best − Ideal, time left on the table). "
-               "Green cell = session-fastest sector. Highlighted row = selected "
-               "rider (teammates lightly shaded).")
+               "**Spd Rk** = top-speed rank · **Lap−Spd** = lap-time position − "
+               "speed rank (large **+** = faster in a straight line than on the "
+               "clock → likely corner/sector loss; mind slipstream, gearing & "
+               "traffic, not just power). Green cell = session-fastest sector. "
+               "Highlighted row = selected rider (teammates lightly shaded).")
 
 
 # ── tab: head-to-head ───────────────────────────────────────────────────────
@@ -623,6 +647,14 @@ def _tab_head_to_head(df, cls):
     # plain-language diagnosis
     if h.get("diagnosis"):
         st.info(h["diagnosis"])
+
+    # top speed read alongside the sector deltas
+    sd = h.get("speed_delta")
+    if sd is not None:
+        st.markdown(f"**Top speed:** {sd:+.1f} km/h  ·  "
+                    f"{my_lbl} {h['speed_my']:.1f} vs {ref_lbl} {h['speed_ref']:.1f}")
+    if h.get("speed_note"):
+        st.caption("🛈 " + h["speed_note"])
 
     # per-sector mine / ref / Δ table
     tbl = engine.sector_delta_table(df, my_no, ref_no)
@@ -828,6 +860,39 @@ def _tab_lap_detail(df, cls):
         st.markdown("**Sector trend (flying laps)**  ·  T1–T4 in seconds")
         st.plotly_chart(sec_fig, use_container_width=True, key="lap_sector_trend",
                         config={"displayModeBar": False})
+
+    # Speed: best-lap speed vs the rider's max speed-trap
+    sp = engine.speed_profile(df, no)
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Best-lap speed",
+              "—" if sp["best_lap_speed"] is None else f"{sp['best_lap_speed']:.1f} km/h")
+    if sp.get("best_lap_no"):
+        p1.caption(f"on lap {sp['best_lap_no']}")
+    p2.metric("Max speed",
+              "—" if sp["max_speed"] is None else f"{sp['max_speed']:.1f} km/h")
+    if sp.get("max_speed_lap_no"):
+        p2.caption(f"on lap {sp['max_speed_lap_no']}")
+    p3.metric("Best lap = max speed?",
+              "—" if sp["coincide"] is None else ("Yes" if sp["coincide"] else "No"))
+    if not fly.empty and fly["speed"].notna().any():
+        spd_fig = go.Figure()
+        spd_fig.add_trace(go.Scatter(
+            x=fly["lap_no"], y=fly["speed"], mode="lines+markers",
+            line=dict(color="#6B46C1", width=1.5), marker=dict(size=5),
+            showlegend=False,
+            hovertemplate="Lap %{x}<br>%{y:.1f} km/h<extra></extra>"))
+        spd_fig.update_layout(
+            height=240, margin=dict(l=10, r=10, t=10, b=10),
+            yaxis_title="Speed (km/h)", xaxis_title="Lap",
+            plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF", font=dict(color="#111"))
+        spd_fig.update_xaxes(gridcolor="#EEE")
+        spd_fig.update_yaxes(gridcolor="#EEE")
+        st.markdown("**Speed trend (flying laps)**  ·  speed-trap, km/h")
+        st.plotly_chart(spd_fig, use_container_width=True, key="lap_speed_trend",
+                        config={"displayModeBar": False})
+    st.caption("Speed-trap depends on slipstream, corner exit, gearing and traffic "
+               "— read it with the sectors, not on its own. Max speed on a "
+               "non-best lap often means a tow.")
 
     # Lap table with Status, non-valid rows greyed
     show = pd.DataFrame({
