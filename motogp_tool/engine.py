@@ -509,6 +509,159 @@ def session_review(df: pd.DataFrame, cls: pd.DataFrame, rider_no,
     return out
 
 
+def _lap_str(s) -> str:
+    """seconds -> M'SS.mmm (display only; engine-side mirror of the UI helper)."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return "—"
+    s = float(s)
+    m = int(s // 60)
+    return f"{m}'{s - 60 * m:06.3f}"
+
+
+# ── 12. run / stint segmentation + run review ───────────────────────────────
+def assign_runs(df: pd.DataFrame, rider_no, slow_break: float = 1.15) -> pd.DataFrame:
+    """One rider's laps (ordered) with run_id + run_lap_index. A run is a maximal
+    streak of valid/slow laps; out/pit/cancelled laps — and any flying lap slower
+    than slow_break × the rider's median (an in-lap / big mistake) — are dividers
+    (run_id = None) used only to split runs, not analysed."""
+    g = lap_detail(df, rider_no).reset_index(drop=True)
+    if g.empty:
+        g["run_id"] = pd.Series(dtype="object")
+        g["run_lap_index"] = pd.Series(dtype="object")
+        return g
+    fly = g[g["is_flying"]]
+    med = fly["lap_time_s"].median() if not fly.empty else None
+    rid, rli, cur, idx, in_run = [], [], 0, 0, False
+    for _, r in g.iterrows():
+        very_slow = (med is not None and pd.notna(r["lap_time_s"])
+                     and r["lap_time_s"] > med * slow_break)
+        divider = r["lap_status"] in ("out", "pit", "cancelled") or very_slow
+        if divider:
+            in_run = False
+            rid.append(None)
+            rli.append(None)
+        else:
+            if not in_run:
+                cur += 1
+                idx = 0
+                in_run = True
+            idx += 1
+            rid.append(cur)
+            rli.append(idx)
+    g["run_id"] = rid
+    g["run_lap_index"] = rli
+    return g
+
+
+def run_detail(df: pd.DataFrame, rider_no, run_id) -> dict:
+    """Per-run numbers for one run: best/avg, per-sector best/avg, and the sectors
+    where the rider improved most (first valid lap → best) and loses most
+    (avg − best scatter)."""
+    g = assign_runs(df, rider_no)
+    rg = g[g["run_id"] == run_id].sort_values("run_lap_index")
+    out = {"run_id": run_id, "laps": rg, "best_lap": None, "best_lap_no": None,
+           "avg_valid": None, "median_valid": None, "consistency": None,
+           "sector_best": {}, "sector_avg": {}, "lost_most": None,
+           "improved_most": None}
+    if rg.empty:
+        return out
+    times = rg["lap_time_s"].dropna()
+    if not times.empty:
+        out["best_lap"] = float(times.min())
+        out["best_lap_no"] = int(rg.loc[times.idxmin(), "lap_no"])
+    valid = rg[rg["lap_status"] == "valid"]
+    base = valid if not valid.empty else rg
+    vt = base["lap_time_s"].dropna()
+    if not vt.empty:
+        out["avg_valid"] = float(vt.mean())
+        out["median_valid"] = float(vt.median())
+        out["consistency"] = float(vt.std(ddof=0)) if len(vt) > 1 else 0.0
+    first = base.iloc[0]
+    gaps, improv = {}, {}
+    for s in SECTORS:
+        sb, sa = base[s].min(), base[s].mean()
+        out["sector_best"][s] = None if pd.isna(sb) else float(sb)
+        out["sector_avg"][s] = None if pd.isna(sa) else float(sa)
+        if pd.notna(sb) and pd.notna(sa):
+            gaps[s] = sa - sb
+        if pd.notna(first[s]) and pd.notna(sb):
+            improv[s] = first[s] - sb
+    if gaps:
+        out["lost_most"] = max(gaps, key=gaps.get)
+    if improv and len(base) > 1:
+        out["improved_most"] = max(improv, key=improv.get)
+    return out
+
+
+def _run_note(detail: dict, strongest: bool) -> str:
+    bits = []
+    if strongest:
+        bits.append("strongest")
+    if detail.get("best_lap_no"):
+        bits.append(f"best L{detail['best_lap_no']}")
+    if detail.get("lost_most"):
+        bits.append(f"weak {detail['lost_most'].upper()}")
+    if detail.get("consistency") is not None and detail["consistency"] <= 0.15:
+        bits.append("consistent")
+    return " · ".join(bits)
+
+
+def run_summary(df: pd.DataFrame, rider_no) -> pd.DataFrame:
+    """One row per run for the Run Review table."""
+    g = assign_runs(df, rider_no)
+    runs = g[g["run_id"].notna()]
+    if runs.empty:
+        return pd.DataFrame()
+    rows = []
+    for rid, rg in runs.groupby("run_id"):
+        valid = rg[rg["lap_status"] == "valid"]
+        times = rg["lap_time_s"].dropna()
+        vt = valid["lap_time_s"].dropna()
+        row = {
+            "run_id": int(rid), "laps": int(len(rg)), "valid_laps": int(len(valid)),
+            "best_lap": float(times.min()) if not times.empty else np.nan,
+            "best_lap_no": int(rg.loc[times.idxmin(), "lap_no"]) if not times.empty else None,
+            "avg_valid": float(vt.mean()) if not vt.empty else np.nan,
+            "median_valid": float(vt.median()) if not vt.empty else np.nan,
+            "consistency": (float(vt.std(ddof=0)) if len(vt) > 1
+                            else (0.0 if len(vt) == 1 else np.nan)),
+            "top_speed": float(rg["speed"].max()) if rg["speed"].notna().any() else np.nan,
+        }
+        for s in SECTORS:
+            row[f"best_{s}"] = float(rg[s].min()) if rg[s].notna().any() else np.nan
+        rows.append(row)
+    out = pd.DataFrame(rows).sort_values("run_id").reset_index(drop=True)
+    strongest_idx = out["best_lap"].idxmin() if out["best_lap"].notna().any() else -1
+    out["is_strongest"] = out.index == strongest_idx
+    out["note"] = [
+        _run_note(run_detail(df, rider_no, int(r["run_id"])), bool(r["is_strongest"]))
+        for _, r in out.iterrows()]
+    return out
+
+
+def run_brief(df: pd.DataFrame, rider_no) -> str:
+    """Auto engineer/rider brief across the session's runs."""
+    s = run_summary(df, rider_no)
+    if s.empty:
+        return "No complete runs to review yet (need consecutive valid laps)."
+    strong = s.loc[s["best_lap"].idxmin()] if s["best_lap"].notna().any() else s.iloc[0]
+    rid = int(strong["run_id"])
+    d = run_detail(df, rider_no, rid)
+    out = f"Run {rid} was the strongest run"
+    if pd.notna(strong.get("best_lap")):
+        out += f" ({_lap_str(strong['best_lap'])})"
+    out += ". "
+    if d.get("best_lap_no"):
+        out += f"Best lap came on lap {d['best_lap_no']}. "
+    lost = d.get("lost_most")
+    if lost:
+        out += (f"Main loss remains {lost.upper()}. "
+                f"Focus next run on {_SECTOR_HINT.get(lost.upper(), lost.upper())}.")
+    else:
+        out += "Pace was well balanced across the sectors."
+    return out
+
+
 def _focus_text(o: dict) -> str:
     """Plain next-run guidance from the review numbers."""
     loss = o.get("biggest_loss")

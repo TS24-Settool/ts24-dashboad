@@ -185,8 +185,8 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v7** (lap-time M'SS.mmm · session review · "
-               "sector diagnosis · consistency · image track maps)")
+               "·  build: **review-tools v8** (run review · lap-time M'SS.mmm · "
+               "session review · sector diagnosis · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
@@ -206,9 +206,9 @@ def render_motogp_page():
                    "Analysis PDF directly.")
         return
 
-    tab_rev, tab_cls, tab_h2h, tab_map, tab_lap = st.tabs(
+    tab_rev, tab_cls, tab_h2h, tab_map, tab_lap, tab_run = st.tabs(
         ["📋 Session Review", "🏁 Classification", "⚔️ Head-to-Head",
-         "🗺️ Track Map", "📊 Lap Detail"])
+         "🗺️ Track Map", "📊 Lap Detail", "🏎️ Run Review"])
 
     with tab_rev:
         _tab_session_review(df, cls)
@@ -220,6 +220,8 @@ def render_motogp_page():
         _tab_track_map(df, cls)
     with tab_lap:
         _tab_lap_detail(df, cls)
+    with tab_run:
+        _tab_run_review(df, cls)
 
 
 # ── session overview cards + export ─────────────────────────────────────────
@@ -852,3 +854,175 @@ def _tab_lap_detail(df, cls):
     st.caption(f"Best flying lap: **{_fmt_lap(cs.get('best'))}**  ·  "
                f"{cs.get('flying', 0)} flying / {len(ld)} total laps. "
                "Greyed rows = out / pit / cancelled / slow.")
+
+
+# ── tab: run review (per-stint, F1-style) ───────────────────────────────────
+def _run_laptime_trend(sub, key):
+    """Compact M'SS.mmm lap-time trend for one run's laps (valid/slow only)."""
+    pace = sub[sub["lap_status"].isin(["valid", "slow"])].sort_values("lap_no")
+    yv = pace["lap_time_s"].dropna()
+    if yv.empty:
+        st.caption("No valid laps in this run.")
+        return
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=pace["lap_no"], y=pace["lap_time_s"], mode="lines",
+                             line=dict(color="#CBD5E1", width=1.5),
+                             hoverinfo="skip", showlegend=False))
+    for status in ("valid", "slow"):
+        grp = pace[pace["lap_status"] == status]
+        if grp.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=grp["lap_no"], y=grp["lap_time_s"], mode="markers+text", name=status,
+            marker=dict(size=9, color=_STATUS_COLOUR.get(status, "#666")),
+            text=[seconds_to_lap_time_label(v) for v in grp["lap_time_s"]],
+            textposition="top center", textfont=dict(size=9),
+            customdata=[seconds_to_lap_time_label(v) for v in grp["lap_time_s"]],
+            hovertemplate="Lap %{x}<br>%{customdata}<extra>" + status + "</extra>"))
+    ymin, ymax = float(yv.min()), float(yv.max())
+    pad = max((ymax - ymin) * 0.12, 0.20)
+    tickvals, ticktext = _laptime_ticks(ymin, ymax)
+    fig.update_layout(height=260, margin=dict(l=10, r=10, t=20, b=10),
+                      xaxis_title="Lap", plot_bgcolor="#FFFFFF",
+                      paper_bgcolor="#FFFFFF", showlegend=False,
+                      font=dict(color="#111"))
+    fig.update_xaxes(gridcolor="#EEE")
+    fig.update_yaxes(title="Lap time", tickvals=tickvals, ticktext=ticktext,
+                     range=[ymin - pad, ymax + pad], gridcolor="#EEE")
+    st.plotly_chart(fig, use_container_width=True, key=key,
+                    config={"displayModeBar": False})
+
+
+def _tab_run_review(df, cls):
+    opts = engine.rider_options(cls)
+    if not opts:
+        st.info("No classified riders for this session.")
+        return
+    lbl = st.selectbox("Rider", opts, index=0, key="run_rider")
+    no = _rider_no_from_label(cls, lbl)
+    summary = engine.run_summary(df, no)
+    if summary.empty:
+        st.info("No complete runs for this rider yet — a run needs consecutive "
+                "valid laps (out / pit / cancelled laps only split runs).")
+        return
+
+    left, right = st.columns([3, 2])
+    with left:
+        st.markdown("**Runs**  ·  out / pit laps excluded from the numbers")
+        show = pd.DataFrame({
+            "Run": summary["run_id"],
+            "Laps": summary["laps"],
+            "Valid": summary["valid_laps"],
+            "Best": summary["best_lap"].map(seconds_to_lap_time_label),
+            "Avg": summary["avg_valid"].map(seconds_to_lap_time_label),
+            "Median": summary["median_valid"].map(seconds_to_lap_time_label),
+            "Consistency": summary["consistency"].map(
+                lambda v: f"±{v:.3f}" if pd.notna(v) else "—"),
+            "T1": summary["best_t1"].map(_sec_str),
+            "T2": summary["best_t2"].map(_sec_str),
+            "T3": summary["best_t3"].map(_sec_str),
+            "T4": summary["best_t4"].map(_sec_str),
+            "Top Speed": summary["top_speed"].map(
+                lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
+            "Note": summary["note"],
+        })
+        strong = summary["is_strongest"].to_numpy()
+        cons = summary["consistency"].to_numpy()
+        fastest = {f"T{i}": summary[f"best_t{i}"].min() for i in range(1, 5)}
+
+        def _row(r):
+            return (["background-color:#E8F5E9;font-weight:700"] * len(r)
+                    if strong[r.name] else [""] * len(r))
+
+        def _cons_cell(col):
+            if col.name != "Consistency":
+                return [""] * len(col)
+            out = []
+            for v in cons:
+                out.append("" if pd.isna(v) else
+                           "background-color:#C6F6D5" if v <= 0.15 else
+                           "background-color:#FFF3CD" if v <= 0.30 else
+                           "background-color:#FDE0E0")
+            return out
+
+        def _fast(col):
+            if col.name not in fastest:
+                return [""] * len(col)
+            t = fastest[col.name]
+            out = []
+            for i in range(len(col)):
+                raw = summary[f"best_t{col.name[1]}"].iloc[i]
+                out.append("background-color:#C6F6D5;font-weight:700"
+                           if pd.notna(raw) and pd.notna(t) and abs(raw - t) < 1e-6
+                           else "")
+            return out
+
+        sty = (show.style.apply(_row, axis=1)
+               .apply(_cons_cell, axis=0).apply(_fast, axis=0))
+        st.dataframe(sty, hide_index=True, use_container_width=True)
+        st.caption("Green row = strongest run. Consistency cell: green ≤0.15 · "
+                   "amber ≤0.30 · red >0.30 s. Green sector = best across runs.")
+
+    with right:
+        st.markdown("**Engineer brief**")
+        st.info("🏁 " + engine.run_brief(df, no))
+        st.caption("Auto-generated from the runs above — share verbatim with the "
+                   "rider, or open the run below for detail.")
+
+    st.divider()
+    run_ids = [int(x) for x in summary["run_id"]]
+    default = (int(summary.loc[summary["is_strongest"].idxmax(), "run_id"])
+               if summary["is_strongest"].any() else run_ids[0])
+    sel = st.selectbox("Selected run", run_ids,
+                       index=run_ids.index(default), key="run_sel")
+    d = engine.run_detail(df, no, sel)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Best lap", _fmt_lap(d["best_lap"]))
+    if d.get("best_lap_no"):
+        m1.caption(f"lap {d['best_lap_no']}")
+    m2.metric("Avg valid", _fmt_lap(d["avg_valid"]))
+    bva = (d["best_lap"] - d["avg_valid"]
+           if d["best_lap"] is not None and d["avg_valid"] is not None else None)
+    m3.metric("Best vs avg", "—" if bva is None else f"{bva:+.3f}s")
+    m4.metric("Consistency",
+              "—" if d["consistency"] is None else f"±{d['consistency']:.3f}s")
+
+    s1, s2 = st.columns(2)
+    im, lo = d.get("improved_most"), d.get("lost_most")
+    s1.metric("Improved most", im.upper() if im else "—",
+              help="Sector where the rider found the most time from the first to "
+                   "the best lap of this run.")
+    s2.metric("Lost most", lo.upper() if lo else "—",
+              help="Sector with the largest average-vs-best gap this run "
+                   "(most to gain by tidying up).")
+
+    cL, cR = st.columns(2)
+    with cL:
+        st.markdown("**Lap-time trend (this run)**")
+        _run_laptime_trend(d["laps"], key="run_lap_trend")
+    with cR:
+        st.markdown("**Sector trend (this run)**  ·  seconds")
+        rg = d["laps"]
+        pace = rg[rg["lap_status"].isin(["valid", "slow"])].sort_values("lap_no")
+        if pace.empty:
+            st.caption("No valid laps in this run.")
+        else:
+            sec_fig = go.Figure()
+            sec_colours = {"t1": "#1F77B4", "t2": "#2CA02C",
+                           "t3": "#FF7F0E", "t4": "#D62728"}
+            for s in ("t1", "t2", "t3", "t4"):
+                sec_fig.add_trace(go.Scatter(
+                    x=pace["lap_no"], y=pace[s], mode="lines+markers",
+                    name=s.upper(), line=dict(color=sec_colours[s], width=1.5),
+                    marker=dict(size=5)))
+            sec_fig.update_layout(
+                height=260, margin=dict(l=10, r=10, t=20, b=10),
+                xaxis_title="Lap", yaxis_title="Sector time (s)",
+                plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                legend=dict(orientation="h", y=1.15), font=dict(color="#111"))
+            sec_fig.update_xaxes(gridcolor="#EEE")
+            sec_fig.update_yaxes(gridcolor="#EEE")
+            st.plotly_chart(sec_fig, use_container_width=True,
+                            key="run_sector_trend",
+                            config={"displayModeBar": False})
