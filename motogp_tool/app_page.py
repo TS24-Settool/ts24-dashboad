@@ -185,7 +185,7 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v9** (top-speed analysis · run review · "
+               "·  build: **review-tools v10** (run review v2 · top-speed · "
                "lap-time M'SS.mmm · session review · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
@@ -988,7 +988,9 @@ def _tab_run_review(df, cls):
             "T2": summary["best_t2"].map(_sec_str),
             "T3": summary["best_t3"].map(_sec_str),
             "T4": summary["best_t4"].map(_sec_str),
-            "Top Speed": summary["top_speed"].map(
+            "Max kph": summary["max_speed"].map(
+                lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
+            "Avg kph": summary["avg_speed"].map(
                 lambda v: f"{v:.1f}" if pd.notna(v) else "—"),
             "Note": summary["note"],
         })
@@ -1026,14 +1028,15 @@ def _tab_run_review(df, cls):
         sty = (show.style.apply(_row, axis=1)
                .apply(_cons_cell, axis=0).apply(_fast, axis=0))
         st.dataframe(sty, hide_index=True, use_container_width=True)
-        st.caption("Green row = strongest run. Consistency cell: green ≤0.15 · "
+        st.caption("Green row = strongest run (needs **2+ valid laps**). "
+                   "Consistency needs 2+ valid laps (else **—**): green ≤0.15 · "
                    "amber ≤0.30 · red >0.30 s. Green sector = best across runs.")
 
     with right:
-        st.markdown("**Engineer brief**")
-        st.info("🏁 " + engine.run_brief(df, no))
-        st.caption("Auto-generated from the runs above — share verbatim with the "
-                   "rider, or open the run below for detail.")
+        st.markdown("**Session brief — all runs**")
+        st.info("🏁 " + engine.run_brief(df, no, cls))
+        st.caption("Whole-session view. A run needs 2+ valid laps to count as the "
+                   "strongest; a single-lap run is only ever the *quickest lap*.")
 
     st.divider()
     run_ids = [int(x) for x in summary["run_id"]]
@@ -1042,6 +1045,7 @@ def _tab_run_review(df, cls):
     sel = st.selectbox("Selected run", run_ids,
                        index=run_ids.index(default), key="run_sel")
     d = engine.run_detail(df, no, sel)
+    st.info("🔎 **Selected run** — " + engine.selected_run_brief(df, no, sel, cls))
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Best lap", _fmt_lap(d["best_lap"]))
@@ -1062,6 +1066,23 @@ def _tab_run_review(df, cls):
     s2.metric("Lost most", lo.upper() if lo else "—",
               help="Sector with the largest average-vs-best gap this run "
                    "(most to gain by tidying up).")
+
+    # top speed for this run (read with the sectors, not on its own)
+    sp1, sp2, sp3, sp4 = st.columns(4)
+    sp1.metric("Max speed",
+               "—" if d["max_speed"] is None else f"{d['max_speed']:.1f} km/h")
+    if d.get("max_speed_lap"):
+        sp1.caption(f"lap {d['max_speed_lap']}")
+    sp2.metric("Avg speed",
+               "—" if d["avg_speed"] is None else f"{d['avg_speed']:.1f} km/h")
+    sp3.metric("Best-lap speed",
+               "—" if d["best_lap_speed"] is None else f"{d['best_lap_speed']:.1f} km/h")
+    coincide = (d.get("max_speed_lap") is not None and d.get("best_lap_no") is not None
+                and d["max_speed_lap"] == d["best_lap_no"])
+    sp4.metric("Max speed on best lap?",
+               "—" if d.get("max_speed_lap") is None else ("Yes" if coincide else "No"))
+    st.caption("Speed depends on slipstream, corner exit, gearing and traffic — "
+               "read it with the sectors, not on its own.")
 
     cL, cR = st.columns(2)
     with cL:

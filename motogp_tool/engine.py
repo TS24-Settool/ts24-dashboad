@@ -602,29 +602,50 @@ def assign_runs(df: pd.DataFrame, rider_no, slow_break: float = 1.15) -> pd.Data
     return g
 
 
+# A run needs at least this many valid laps to qualify as a "strongest run"; a
+# run with 3+ is preferred when available. A single-valid-lap run is only ever a
+# "quickest single lap", never the strongest (too short to judge).
+_MIN_VALID_RUN = 2
+_PREF_VALID_RUN = 3
+
+
 def run_detail(df: pd.DataFrame, rider_no, run_id) -> dict:
-    """Per-run numbers for one run: best/avg, per-sector best/avg, and the sectors
-    where the rider improved most (first valid lap → best) and loses most
-    (avg − best scatter)."""
+    """Per-run numbers: best/avg/median/consistency (None until 2+ valid laps),
+    speed (max / avg / best-lap), per-sector best/avg, and the sectors where the
+    rider improved most (first valid lap → best) and loses most (avg − best)."""
     g = assign_runs(df, rider_no)
     rg = g[g["run_id"] == run_id].sort_values("run_lap_index")
-    out = {"run_id": run_id, "laps": rg, "best_lap": None, "best_lap_no": None,
+    out = {"run_id": run_id, "laps": rg, "valid_laps": 0,
+           "best_lap": None, "best_lap_no": None, "best_lap_speed": None,
            "avg_valid": None, "median_valid": None, "consistency": None,
+           "max_speed": None, "max_speed_lap": None, "avg_speed": None,
            "sector_best": {}, "sector_avg": {}, "lost_most": None,
            "improved_most": None}
     if rg.empty:
         return out
     times = rg["lap_time_s"].dropna()
     if not times.empty:
+        bi = times.idxmin()
         out["best_lap"] = float(times.min())
-        out["best_lap_no"] = int(rg.loc[times.idxmin(), "lap_no"])
+        out["best_lap_no"] = int(rg.loc[bi, "lap_no"])
+        bs = rg.loc[bi, "speed"]
+        out["best_lap_speed"] = None if pd.isna(bs) else float(bs)
     valid = rg[rg["lap_status"] == "valid"]
-    base = valid if not valid.empty else rg
-    vt = base["lap_time_s"].dropna()
+    out["valid_laps"] = int(len(valid))
+    vt = valid["lap_time_s"].dropna()
     if not vt.empty:
         out["avg_valid"] = float(vt.mean())
         out["median_valid"] = float(vt.median())
-        out["consistency"] = float(vt.std(ddof=0)) if len(vt) > 1 else 0.0
+        # consistency is meaningless on a single lap -> None (never ±0.000)
+        out["consistency"] = float(vt.std(ddof=0)) if len(vt) >= 2 else None
+    sp = rg["speed"].dropna()
+    if not sp.empty:
+        out["max_speed"] = float(sp.max())
+        out["max_speed_lap"] = int(rg.loc[sp.idxmax(), "lap_no"])
+    pace = rg[rg["lap_status"].isin(["valid", "slow"])]
+    asp = pace["speed"].dropna()
+    out["avg_speed"] = float(asp.mean()) if not asp.empty else None
+    base = valid if not valid.empty else rg
     first = base.iloc[0]
     gaps, improv = {}, {}
     for s in SECTORS:
@@ -642,10 +663,33 @@ def run_detail(df: pd.DataFrame, rider_no, run_id) -> dict:
     return out
 
 
-def _run_note(detail: dict, strongest: bool) -> str:
+def _strongest_run_id(summary: pd.DataFrame):
+    """run_id of the strongest run = fastest best_lap among runs with 3+ valid
+    laps, else among runs with 2+; None when every run is a single valid lap."""
+    if summary is None or summary.empty:
+        return None
+    for thr in (_PREF_VALID_RUN, _MIN_VALID_RUN):
+        pool = summary[(summary["valid_laps"] >= thr) & summary["best_lap"].notna()]
+        if not pool.empty:
+            return int(pool.loc[pool["best_lap"].idxmin(), "run_id"])
+    return None
+
+
+def _quickest_run_id(summary: pd.DataFrame):
+    """run_id holding the quickest single lap overall (any run length)."""
+    if summary is None or summary.empty or not summary["best_lap"].notna().any():
+        return None
+    return int(summary.loc[summary["best_lap"].idxmin(), "run_id"])
+
+
+def _run_note(detail: dict, strongest: bool, quickest: bool) -> str:
     bits = []
     if strongest:
-        bits.append("strongest")
+        bits.append("strongest run")
+    elif quickest:
+        bits.append("quickest lap")
+    if detail.get("valid_laps", 0) < _MIN_VALID_RUN:
+        bits.append("1 valid lap")
     if detail.get("best_lap_no"):
         bits.append(f"best L{detail['best_lap_no']}")
     if detail.get("lost_most"):
@@ -656,7 +700,8 @@ def _run_note(detail: dict, strongest: bool) -> str:
 
 
 def run_summary(df: pd.DataFrame, rider_no) -> pd.DataFrame:
-    """One row per run for the Run Review table."""
+    """One row per run for the Run Review table. Consistency is NaN until a run
+    has 2+ valid laps; is_strongest is only set on a qualifying run."""
     g = assign_runs(df, rider_no)
     runs = g[g["run_id"].notna()]
     if runs.empty:
@@ -666,49 +711,113 @@ def run_summary(df: pd.DataFrame, rider_no) -> pd.DataFrame:
         valid = rg[rg["lap_status"] == "valid"]
         times = rg["lap_time_s"].dropna()
         vt = valid["lap_time_s"].dropna()
+        has_sp = rg["speed"].notna().any()
+        pace = rg[rg["lap_status"].isin(["valid", "slow"])]
+        bspeed = np.nan
+        if not times.empty:
+            bv = rg.loc[times.idxmin(), "speed"]
+            bspeed = np.nan if pd.isna(bv) else float(bv)
         row = {
             "run_id": int(rid), "laps": int(len(rg)), "valid_laps": int(len(valid)),
             "best_lap": float(times.min()) if not times.empty else np.nan,
             "best_lap_no": int(rg.loc[times.idxmin(), "lap_no"]) if not times.empty else None,
             "avg_valid": float(vt.mean()) if not vt.empty else np.nan,
             "median_valid": float(vt.median()) if not vt.empty else np.nan,
-            "consistency": (float(vt.std(ddof=0)) if len(vt) > 1
-                            else (0.0 if len(vt) == 1 else np.nan)),
-            "top_speed": float(rg["speed"].max()) if rg["speed"].notna().any() else np.nan,
+            "consistency": float(vt.std(ddof=0)) if len(vt) >= 2 else np.nan,
+            "max_speed": float(rg["speed"].max()) if has_sp else np.nan,
+            "avg_speed": float(pace["speed"].mean()) if pace["speed"].notna().any() else np.nan,
+            "best_lap_speed": bspeed,
+            "max_speed_lap": int(rg.loc[rg["speed"].idxmax(), "lap_no"]) if has_sp else None,
+            "top_speed": float(rg["speed"].max()) if has_sp else np.nan,
         }
         for s in SECTORS:
             row[f"best_{s}"] = float(rg[s].min()) if rg[s].notna().any() else np.nan
         rows.append(row)
     out = pd.DataFrame(rows).sort_values("run_id").reset_index(drop=True)
-    strongest_idx = out["best_lap"].idxmin() if out["best_lap"].notna().any() else -1
-    out["is_strongest"] = out.index == strongest_idx
+    strong_id, quick_id = _strongest_run_id(out), _quickest_run_id(out)
+    out["is_strongest"] = (out["run_id"] == strong_id) if strong_id is not None else False
+    out["is_quickest"] = (out["run_id"] == quick_id) if quick_id is not None else False
+    out["qualifies"] = out["valid_laps"] >= _MIN_VALID_RUN
     out["note"] = [
-        _run_note(run_detail(df, rider_no, int(r["run_id"])), bool(r["is_strongest"]))
+        _run_note(run_detail(df, rider_no, int(r["run_id"])),
+                  bool(r["is_strongest"]), bool(r["is_quickest"]))
         for _, r in out.iterrows()]
     return out
 
 
-def run_brief(df: pd.DataFrame, rider_no) -> str:
-    """Auto engineer/rider brief across the session's runs."""
+def _run_speed_caveat(df, cls, rider_no):
+    """Cautious top-speed line for the brief (only when the field context shows a
+    fast-in-a-straight-line / slow-on-the-clock mismatch)."""
+    if cls is None:
+        return None
+    ts = top_speed_review(df, cls, rider_no)
+    sr, lr, rd = ts.get("speed_rank"), ts.get("lap_rank"), ts.get("rank_delta")
+    if rd is not None and sr is not None and lr is not None and rd >= 3:
+        return (f"Top speed is strong (P{sr}) but lap time only P{lr} — look at "
+                "corner speed / gearing (and slipstream / traffic), not power.")
+    return None
+
+
+def run_brief(df: pd.DataFrame, rider_no, cls: pd.DataFrame | None = None) -> str:
+    """Session-level engineer brief across all runs. Separates the quickest single
+    lap from the best (multi-lap) run, and never calls a 1-lap run 'strongest'."""
     s = run_summary(df, rider_no)
     if s.empty:
         return "No complete runs to review yet (need consecutive valid laps)."
-    strong = s.loc[s["best_lap"].idxmin()] if s["best_lap"].notna().any() else s.iloc[0]
-    rid = int(strong["run_id"])
-    d = run_detail(df, rider_no, rid)
-    out = f"Run {rid} was the strongest run"
-    if pd.notna(strong.get("best_lap")):
-        out += f" ({_lap_str(strong['best_lap'])})"
-    out += ". "
+    quick_id = _quickest_run_id(s)
+    qtxt = ""
+    if quick_id is not None:
+        q = s[s["run_id"] == quick_id].iloc[0]
+        qtxt = (f"Quickest single lap {_lap_str(q['best_lap'])} "
+                f"(lap {q['best_lap_no']}, Run {int(q['run_id'])})")
+    strong_id = _strongest_run_id(s)
+    if strong_id is None:
+        msg = ("Only single-lap runs so far — too short to judge consistency; a "
+               "longer run is needed to confirm pace.")
+        return f"{qtxt}. {msg}" if qtxt else msg
+    d = run_detail(df, rider_no, strong_id)
+    sr = s[s["run_id"] == strong_id].iloc[0]
+    out = (f"Best run: Run {strong_id} ({_lap_str(sr['best_lap'])}, "
+           f"{int(sr['valid_laps'])} valid laps)")
     if d.get("best_lap_no"):
-        out += f"Best lap came on lap {d['best_lap_no']}. "
+        out += f", best lap on lap {d['best_lap_no']}"
+    out += ". "
     lost = d.get("lost_most")
     if lost:
         out += (f"Main loss remains {lost.upper()}. "
-                f"Focus next run on {_SECTOR_HINT.get(lost.upper(), lost.upper())}.")
-    else:
-        out += "Pace was well balanced across the sectors."
-    return out
+                f"Focus next run on {_SECTOR_HINT.get(lost.upper(), lost.upper())}. ")
+    cav = _run_speed_caveat(df, cls, rider_no)
+    if cav:
+        out += cav + " "
+    if qtxt and quick_id != strong_id:
+        out += qtxt + "."
+    elif qtxt:
+        out += "That was also the quickest single lap of the session."
+    return out.strip()
+
+
+def selected_run_brief(df: pd.DataFrame, rider_no, run_id,
+                       cls: pd.DataFrame | None = None) -> str:
+    """Brief for ONE selected run (distinct from the session-level run_brief)."""
+    d = run_detail(df, rider_no, run_id)
+    if d["best_lap"] is None:
+        return "No timed laps in this run."
+    if d["valid_laps"] < _MIN_VALID_RUN:
+        return (f"Run {int(run_id)}: quickest lap {_lap_str(d['best_lap'])} "
+                f"(lap {d['best_lap_no']}). Only one valid lap in this run, too "
+                "short to judge consistency.")
+    out = (f"Run {int(run_id)}: best {_lap_str(d['best_lap'])} on lap "
+           f"{d['best_lap_no']}, {d['valid_laps']} valid laps")
+    if d.get("consistency") is not None:
+        out += f", consistency ±{d['consistency']:.3f}s"
+    out += ". "
+    lost = d.get("lost_most")
+    if lost:
+        out += (f"Loses most in {lost.upper()} — focus "
+                f"{_SECTOR_HINT.get(lost.upper(), lost.upper())}. ")
+    if d.get("improved_most"):
+        out += f"Improved most in {d['improved_most'].upper()} through the run."
+    return out.strip()
 
 
 def _focus_text(o: dict) -> str:
