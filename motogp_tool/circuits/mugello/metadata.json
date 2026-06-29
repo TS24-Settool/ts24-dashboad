@@ -1,0 +1,9 @@
+{
+  "circuit_id": "mugello",
+  "name": "Mugello Circuit",
+  "source": "generated_from_bundled_gps_outline",
+  "intended_source": "Sporting Maps",
+  "source_url": "https://www.sportingmaps.com/motorsports/motogp",
+  "usage": "personal_limited_user_app",
+  "note": "Placeholder track image rendered from the bundled racing-line GPS outline (OSM-derived). To use the Sporting Maps artwork, replace track_map.png and adjust layout.json; keep source_url for licensing review before any public/commercial release."
+}

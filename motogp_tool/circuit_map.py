@@ -85,8 +85,10 @@ def bundled_slugs() -> list[str]:
 
 
 def available_slugs() -> list[str]:
-    """All circuits the picker can offer: bundled geometry + OSM-fetchable."""
-    return sorted(set(bundled_slugs()) | set(CIRCUIT_COORDS))
+    """All circuits the picker can offer: bundled geometry + image assets +
+    OSM-fetchable."""
+    return sorted(set(bundled_slugs()) | set(image_asset_slugs())
+                  | set(CIRCUIT_COORDS))
 
 
 def load_circuit(slug: str):
@@ -363,3 +365,142 @@ def build_track_figure(circuit: dict, sector_deltas, bounds=None,
                       plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
                       hovermode="closest")
     return fig
+
+
+# ── image-based Track Map assets (Sporting Maps-style background) ────────────
+# A circuit may ship an image asset at circuits/<slug>/ :
+#   track_map.png  · the track drawn as a background image
+#   layout.json    · normalised S/F + T1..T4 labels + corners (+ optional
+#                    outline_norm / sector_bounds so we can colour sector ARCS)
+#   metadata.json  · provenance incl. source_url (kept for licensing review)
+# Build one from bundled GPS with: python -m motogp_tool.build_circuit_assets <slug>
+
+def load_image_asset(slug: str):
+    """Return {'slug','png_path','layout','metadata'} for circuits/<slug>/ or
+    None when no image asset is present."""
+    if not slug:
+        return None
+    d = _CIRC_DIR / slug
+    png, lay, meta = d / "track_map.png", d / "layout.json", d / "metadata.json"
+    if not (png.exists() and lay.exists()):
+        return None
+    return {"slug": slug,
+            "png_path": str(png),
+            "layout": json.load(open(lay)),
+            "metadata": json.load(open(meta)) if meta.exists() else {}}
+
+
+def image_asset_slugs() -> list[str]:
+    """Circuits that have an image-based Track Map asset."""
+    if not _CIRC_DIR.exists():
+        return []
+    return sorted(p.name for p in _CIRC_DIR.iterdir()
+                  if p.is_dir() and (p / "track_map.png").exists()
+                  and (p / "layout.json").exists())
+
+
+def _hex_to_rgba(h: str, a: float = 0.85) -> str:
+    h = h.lstrip("#")
+    if len(h) != 6:
+        return f"rgba(154,160,166,{a})"
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{a})"
+
+
+def _fmt_d(d) -> str:
+    if d is None or (isinstance(d, float) and math.isnan(d)):
+        return "—"
+    return f"{d:+.3f}s"
+
+
+def build_image_track_figure(asset: dict, sector_deltas, labels=None,
+                             show_turns=True) -> go.Figure:
+    """Render a circuit's PNG as the background and overlay S/F, corner numbers,
+    and the T1..T4 sectors coloured by `sector_deltas` (my − ref). When the asset
+    carries `outline_norm`+`sector_bounds` the track itself is coloured per sector
+    (arcs); otherwise coloured markers are placed at the T1..T4 label positions
+    (so a hand-placed real Sporting Maps image still works)."""
+    from PIL import Image
+    lay = asset["layout"]
+    n = len(sector_deltas)
+    fig = go.Figure()
+    fig.add_layout_image(dict(
+        source=Image.open(asset["png_path"]), xref="x", yref="y",
+        x=0, y=0, sizex=1, sizey=1, xanchor="left", yanchor="top",
+        sizing="stretch", layer="below"))
+
+    on = lay.get("outline_norm")
+    bounds = lay.get("sector_bounds")
+    arcs_drawn = False
+    if on and bounds and len(bounds) == n + 1:
+        N = len(on)
+        for i in range(n):
+            i0, i1 = int(bounds[i] * N), min(N, int(bounds[i + 1] * N) + 1)
+            seg = on[i0:i1]
+            if len(seg) < 2:
+                continue
+            d = sector_deltas[i]
+            lab = labels[i] if labels and i < len(labels) else f"T{i+1}"
+            fig.add_trace(go.Scatter(
+                x=[p[0] for p in seg], y=[p[1] for p in seg], mode="lines",
+                line=dict(color=engine.delta_colour(d), width=9),
+                name=f"{lab}: {_fmt_d(d)}", hoverinfo="name", showlegend=False))
+        arcs_drawn = True
+
+    lbls = lay.get("labels", {})
+    for i in range(n):
+        pos = lbls.get(f"T{i+1}")
+        if not pos:
+            continue
+        d = sector_deltas[i]
+        lab = labels[i] if labels and i < len(labels) else f"T{i+1}"
+        if not arcs_drawn:                       # no arcs -> coloured sector dot
+            fig.add_trace(go.Scatter(
+                x=[pos["x"]], y=[pos["y"]], mode="markers",
+                marker=dict(size=22, color=engine.delta_colour(d),
+                            line=dict(color="#222", width=1)),
+                name=f"{lab}: {_fmt_d(d)}", hoverinfo="name", showlegend=False))
+        fig.add_annotation(x=pos["x"], y=pos["y"], text=f"<b>{lab}</b>",
+                           showarrow=False, font=dict(size=12, color="#111"),
+                           bgcolor=_hex_to_rgba(engine.delta_colour(d), 0.85),
+                           bordercolor="#333", borderwidth=1)
+
+    if show_turns and lay.get("corners"):
+        cs = lay["corners"]
+        fig.add_trace(go.Scatter(
+            x=[c["x"] for c in cs], y=[c["y"] for c in cs], mode="markers+text",
+            marker=dict(size=12, color="#FFFFFF", line=dict(color="#111", width=1)),
+            text=[str(c.get("n")) for c in cs],
+            textfont=dict(size=8, color="#111"), textposition="middle center",
+            hoverinfo="text", showlegend=False))
+
+    sf = lay.get("start_finish")
+    if sf:
+        fig.add_trace(go.Scatter(
+            x=[sf["x"]], y=[sf["y"]], mode="markers+text",
+            marker=dict(size=13, color="#111", symbol="square"),
+            text=["S/F"], textposition="top center", hoverinfo="skip",
+            showlegend=False))
+
+    fig.update_xaxes(visible=False, range=[0, 1], constrain="domain")
+    fig.update_yaxes(visible=False, range=[1, 0], scaleanchor="x", scaleratio=1)
+    fig.update_layout(height=520, margin=dict(l=4, r=4, t=4, b=4),
+                      plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                      hovermode="closest")
+    return fig
+
+
+def fetch_sportingmaps(slug: str, dest=None):
+    """Hook for sourcing a circuit's Track Map from Sporting Maps.
+
+    The MotoGP page (sportingmaps.com/motorsports/motogp) is an interactive JS map
+    with no public per-circuit PNG, and the layouts are a commercial product, so
+    there is no clean automated download today. The working path is to render the
+    asset locally from bundled GPS (build_circuit_assets.build_asset), or to drop a
+    licensed track_map.png into circuits/<slug>/. The intended source URL is kept
+    in each circuit's metadata.json for a future licensing review."""
+    raise NotImplementedError(
+        "No public Sporting Maps image endpoint. Run "
+        "`python -m motogp_tool.build_circuit_assets %s` to generate the asset "
+        "from bundled GPS, or add a licensed track_map.png to circuits/%s/."
+        % (slug, slug))

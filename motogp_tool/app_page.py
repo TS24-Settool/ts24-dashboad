@@ -522,6 +522,21 @@ def _tab_head_to_head(df, cls):
 
 
 # ── tab: track map (microsector strip) ──────────────────────────────────────
+def _asset_source_caption(asset):
+    """Show provenance for an image track-map asset — keeps the Sporting Maps
+    source_url visible for a future licensing review (per the brief)."""
+    meta = asset.get("metadata", {}) or {}
+    bits = [f"**{meta.get('name') or asset.get('slug')}** track map"]
+    if meta.get("intended_source"):
+        bits.append(f"intended source: {meta['intended_source']}")
+    if meta.get("source") and meta.get("source") != meta.get("intended_source"):
+        bits.append(f"current asset: {meta['source']}")
+    cap = "  ·  ".join(bits) + "."
+    if meta.get("source_url"):
+        cap += f"  Source: {meta['source_url']}"
+    st.caption(cap)
+
+
 def _track_loss_gain(labels, deltas):
     valid = [(l, d) for l, d in zip(labels, deltas) if d == d]   # drop NaN
     if not valid:
@@ -551,8 +566,24 @@ def _tab_track_map(df, cls):
                        index=(["(auto)"] + avail).index(slug) if slug in avail else 0)
     use_slug = slug if sel == "(auto)" else sel
 
+    # Preferred: a real track-map image asset (circuits/<slug>/track_map.png),
+    # unless the user uploaded their own GPS trace for this circuit (that wins).
+    asset = circuit_map.load_image_asset(use_slug)
+    trace = st.session_state.get(f"trace_{use_slug}")
+    if asset is not None and trace is None:
+        fig = circuit_map.build_image_track_figure(asset, deltas, labels=labels)
+        st.plotly_chart(fig, use_container_width=True)
+        _asset_source_caption(asset)
+        _colour_legend()
+        _track_loss_gain(labels, deltas)
+        with st.expander("🛰️ Use a GPS lap trace instead (GPX / CSV / GeoJSON)"):
+            st.caption("The track image above is the default layout. Upload a GPS "
+                       "lap to override it with your own traced layout.")
+        _gps_trace_ui(use_slug)
+        return
+
     _gps_trace_ui(use_slug)                       # upload GPS trace -> real layout
-    circ = st.session_state.get(f"trace_{use_slug}") or _resolve_circuit(use_slug)
+    circ = trace or _resolve_circuit(use_slug)
     if circ is not None and not circ.get("ordered", True):
         # map-traced layout: show the real shape + official timing markers, and
         # the exact per-sector deltas as a strip (the curve can't be reliably
