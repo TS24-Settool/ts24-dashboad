@@ -2326,3 +2326,28 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29「実行ゲート」）。Ta
 - rollback: `DROP VIEW race_lap_detail` / `RACE_LAP_SRC` を `pdf_lap_times` に戻す。staging は触らない。
 - 未実施（別承認）: DB Master 再生成 / Supabase audit・sync / origin push。
 - 新規: `reports/race_lap_detail_view_workbench_apply_20260629.md`。変更: `ts24_workbench.py`。正本DBに VIEW 追加（業務テーブル不変）。
+
+---
+
+## 41. DB Master 再生成 承認前チェック（race_lap_detail 反映後・write なし）— 2026-06-29 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、DB Master 再生成の **承認前 readiness** を作成。
+**DB Master 再生成・Excel 書込は未実施**（`refresh_db_master_safe.py` に dry-run 無し＝実行せず read-only 確認のみ）。
+レポート = `reports/db_master_refresh_readiness_20260629.md`。
+
+### 41a. ★影響分析（最重要・確定）
+- `build_excel_master.py` は **`race_results`/`pdf_lap_times`/`race_lap_detail`/`pdf_lap_times_v2_staging` を一切読まない**
+  （grep 各0）。DB Master の実ソース = `runs`/`laps`/`lap_suspension`/`performance`（2D 由来）+ `run_tags`/`problem_log`/
+  `setup_decision_log`（Workbench）。
+- **ROUND7 は 2D 由来テーブルに 0 行**（runs/performance とも ROUND7=0）。
+  → **DB Master を再生成しても ROUND7 race_results / v2 lap 明細 / `race_lap_detail` / Workbench 表示改善は反映されない**。
+- **結論**: 本 Result PDF v2 / ROUND7 ラインの作業に **DB Master 再生成は不要**。再生成は Workbench `setup_decision_log` 等の
+  最新化を Excel に反映したい場合に意味がある。ROUND7 を Excel に載せたいなら `build_excel_master.py` に
+  race_results 由来シート新設の別タスクが必要。
+
+### 41b. 安全策・rollback（GO 後の再生成時）
+- `refresh_db_master_safe.py`: 対象 `02_DATABASE/TS24 DB Master.xlsx`、事前バックアップ `02_DATABASE/backups/`、
+  Excel オープン検出（`~$`＋`lsof`→exit 2 中止）、正本DB は SELECT のみ、事後検証（主要6シート＋業務テーブル件数不変）。
+- rollback: `backups/TS24_DB_Master.pre_refresh_<ts>.xlsx` を戻す。
+- 未実施（別承認）: DB Master 再生成（GO 文言 `DB Master refresh GO`）/ race_results シート新設（別タスク）/ Supabase / push。
+- 新規: `reports/db_master_refresh_readiness_20260629.md`。
