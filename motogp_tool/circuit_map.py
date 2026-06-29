@@ -150,34 +150,75 @@ def boundaries_from_timing(circuit: dict, fl, ip1, ip2, ip3):
     return f_fl, sorted(rel)
 
 
+_OVERPASS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
+
+
+def _overpass(query: str):
+    import requests
+    for url in _OVERPASS:
+        try:
+            r = requests.get(url, params={"data": query},
+                             headers={"User-Agent": "TS24-MotoGP/1.0"}, timeout=40)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            continue
+    return None
+
+
+def _stitch_ways(ways, nodes):
+    """Join raceway ways (which may be split into segments) into the longest
+    continuous chain of node ids."""
+    chains = [list(w["nodes"]) for w in ways if len(w.get("nodes", [])) > 1]
+    if not chains:
+        return []
+    chains.sort(key=len, reverse=True)
+    chain = chains.pop(0)
+    changed = True
+    while changed and chains:
+        changed = False
+        for i, c in enumerate(chains):
+            if c[0] == chain[-1]:
+                chain += c[1:]; chains.pop(i); changed = True; break
+            if c[-1] == chain[-1]:
+                chain += c[::-1][1:]; chains.pop(i); changed = True; break
+            if c[-1] == chain[0]:
+                chain = c[:-1] + chain; chains.pop(i); changed = True; break
+            if c[0] == chain[0]:
+                chain = c[::-1][:-1] + chain; chains.pop(i); changed = True; break
+    return [n for n in chain if n in nodes]
+
+
 def fetch_osm(slug: str):
     """Fetch a circuit outline from OpenStreetMap (Overpass) at runtime, for
-    circuits without bundled geometry. Returns the same dict as load_circuit
-    (no corners). Requires internet (works on Streamlit Cloud)."""
+    circuits without bundled geometry. Tries several mirrors and stitches split
+    track segments. Requires internet (works on Streamlit Cloud)."""
     coords = CIRCUIT_COORDS.get(slug)
     if not coords:
         return None
-    import requests
     lat, lon = coords
-    q = (f"[out:json][timeout:25];way[highway=raceway]"
-         f"(around:3000,{lat},{lon});(._;>;);out;")
-    try:
-        r = requests.get("https://overpass-api.de/api/interpreter",
-                         params={"data": q}, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    q = (f"[out:json][timeout:30];way[highway=raceway]"
+         f"(around:4000,{lat},{lon});(._;>;);out;")
+    data = _overpass(q)
+    if not data:
         return None
     nodes = {e["id"]: (e["lon"], e["lat"]) for e in data.get("elements", [])
              if e["type"] == "node"}
     ways = [e for e in data.get("elements", []) if e["type"] == "way"
-            and len(e.get("nodes", [])) > 10]
+            and len(e.get("nodes", [])) > 1]
     if not ways:
         return None
-    way = max(ways, key=lambda w: len(w["nodes"]))
-    outline = np.array([nodes[n] for n in way["nodes"] if n in nodes], dtype=float)
-    if len(outline) < 10:
+    seq = _stitch_ways(ways, nodes)
+    if len(seq) < 20:                       # fall back to the single longest way
+        w = max(ways, key=lambda w: len(w["nodes"]))
+        seq = [n for n in w["nodes"] if n in nodes]
+    if len(seq) < 20:
         return None
+    outline = np.array([nodes[n] for n in seq], dtype=float)
     k = math.cos(math.radians(float(outline[:, 1].mean())))
     P = np.column_stack([outline[:, 0] * k, outline[:, 1]])
     if not np.allclose(P[0], P[-1]):
