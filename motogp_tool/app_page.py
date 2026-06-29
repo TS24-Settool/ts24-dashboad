@@ -277,21 +277,22 @@ def _tab_track_map(df, cls):
                        index=(["(auto)"] + avail).index(slug) if slug in avail else 0)
     use_slug = slug if sel == "(auto)" else sel
 
-    circ = _resolve_circuit(use_slug)
+    _gps_trace_ui(use_slug)                       # upload GPS trace -> real layout
+    circ = st.session_state.get(f"trace_{use_slug}") or _resolve_circuit(use_slug)
     if circ is not None:
         _timing_plan_ui(use_slug, circ)          # upload plan -> exact boundaries
         bounds, sf_off = _sector_boundary_ui(use_slug)
         fig = circuit_map.build_track_figure(circ, deltas, bounds=bounds,
                                              labels=labels, start_offset=sf_off)
         st.plotly_chart(fig, use_container_width=True)
-        st.caption(f"Real **{use_slug}** layout with turn numbers. Colour = real "
-                   "timing delta per sector. For **exact** splits, upload the "
-                   "official Timekeeping Points Plan above; or set S/F + boundaries "
-                   "by hand below.")
+        st.caption(f"**{use_slug}** layout. Colour = real timing delta per sector. "
+                   "For **exact** splits, upload the official Timekeeping Points "
+                   "Plan above; or set S/F + boundaries by hand below.")
     else:
         _sector_strip(deltas, labels)
-        st.caption("No layout available for this circuit yet — showing the 4 real "
-                   "sectors as a strip.")
+        st.caption("No layout available yet — upload a GPS lap trace above to draw "
+                   "the real circuit, or the analysis above is fully usable as a "
+                   "strip.")
 
     _colour_legend()
     valid = [(l, d) for l, d in zip(labels, deltas) if d == d]  # drop NaN
@@ -317,6 +318,66 @@ def _resolve_circuit(slug):
         return _osm_circuit_cached(slug)
     except Exception:
         return None
+
+
+def _parse_gps_trace(up):
+    """Extract (lon, lat) points from a GPX or CSV lap trace."""
+    name = up.name.lower()
+    data = up.getvalue()
+    if name.endswith(".gpx"):
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(data)
+        except Exception:  # noqa: BLE001
+            return []
+        pts = []
+        for el in root.iter():
+            if el.tag.split("}")[-1] in ("trkpt", "rtept", "wpt"):
+                lon, lat = el.get("lon"), el.get("lat")
+                if lon and lat:
+                    pts.append((float(lon), float(lat)))
+        return pts
+    import io
+    try:
+        df = pd.read_csv(io.BytesIO(data), sep=None, engine="python")
+    except Exception:  # noqa: BLE001
+        return []
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    loncol = next((cols[k] for k in ("lon", "longitude", "lng", "long", "x",
+                                     "gps_lon", "v_gps_lon") if k in cols), None)
+    latcol = next((cols[k] for k in ("lat", "latitude", "y",
+                                     "gps_lat", "v_gps_lat") if k in cols), None)
+    if not (loncol and latcol):
+        return []
+    sub = df[[loncol, latcol]].dropna()
+    return list(zip(sub[loncol].astype(float), sub[latcol].astype(float)))
+
+
+def _gps_trace_ui(slug):
+    """Upload a GPS lap trace (GPX/CSV) to draw the real circuit layout."""
+    with st.expander("🛰️ Draw the real layout — upload a GPS lap trace (GPX / CSV)"):
+        st.caption("One lap of GPS (longitude/latitude) from telemetry draws the "
+                   "exact circuit. Then the Timekeeping Plan places exact splits.")
+        if st.session_state.get(f"trace_{slug}") is not None:
+            if st.button("✖ Remove uploaded layout", key=f"trace_rm_{slug}"):
+                for k in (f"trace_{slug}", f"trace_h_{slug}"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+        up = st.file_uploader("GPX or CSV with longitude/latitude", type=["gpx", "csv"],
+                              key=f"trace_up_{slug}")
+        if up is None:
+            return
+        if st.session_state.get(f"trace_h_{slug}") == hash(up.getvalue()):
+            return
+        pts = _parse_gps_trace(up)
+        circ = circuit_map.outline_from_lonlat(pts, slug) if pts else None
+        if circ is None:
+            st.error("Couldn't find enough longitude/latitude points in that file.")
+            return
+        st.session_state[f"trace_{slug}"] = circ
+        st.session_state[f"trace_h_{slug}"] = hash(up.getvalue())
+        st.success(f"Layout drawn from {len(pts)} GPS points.")
+        st.rerun()
 
 
 def _timing_plan_ui(slug, circ):

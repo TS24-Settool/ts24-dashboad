@@ -122,6 +122,21 @@ def load_circuit(slug: str):
             "corners": corners}
 
 
+def outline_from_lonlat(coords, slug: str = "custom"):
+    """Build a circuit dict from a GPS lap trace (list of (lon, lat))."""
+    a = np.asarray([c for c in coords if c and len(c) == 2], dtype=float)
+    if len(a) < 10:
+        return None
+    # light decimation for very dense traces (keep ~600 pts)
+    if len(a) > 800:
+        a = a[:: max(1, len(a) // 600)]
+    k = math.cos(math.radians(float(a[:, 1].mean())))
+    P = np.column_stack([a[:, 0] * k, a[:, 1]])
+    if not np.allclose(P[0], P[-1]):
+        P = np.vstack([P, P[0]])
+    return {"slug": slug, "pts": P, "name": slug, "corners": []}
+
+
 def _lap_cumfrac(P: np.ndarray):
     seg = np.sqrt((np.diff(P, axis=0) ** 2).sum(axis=1))
     cum = np.concatenate([[0.0], np.cumsum(seg)])
