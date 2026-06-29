@@ -416,3 +416,114 @@ def export_csv(df: pd.DataFrame) -> str:
             "is_flying", "lap_status"]
     cols = [c for c in cols if c in g.columns]
     return g[cols].to_csv(index=False)
+
+
+# ── 11. one-screen Session Review summary ───────────────────────────────────
+def _f(v):
+    """-> float or None (drops NaN)."""
+    return None if v is None or (isinstance(v, float) and pd.isna(v)) else float(v)
+
+
+def recommend_reference(cls: pd.DataFrame, rider_no):
+    """Who to compare against: the rider one place ahead in classification (the
+    nearest target). If the rider is already P1, suggest P2 (the nearest threat).
+    Returns a rider_no or None."""
+    if cls is None or cls.empty or "position" not in cls:
+        return None
+    order = cls.sort_values("position")
+    me = order[order["rider_no"] == rider_no]
+    if me.empty or pd.isna(me["position"].iloc[0]):
+        return None
+    pos = int(me["position"].iloc[0])
+    target = order[order["position"] == (2 if pos <= 1 else pos - 1)]
+    return int(target["rider_no"].iloc[0]) if not target.empty else None
+
+
+def _field_consistency_median(df: pd.DataFrame, cls: pd.DataFrame):
+    stds = []
+    for no in cls["rider_no"].dropna().unique():
+        c = consistency_stats(df, no)
+        if c.get("consistency_std") is not None:
+            stds.append(c["consistency_std"])
+    return float(np.median(stds)) if stds else None
+
+
+def session_review(df: pd.DataFrame, cls: pd.DataFrame, rider_no,
+                   ref_no=None, mode: str = "best") -> dict | None:
+    """Everything needed for a one-screen review of one rider: pace vs the class,
+    where they lose/gain vs the recommended reference, repeatability, and a plain
+    suggested focus. Auto-picks a reference (rider one place ahead) when ref_no is
+    None."""
+    if cls is None or cls.empty:
+        return None
+    row = cls[cls["rider_no"] == rider_no]
+    if row.empty:
+        return None
+    row = row.iloc[0]
+    if ref_no is None:
+        ref_no = recommend_reference(cls, rider_no)
+
+    best, ideal = row.get("best_lap"), row.get("ideal_lap")
+    class_best = cls["best_lap"].min()
+    class_ideal = cls["ideal_lap"].min() if cls["ideal_lap"].notna().any() else np.nan
+    leader = cls.sort_values("position").iloc[0] if "position" in cls else None
+    cs = consistency_stats(df, rider_no)
+
+    out = {
+        "rider_no": int(rider_no), "rider": _rider_label(row),
+        "team": (row.get("team") or None), "bike": (row.get("manufacturer") or None),
+        "position": int(row["position"]) if pd.notna(row.get("position")) else None,
+        "best_lap": _f(best), "class_best": _f(class_best),
+        "class_best_rider": _rider_label(leader) if leader is not None else None,
+        "best_gap": _f(best - class_best) if pd.notna(best) and pd.notna(class_best) else None,
+        "ideal_lap": _f(ideal), "class_ideal": _f(class_ideal),
+        "ideal_gap": _f(ideal - class_ideal) if pd.notna(ideal) and pd.notna(class_ideal) else None,
+        "lost_potential": _f(row.get("lost_potential")),
+        "ref_no": int(ref_no) if ref_no is not None else None, "ref": None,
+        "biggest_loss": None, "biggest_gain": None, "diagnosis": None,
+        "consistency_std": cs.get("consistency_std"),
+        "consistency_range": cs.get("consistency_range"),
+        "pace_laps": cs.get("pace_laps"), "worst_sector": cs.get("worst_sector"),
+        "consistency_warning": None, "focus_text": None,
+    }
+    if ref_no is not None:
+        ref_row = cls[cls["rider_no"] == ref_no]
+        if not ref_row.empty:
+            out["ref"] = _rider_label(ref_row.iloc[0])
+        h = h2h_summary(df, rider_no, ref_no, mode)
+        out["biggest_loss"] = h["loss_sector"]
+        out["biggest_gain"] = h["gain_sector"]
+        out["diagnosis"] = h["diagnosis"]
+
+    # consistency warning: notably less repeatable than the field
+    field_med = _field_consistency_median(df, cls)
+    std = cs.get("consistency_std")
+    if std is not None and field_med is not None and field_med > 0 \
+            and std > max(field_med * 1.3, field_med + 0.08):
+        ws = (cs.get("worst_sector") or "").upper()
+        out["consistency_warning"] = (
+            f"Less consistent than the field (±{std:.3f}s vs field ±{field_med:.3f}s)"
+            + (f" — most scatter in {ws}." if ws else "."))
+
+    out["focus_text"] = _focus_text(out)
+    return out
+
+
+def _focus_text(o: dict) -> str:
+    """Plain next-run guidance from the review numbers."""
+    loss = o.get("biggest_loss")
+    bits = []
+    if o.get("best_gap") and o["best_gap"] > 0.001:
+        tgt = f" of {o['class_best_rider']}" if o.get("class_best_rider") else ""
+        bits.append(f"{o['best_gap']:.3f}s off the class best{tgt}")
+    if loss and loss[1] > 0.03:
+        ref = o.get("ref") or "the reference"
+        bits.append(f"biggest loss vs {ref} is in {loss[0]} ({loss[1]:+.3f}s)")
+    if o.get("lost_potential") and o["lost_potential"] > 0.15:
+        bits.append(f"{o['lost_potential']:.3f}s left on the table (best vs ideal)")
+    if not bits:
+        return "Strong, balanced session — no single obvious weakness to chase."
+    text = "Focus next run: " + "; ".join(bits) + "."
+    if loss and loss[1] > 0.03:
+        text += f" Priority — {_SECTOR_HINT.get(loss[0], loss[0])}."
+    return text

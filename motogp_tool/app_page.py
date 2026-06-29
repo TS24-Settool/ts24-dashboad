@@ -160,7 +160,7 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v4** (session overview · sector diagnosis · "
+               "·  build: **review-tools v5** (session review · sector diagnosis · "
                "consistency · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
@@ -181,9 +181,12 @@ def render_motogp_page():
                    "Analysis PDF directly.")
         return
 
-    tab_cls, tab_h2h, tab_map, tab_lap = st.tabs(
-        ["🏁 Classification", "⚔️ Head-to-Head", "🗺️ Track Map", "📊 Lap Detail"])
+    tab_rev, tab_cls, tab_h2h, tab_map, tab_lap = st.tabs(
+        ["📋 Session Review", "🏁 Classification", "⚔️ Head-to-Head",
+         "🗺️ Track Map", "📊 Lap Detail"])
 
+    with tab_rev:
+        _tab_session_review(df, cls)
     with tab_cls:
         _tab_classification(cls)
     with tab_h2h:
@@ -351,6 +354,75 @@ def _online_fetch_ui():
                     st.rerun()
             except Exception as e:  # noqa: BLE001
                 st.error(f"Fetch failed: {e}")
+
+
+# ── tab: session review (one-screen summary) ────────────────────────────────
+def _gap_delta(gap):
+    """st.metric delta string for a lap gap; None hides the delta."""
+    if gap is None:
+        return None
+    if abs(gap) < 0.0005:
+        return "class best"
+    return f"{gap:+.3f}s"
+
+
+def _tab_session_review(df, cls):
+    opts = engine.rider_options(cls)
+    if not opts:
+        st.info("No classified riders for this session.")
+        return
+    c1, c2 = st.columns(2)
+    my = c1.selectbox("My rider", opts, index=0, key="rev_my")
+    my_no = _rider_no_from_label(cls, my)
+    rec_no = engine.recommend_reference(cls, my_no)
+    ref_pick = c2.selectbox("Compare vs", ["(auto: recommended)"] + opts, index=0,
+                            key="rev_ref")
+    ref_no = rec_no if ref_pick.startswith("(auto") else _rider_no_from_label(cls, ref_pick)
+
+    r = engine.session_review(df, cls, my_no, ref_no)
+    if r is None:
+        st.info("No data for this rider.")
+        return
+
+    st.markdown(f"### {r['rider']}")
+    sub = "  ·  ".join([x for x in [
+        r.get("team"), r.get("bike"),
+        (f"P{r['position']}" if r.get("position") else None)] if x])
+    if sub:
+        st.caption(sub)
+    if r.get("ref"):
+        auto = "  (recommended — one place ahead)" if ref_pick.startswith("(auto") else ""
+        st.caption(f"Compared vs **{r['ref']}**{auto}")
+
+    # pace vs the class
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Best lap", _fmt_lap(r["best_lap"]), _gap_delta(r["best_gap"]),
+              delta_color="inverse")
+    k1.caption(f"class best {_fmt_lap(r['class_best'])}")
+    k2.metric("Ideal lap", _fmt_lap(r["ideal_lap"]), _gap_delta(r["ideal_gap"]),
+              delta_color="inverse")
+    k2.caption(f"class ideal {_fmt_lap(r['class_ideal'])}")
+    k3.metric("Lost potential",
+              "—" if r["lost_potential"] is None else f"{r['lost_potential']:.3f}s")
+    k3.caption("best − ideal")
+    k4.metric("Consistency",
+              "—" if r["consistency_std"] is None else f"±{r['consistency_std']:.3f}s")
+    k4.caption(f"over {r.get('pace_laps', 0)} pace laps")
+
+    # where the time is, vs the reference
+    g1, g2 = st.columns(2)
+    loss, gain = r["biggest_loss"], r["biggest_gain"]
+    g1.metric("Biggest sector loss",
+              _sector_lbl(loss) if loss and loss[1] > 0 else "—")
+    g2.metric("Biggest sector gain",
+              _sector_lbl(gain) if gain and gain[1] < 0 else "—")
+
+    if r.get("focus_text"):
+        st.info("🎯 " + r["focus_text"])
+    if r.get("consistency_warning"):
+        st.warning("📉 " + r["consistency_warning"])
+    st.caption("Auto-picks the rider one place ahead as the comparison target. "
+               "Open **Head-to-Head** or **Lap Detail** for the full breakdown.")
 
 
 # ── tab: classification ─────────────────────────────────────────────────────
