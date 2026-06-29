@@ -2255,3 +2255,15 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `rac
 - **重要**: この staging apply 自体は **Workbench 表示を変えない**（VIEW 作成と参照切替は別承認）。
 - 次の別承認: ①VIEW `race_lap_detail` 作成 ②Workbench 参照切替 ③品質表示 ④DB Master 再生成 ⑤Supabase ⑥push。
 - 新規: `reports/pdf_v2_staging_apply_readiness_20260629.md`。
+
+### 38e. ★staging apply 実行（2026-06-29・Tatsuki GO 受領 → 正本DB内に新規 staging 作成）
+- **GO**: Tatsuki が本セッションで「GO の承認します」と明示 → `apply_pdf_v2_staging.py --apply` 実行。
+- **結果**: 正本DB内に **新規 `pdf_lap_times_v2_staging` を作成・7710 行 INSERT**（ROUND7 RACE PASS=1094 含む）。
+  バックアップ `02_DATABASE/_backup_pdf_v2_staging_20260629_153524/`。
+- **検証**: staging 件数=7710 / ROUND7=1094 / 自然キー重複0 / date・lap_time_s・source NULL0。
+  **既存業務テーブル不変**（runs275/laps1202/lap_suspension1202/race_results866/pdf_lap_times7613・assert 合格）。
+  Gate `--all` 再実行 PASS489/WARNING942/FAIL16 安定。
+- **Workbench 表示は不変**: VIEW `race_lap_detail` 未作成、`RaceAnalysisTab` は `pdf_lap_times` 参照のまま（`ts24_workbench.py` 未変更）。
+  staging は追加されたが、まだ誰も参照していない（参照切替は別承認）。
+- 記録: 本§ / `reports/pdf_v2_staging_apply_20260629.md` / Obsidian。
+- **次の別承認（未実施）**: VIEW 作成 / Workbench 参照切替＋品質表示 / DB Master 再生成 / Supabase / origin push。
