@@ -2188,3 +2188,39 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `rac
   ② `pdf_v2_scratch_gate.py --all` 再実行（ROUND7 RACE が真値を得て PASS/WARNING/FAIL 判定可能に）。
 - 新規: `apply_round7_race_results.py` / `reports/round7_race_results_apply_dry_run_20260629.md`。
   変更: `pdf_result_extractor_v2.py`（MISANO 取消検出）。
+
+---
+
+## 37. ROUND7 race_results apply 承認前最終チェック（GO待ち）— 2026-06-29 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `race_results` write apply の
+**承認前 readiness パッケージ**を作成。**`--apply` は未実行**（Tatsuki の明示GO待ち。タスク本文だけでは承認不成立）。
+レポート = `reports/round7_race_results_apply_readiness_20260629.md`。
+
+### 37a. 承認前再確認（正本DB無変更）
+- HEAD `e30dd08` 確認。`py_compile`（apply_round7_race_results.py / pdf_result_extractor_v2.py）PASS。
+- dry-run 再実行: 候補 **74 行**・Quality Gate 全 clean（dup/collision/null_key/null_best/bad_best/bad_type/lap_best_mismatch=0）・
+  **業務テーブル before==after 不変**。apply 前件数: runs275/laps1202/lap_suspension1202/race_results792/pdf_lap_times7613、ROUND7=**0**。
+
+### 37b. 承認パッケージ内容
+- 対象=`race_results` のみ（+74 見込み・全て新規 INSERT）。非対象=runs/laps/lap_suspension/pdf_lap_times（不変 assert）。
+- exact command（GO後）: `python3 apply_round7_race_results.py --apply`。
+- 事前バックアップ `02_DATABASE/_backup_round7_rr_<TS>/`、rollback 手順、apply 後検証（件数 / ROUND7=74 / gate 再実行 / staging dry-run）。
+- Multi-agent operating check（承認前段階）: Codex/Claude Code/Extraction/Quality Gate/DB Integration/Documentation/Supervisor は充足、
+  Tatsuki=最終GO 待ちのみ。
+
+### 37c. スコープ外（禁止遵守）
+- 明示GOなしの `--apply` なし / race_results 書込なし / staging apply なし / VIEW なし / Workbench 変更なし /
+  2D 取込なし / DB Master 再生成なし / Supabase なし / origin push なし。
+- GO 受領時のみ `--apply` → `pdf_v2_scratch_gate.py --all` → `apply_pdf_v2_staging.py`(dry-run) を実行し記録する。
+- 新規: `reports/round7_race_results_apply_readiness_20260629.md`。
+
+### 37d. ★apply 実行（2026-06-29・Tatsuki GO 受領 → 正本DB書込実施）
+- **GO**: Tatsuki が本セッションで「apply してください」と明示 → `apply_round7_race_results.py --apply` を実行。
+- **結果**: insert=74 / update=0。バックアップ `02_DATABASE/_backup_round7_rr_20260629_150354/`。
+  **`race_results` 792→866（+74）/ runs・laps・lap_suspension・pdf_lap_times 不変**（assert 合格）。ROUND7 race_results=74。
+- **Gate 再実行**: 全体 PASS **425→489** / WARNING **1006→942** / FAIL **16不変**。ROUND7 が真値獲得し
+  RACE1=30 PASS/3 WARN/0 FAIL・RACE2=32 PASS/1 WARN/0 FAIL。**#77/#52 RACE は PASS**。
+- **staging dry-run**: 投入予定 6616→**7710 行**（ROUND7 RACE PASS=1094 が候補入り）・検証全 clean・業務テーブル不変。
+- **これは初の正本業務テーブル書込（race_results）**。以降の lap 明細 staging apply / DB Master 再生成 / Supabase /
+  Workbench 切替 / push は引き続き別承認。記録: 本§ / `reports/round7_race_results_apply_readiness_20260629.md` / Obsidian。

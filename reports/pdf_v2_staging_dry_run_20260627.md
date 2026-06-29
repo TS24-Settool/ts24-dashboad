@@ -1,13 +1,13 @@
-# Result PDF v2 staging 反映 dry-run — 2026-06-29 14:15
+# Result PDF v2 staging 反映 dry-run — 2026-06-29 15:05
 
 **dry-run（正本DBは `mode=ro`・無変更）**。`apply_pdf_v2_staging.py`（`--apply` 無し）。
 対象: `session_type IN ('RACE1', 'RACE2')` かつ `gate_status IN ('PASS',)`。 入力 scratch=`/tmp/ts24_pdf_v2_scratch.db`。反映先(承認後)=正本DB内 **新規** `pdf_lap_times_v2_staging`。
 
 ## 投入予定サマリ
 
-- 投入予定 lap 行数: **6616**
-- 投入予定 rider-session 数: **399**
-- seg 充填行: 6165（93.2%・スタートラップ等は NULL=正常）
+- 投入予定 lap 行数: **7710**
+- 投入予定 rider-session 数: **461**
+- seg 充填行: 6165（80.0%・スタートラップ等は NULL=正常）
 
 ## 検証（投入前チェック）
 
@@ -38,6 +38,8 @@
 | ROUND5 | RACE1 | 532 | 29 | 503 |
 | ROUND5 | RACE2 | 566 | 32 | 516 |
 | ROUND6 | RACE2 | 30 | 2 | 0 |
+| ROUND7 | RACE1 | 528 | 30 | 0 |
+| ROUND7 | RACE2 | 566 | 32 | 0 |
 
 ## 正本DB業務テーブル（dry-run: 無変更を確認）
 
@@ -46,7 +48,7 @@
 | runs | 275 | 275 | ✅ |
 | laps | 1202 | 1202 | ✅ |
 | lap_suspension | 1202 | 1202 | ✅ |
-| race_results | 792 | 792 | ✅ |
+| race_results | 866 | 866 | ✅ |
 | pdf_lap_times | 7613 | 7613 | ✅ |
 
 ## 生成 SQL
