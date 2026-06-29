@@ -118,8 +118,12 @@ def load_circuit(slug: str):
         if lo:
             corners.append({"n": c.get("n"), "frac": c.get("frac"),
                             "xy": [lo[0] * k, lo[1]]})
+    timing = None
+    if raw.get("timing_points"):
+        timing = {n: [v[0] * k, v[1]] for n, v in raw["timing_points"].items()}
     return {"slug": slug, "pts": P, "name": raw.get("slug", slug),
-            "corners": corners}
+            "corners": corners, "timing": timing,
+            "ordered": raw.get("ordered", True)}
 
 
 def outline_from_lonlat(coords, slug: str = "custom"):
@@ -255,6 +259,39 @@ def _sector_index_ranges(P: np.ndarray, bounds):
             idx = np.array([max(0, j - 1), j])
         ranges.append(idx)
     return ranges
+
+
+def build_shape_figure(circuit: dict) -> go.Figure:
+    """Draw the real circuit shape + official timing-point markers (FL/IP1/IP2/
+    IP3), without sector-colouring the curve. Used for map-traced layouts whose
+    point order is not racing order (so arc-length sectors aren't reliable)."""
+    P = circuit["pts"]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=P[:, 0], y=P[:, 1], mode="lines",
+                             line=dict(color="#0078D4", width=6),
+                             hoverinfo="skip", showlegend=False))
+    timing = circuit.get("timing") or {}
+    nice = {"FL": "S/F", "IP1": "IP1 · end T1", "IP2": "IP2 · end T2",
+            "IP3": "IP3 · end T3"}
+    for nm in ("FL", "IP1", "IP2", "IP3"):
+        if nm in timing:
+            x, y = timing[nm]
+            sf = nm == "FL"
+            fig.add_trace(go.Scatter(
+                x=[x], y=[y], mode="markers+text",
+                marker=dict(size=13 if sf else 11,
+                            color="#111" if sf else "#FFFFFF",
+                            symbol="square" if sf else "circle",
+                            line=dict(color="#111", width=2)),
+                text=[" " + nice.get(nm, nm)], textposition="middle right",
+                textfont=dict(size=10, color="#111"),
+                hoverinfo="text", showlegend=False))
+    fig.update_yaxes(scaleanchor="x", scaleratio=1, visible=False)
+    fig.update_xaxes(visible=False)
+    fig.update_layout(height=440, margin=dict(l=4, r=4, t=4, b=4),
+                      plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                      hovermode="closest")
+    return fig
 
 
 def _roll_start(P: np.ndarray, start_offset: float) -> np.ndarray:

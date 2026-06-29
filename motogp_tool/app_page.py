@@ -279,7 +279,17 @@ def _tab_track_map(df, cls):
 
     _gps_trace_ui(use_slug)                       # upload GPS trace -> real layout
     circ = st.session_state.get(f"trace_{use_slug}") or _resolve_circuit(use_slug)
-    if circ is not None:
+    if circ is not None and not circ.get("ordered", True):
+        # map-traced layout: show the real shape + official timing markers, and
+        # the exact per-sector deltas as a strip (the curve can't be reliably
+        # sector-coloured because a traced outline isn't in racing order).
+        st.plotly_chart(circuit_map.build_shape_figure(circ), use_container_width=True)
+        st.caption(f"Real **{use_slug}** shape with the official timing points "
+                   "(FL/IP1/IP2/IP3) from the Timekeeping Plan. Per-sector deltas "
+                   "below. For a sector-coloured curve, upload a **GPS lap trace** "
+                   "above (a GPS lap is in racing order).")
+        _sector_strip(deltas, labels)
+    elif circ is not None:
         _timing_plan_ui(use_slug, circ)          # upload plan -> exact boundaries
         bounds, sf_off = _sector_boundary_ui(use_slug)
         fig = circuit_map.build_track_figure(circ, deltas, bounds=bounds,
