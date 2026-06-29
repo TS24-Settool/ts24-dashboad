@@ -89,7 +89,11 @@ def render_motogp_page():
 
     cls = engine.classification(df)
     if cls.empty:
-        st.warning("No clean flying laps found in this session.")
+        st.warning("No valid laps for this session. The source may not have it "
+                   "yet (very recent / not-yet-published events are often empty). "
+                   "Try an earlier **Year** (e.g. 2025 or 2024), a different "
+                   "**Session**, or the **MotoGP** class — or upload the official "
+                   "Analysis PDF directly.")
         return
 
     tab_cls, tab_h2h, tab_map, tab_lap = st.tabs(
