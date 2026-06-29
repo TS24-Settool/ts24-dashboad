@@ -2267,3 +2267,30 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、ROUND7 `rac
   staging は追加されたが、まだ誰も参照していない（参照切替は別承認）。
 - 記録: 本§ / `reports/pdf_v2_staging_apply_20260629.md` / Obsidian。
 - **次の別承認（未実施）**: VIEW 作成 / Workbench 参照切替＋品質表示 / DB Master 再生成 / Supabase / origin push。
+
+---
+
+## 39. VIEW race_lap_detail + Workbench 参照切替 承認前チェック（write/UI変更なし）— 2026-06-29 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、staging apply 後の状態で **VIEW 作成 + Workbench
+参照切替の承認前 readiness** を作成。**正本DBへの VIEW 作成・`ts24_workbench.py` 編集・UI 変更は未実施**。
+レポート = `reports/race_lap_detail_view_workbench_readiness_20260629.md`。
+
+### 39a. scratch 検証（正本DBのコピー `/tmp/ts24_view_test.db` で overlay VIEW を作成・正本は不変）
+- VIEW = `pdf_v2_staging_ddl_20260627.sql` (3)（v2 PASS を UNION ALL legacy(NOT EXISTS) で overlay）。
+- 結果: `race_lap_detail` = **12763 行**（v2 7710 + legacy 5053）・自然キー重複 **0**。
+- **RACE は v2 優先**: ROUND3/RACE1 #52 旧8→VIEW18・#77 旧0→VIEW18（切断/欠落の解消）。
+- **非RACE は legacy フォールバック・無回帰**: ROUND3/SP 旧235→VIEW235（空にならない）。
+- **ROUND7 RACE #77/#52** = VIEW に v2 18 laps で表示。
+- 列互換 OK（RaceAnalysisTab が使う round/session/rider/lap_no/lap_time_s/seg1-4/is_outlap/is_pit/is_cancelled を VIEW が提供。MISANO は seg=NULL）。
+
+### 39b. Workbench 変更案（最小差分・未編集）
+- `RaceAnalysisTab` に定数 `RACE_LAP_SRC`（既定 `"pdf_lap_times"` → 承認後 `"race_lap_detail"`）追加、
+  `pdf_lap_times` リテラル **11 箇所**を `{self.RACE_LAP_SRC}` 化（クエリ論理不変・テーブル名差替のみ）。
+- 品質表示の最小案: ヘッダ 1 行（v2 PASS/legacy 件数・欠落/FAIL）＋行詳細に source_tag/gate_status/source_file/extractor_version。
+
+### 39c. rollback / 次承認
+- rollback: `DROP VIEW race_lap_detail` / `RACE_LAP_SRC` を `pdf_lap_times` に戻す。VIEW はデータ無影響。
+- 次の別承認: ①VIEW 作成 ②Workbench 参照切替 ③品質表示 ④DB Master 再生成 ⑤Supabase ⑥push。
+- **2段階分離可能**: VIEW 作成だけでは表示不変、`RACE_LAP_SRC` 切替で初めて反映。
+- 本作業: 正本DB・`ts24_workbench.py` とも不変。scratch(`/tmp`)検証のみ。新規: `reports/race_lap_detail_view_workbench_readiness_20260629.md`。
