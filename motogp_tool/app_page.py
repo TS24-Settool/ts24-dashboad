@@ -185,8 +185,8 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v10** (run review v2 · top-speed · "
-               "lap-time M'SS.mmm · session review · image track maps)")
+               "·  build: **review-tools v11** (lap-time 3-rider compare · run "
+               "review v2 · top-speed · session review · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
@@ -773,11 +773,54 @@ _STATUS_COLOUR = {
     "pit": "#1F77B4", "cancelled": "#D62728",
 }
 
+# one colour per rider when overlaying up to 3 on the lap-time trend
+_CMP_COLOURS = ["#1B9E3E", "#1F77B4", "#D62728"]
+
+
+def _multi_rider_lap_trend(df, riders, key):
+    """Overlay the valid/slow lap-time trend of up to 3 riders. One line per rider
+    (coloured by rider), M'SS.mmm y-axis & hover."""
+    fig = go.Figure()
+    allv = []
+    for i, (no, lab) in enumerate(riders):
+        g = engine.lap_detail(df, no)
+        if g is None or g.empty:
+            continue
+        pace = g[g["lap_status"].isin(["valid", "slow"])].sort_values("lap_no")
+        v = pace["lap_time_s"].dropna()
+        if v.empty:
+            continue
+        allv += list(v)
+        fig.add_trace(go.Scatter(
+            x=pace["lap_no"], y=pace["lap_time_s"], mode="lines+markers", name=lab,
+            line=dict(color=_CMP_COLOURS[i % len(_CMP_COLOURS)], width=1.6),
+            marker=dict(size=6),
+            customdata=[seconds_to_lap_time_label(x) for x in pace["lap_time_s"]],
+            hovertemplate=lab + "<br>Lap %{x}<br>%{customdata}<extra></extra>"))
+    if not allv:
+        st.caption("No valid laps to plot for the selected riders.")
+        return
+    ymin, ymax = min(allv), max(allv)
+    pad = max((ymax - ymin) * 0.10, 0.20)
+    tickvals, ticktext = _laptime_ticks(ymin, ymax)
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=24, b=10),
+                      xaxis_title="Lap", plot_bgcolor="#FFFFFF",
+                      paper_bgcolor="#FFFFFF",
+                      legend=dict(orientation="h", y=1.14), font=dict(color="#111"))
+    fig.update_xaxes(gridcolor="#EEE")
+    fig.update_yaxes(title="Lap time", tickvals=tickvals, ticktext=ticktext,
+                     range=[ymin - pad, ymax + pad], gridcolor="#EEE")
+    st.plotly_chart(fig, use_container_width=True, key=key,
+                    config={"displayModeBar": False})
+
 
 def _tab_lap_detail(df, cls):
     opts = engine.rider_options(cls)
     lbl = st.selectbox("Rider", opts, index=0, key="lap_rider")
     no = _rider_no_from_label(cls, lbl)
+    cmp_lbls = st.multiselect(
+        "Compare on the lap-time trend (optional, up to 2 more)",
+        [o for o in opts if o != lbl], max_selections=2, key="lap_cmp")
     ld = engine.lap_detail(df, no)
     if ld is None or ld.empty:
         st.info("No laps for this rider.")
@@ -806,7 +849,13 @@ def _tab_lap_detail(df, cls):
     st.markdown("**Lap-time trend**")
     pace = ld[ld["lap_status"].isin(["valid", "slow"])].sort_values("lap_no")
     yv = pace["lap_time_s"].dropna()
-    if yv.empty:
+    if cmp_lbls:
+        riders = [(no, lbl)] + [(_rider_no_from_label(cls, x), x) for x in cmp_lbls]
+        _multi_rider_lap_trend(df, riders, "lap_trend_multi")
+        st.caption("Valid / slow laps of the selected riders overlaid (one line per "
+                   "rider, M'SS.mmm). The cards, sector/speed trends and table below "
+                   "are for the primary rider only.")
+    elif yv.empty:
         st.caption("No valid laps to plot for this rider.")
     else:
         trend = go.Figure()
