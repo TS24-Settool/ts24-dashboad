@@ -185,8 +185,8 @@ def render_motogp_page():
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v11** (lap-time 3-rider compare · run "
-               "review v2 · top-speed · session review · image track maps)")
+               "·  build: **review-tools v12** (lap/sector/speed 3-rider compare · "
+               "run review v2 · top-speed · session review · image track maps)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
@@ -814,13 +814,90 @@ def _multi_rider_lap_trend(df, riders, key):
                     config={"displayModeBar": False})
 
 
+def _multi_rider_speed_trend(df, riders, key):
+    """Overlay speed-trap (km/h, flying laps) of up to 3 riders, one line each."""
+    fig = go.Figure()
+    any_data = False
+    for i, (no, lab) in enumerate(riders):
+        g = engine.lap_detail(df, no)
+        if g is None or g.empty:
+            continue
+        fl = g[g["is_flying"]] if "is_flying" in g.columns else g
+        fl = fl[fl["speed"].notna()].sort_values("lap_no")
+        if fl.empty:
+            continue
+        any_data = True
+        fig.add_trace(go.Scatter(
+            x=fl["lap_no"], y=fl["speed"], mode="lines+markers", name=lab,
+            line=dict(color=_CMP_COLOURS[i % len(_CMP_COLOURS)], width=1.6),
+            marker=dict(size=5),
+            hovertemplate=lab + "<br>Lap %{x}<br>%{y:.1f} km/h<extra></extra>"))
+    if not any_data:
+        st.caption("No speed data for the selected riders.")
+        return
+    fig.update_layout(height=260, margin=dict(l=10, r=10, t=24, b=10),
+                      yaxis_title="Speed (km/h)", xaxis_title="Lap",
+                      plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                      legend=dict(orientation="h", y=1.14), font=dict(color="#111"))
+    fig.update_xaxes(gridcolor="#EEE")
+    fig.update_yaxes(gridcolor="#EEE")
+    st.plotly_chart(fig, use_container_width=True, key=key,
+                    config={"displayModeBar": False})
+
+
+def _multi_rider_sector_trends(df, riders):
+    """2×2 small charts (T1–T4); each overlays the selected riders for that
+    sector (one line per rider) so 3-rider sector comparison stays readable."""
+    data = []
+    for i, (no, lab) in enumerate(riders):
+        g = engine.lap_detail(df, no)
+        if g is None or g.empty:
+            continue
+        fl = g[g["is_flying"]] if "is_flying" in g.columns else g
+        data.append((lab, _CMP_COLOURS[i % len(_CMP_COLOURS)], fl.sort_values("lap_no")))
+    if not data:
+        st.caption("No sector data for the selected riders.")
+        return
+    sectors = [("t1", "T1"), ("t2", "T2"), ("t3", "T3"), ("t4", "T4")]
+    for row in range(2):
+        cols = st.columns(2)
+        for c in range(2):
+            scol, slab = sectors[row * 2 + c]
+            with cols[c]:
+                fig = go.Figure()
+                for lab, colour, fl in data:
+                    if scol not in fl.columns:
+                        continue
+                    sub = fl[fl[scol].notna()]
+                    if sub.empty:
+                        continue
+                    fig.add_trace(go.Scatter(
+                        x=sub["lap_no"], y=sub[scol], mode="lines+markers", name=lab,
+                        line=dict(color=colour, width=1.4), marker=dict(size=4),
+                        hovertemplate=lab + " " + slab
+                                      + "<br>Lap %{x}<br>%{y:.3f}s<extra></extra>"))
+                fig.update_layout(
+                    height=220, margin=dict(l=8, r=8, t=28, b=8),
+                    title=dict(text=slab + " (s)", x=0.02, font=dict(size=13)),
+                    plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                    showlegend=(row == 0 and c == 0),
+                    legend=dict(orientation="h", y=1.28, font=dict(size=10)),
+                    font=dict(color="#111"))
+                fig.update_xaxes(gridcolor="#EEE")
+                fig.update_yaxes(gridcolor="#EEE")
+                st.plotly_chart(fig, use_container_width=True,
+                                key=f"lap_sector_multi_{scol}",
+                                config={"displayModeBar": False})
+
+
 def _tab_lap_detail(df, cls):
     opts = engine.rider_options(cls)
     lbl = st.selectbox("Rider", opts, index=0, key="lap_rider")
     no = _rider_no_from_label(cls, lbl)
     cmp_lbls = st.multiselect(
-        "Compare on the lap-time trend (optional, up to 2 more)",
+        "Compare riders on the trends (optional, up to 2 more)",
         [o for o in opts if o != lbl], max_selections=2, key="lap_cmp")
+    cmp_riders = [(no, lbl)] + [(_rider_no_from_label(cls, x), x) for x in cmp_lbls]
     ld = engine.lap_detail(df, no)
     if ld is None or ld.empty:
         st.info("No laps for this rider.")
@@ -850,11 +927,10 @@ def _tab_lap_detail(df, cls):
     pace = ld[ld["lap_status"].isin(["valid", "slow"])].sort_values("lap_no")
     yv = pace["lap_time_s"].dropna()
     if cmp_lbls:
-        riders = [(no, lbl)] + [(_rider_no_from_label(cls, x), x) for x in cmp_lbls]
-        _multi_rider_lap_trend(df, riders, "lap_trend_multi")
+        _multi_rider_lap_trend(df, cmp_riders, "lap_trend_multi")
         st.caption("Valid / slow laps of the selected riders overlaid (one line per "
-                   "rider, M'SS.mmm). The cards, sector/speed trends and table below "
-                   "are for the primary rider only.")
+                   "rider, M'SS.mmm). The stat cards and table below are for the "
+                   "primary rider only.")
     elif yv.empty:
         st.caption("No valid laps to plot for this rider.")
     else:
@@ -888,8 +964,11 @@ def _tab_lap_detail(df, cls):
         st.caption("Shows valid / slow laps only (out / pit laps excluded so the "
                    "scale stays readable). Full list in the table below.")
 
-    # T1–T4 trend over flying laps (one multi-line plot)
-    if not fly.empty:
+    # Sector trend — single rider = 4 lines; comparing = one small chart per sector
+    st.markdown("**Sector trend (flying laps)**  ·  T1–T4 in seconds")
+    if cmp_lbls:
+        _multi_rider_sector_trends(df, cmp_riders)
+    elif not fly.empty:
         sec_fig = go.Figure()
         sec_colours = {"t1": "#1F77B4", "t2": "#2CA02C",
                        "t3": "#FF7F0E", "t4": "#D62728"}
@@ -907,7 +986,6 @@ def _tab_lap_detail(df, cls):
             legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
         sec_fig.update_xaxes(gridcolor="#EEE")
         sec_fig.update_yaxes(gridcolor="#EEE")
-        st.markdown("**Sector trend (flying laps)**  ·  T1–T4 in seconds")
         st.plotly_chart(sec_fig, use_container_width=True, key="lap_sector_trend",
                         config={"displayModeBar": False})
 
@@ -924,7 +1002,10 @@ def _tab_lap_detail(df, cls):
         p2.caption(f"on lap {sp['max_speed_lap_no']}")
     p3.metric("Best lap = max speed?",
               "—" if sp["coincide"] is None else ("Yes" if sp["coincide"] else "No"))
-    if not fly.empty and fly["speed"].notna().any():
+    st.markdown("**Speed trend (flying laps)**  ·  speed-trap, km/h")
+    if cmp_lbls:
+        _multi_rider_speed_trend(df, cmp_riders, "lap_speed_trend_multi")
+    elif not fly.empty and fly["speed"].notna().any():
         spd_fig = go.Figure()
         spd_fig.add_trace(go.Scatter(
             x=fly["lap_no"], y=fly["speed"], mode="lines+markers",
@@ -937,7 +1018,6 @@ def _tab_lap_detail(df, cls):
             plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF", font=dict(color="#111"))
         spd_fig.update_xaxes(gridcolor="#EEE")
         spd_fig.update_yaxes(gridcolor="#EEE")
-        st.markdown("**Speed trend (flying laps)**  ·  speed-trap, km/h")
         st.plotly_chart(spd_fig, use_container_width=True, key="lap_speed_trend",
                         config={"displayModeBar": False})
     st.caption("Speed-trap depends on slipstream, corner exit, gearing and traffic "
