@@ -6,3 +6,5 @@ openpyxl
 statsmodels
 pymupdf
 requests
+Pillow
+qrcode

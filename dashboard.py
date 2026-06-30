@@ -1574,7 +1574,10 @@ with _content_col:
     # PAGE — MotoGP Performance Analysis
     # ═══════════════════════════════════════════════════
     if _NAV == "🏍  MotoGP Performance Analysis":
-        render_motogp_page()
+        render_motogp_page(
+            is_admin=(_cur_role == "admin"),
+            api_key=st.session_state.get("claude_api_key", ""),
+        )
 
     # ═══════════════════════════════════════════════════
     # PAGE 12 — Accounts (admin-only)

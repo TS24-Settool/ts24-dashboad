@@ -181,7 +181,7 @@ def _rider_no_from_label(cls: pd.DataFrame, label: str):
 
 
 # ── main entry ──────────────────────────────────────────────────────────────
-def render_motogp_page():
+def render_motogp_page(*, is_admin: bool = False, api_key: str = ""):
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
@@ -206,22 +206,30 @@ def render_motogp_page():
                    "Analysis PDF directly.")
         return
 
-    tab_rev, tab_cls, tab_h2h, tab_map, tab_lap, tab_run = st.tabs(
-        ["📋 Session Review", "🏁 Classification", "⚔️ Head-to-Head",
-         "🗺️ Track Map", "📊 Lap Detail", "🏎️ Run Review"])
+    labels = ["📋 Session Review", "🏁 Classification", "⚔️ Head-to-Head",
+              "🗺️ Track Map", "📊 Lap Detail", "🏎️ Run Review"]
+    if is_admin:
+        labels.append("📣 Content Studio")          # admin-only marketing tool
+    tabs = st.tabs(labels)
 
-    with tab_rev:
+    with tabs[0]:
         _tab_session_review(df, cls)
-    with tab_cls:
+    with tabs[1]:
         _tab_classification(cls)
-    with tab_h2h:
+    with tabs[2]:
         _tab_head_to_head(df, cls)
-    with tab_map:
+    with tabs[3]:
         _tab_track_map(df, cls)
-    with tab_lap:
+    with tabs[4]:
         _tab_lap_detail(df, cls)
-    with tab_run:
+    with tabs[5]:
         _tab_run_review(df, cls)
+    if is_admin:
+        with tabs[6]:
+            # Lazy import breaks the app_page ↔ content_studio import cycle.
+            from .content_studio import render_content_studio
+            render_content_studio(df, cls, label, api_key=api_key,
+                                  is_admin=is_admin)
 
 
 # ── session overview cards + export ─────────────────────────────────────────

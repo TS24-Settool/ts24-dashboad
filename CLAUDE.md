@@ -1540,3 +1540,39 @@ CLAUDE.mdに stale/deprecated・WorkbenchはDB優先を明記。④dashboard用J
   CODEX_*/TRN_*/DB_REBUILD_SPEC_v1.0.md) / parse_chrono_pdf_DRAFT.py・parse_race_pdf.py(draft) / _backup_susp_speed_*/。
 - pushはTatsukiがレビューしてからCLIで実施(自動pushしない)。
 
+
+---
+
+## 22. 📣 Content Studio — Admin限定 SNS自動生成（2026-06-30 Claude Code 実施）
+
+**目的:** MotoGP timing セッション分析を「分析 → Instagram投稿」1クリックで完結させる
+マーケティング自動化ツール。単なる画像Exportではなく **TS24 Rider Note のブランド成長エンジン**。
+全投稿が必ず **Hook → Data → Lesson → CTA** の4ページ構成（一般ライダーへの学び＋サービス導線）。
+
+### 22a. アクセス制御
+- **admin ロールのみ**（`dashboard_users.role='admin'`）。`render_motogp_page(is_admin=, api_key=)`
+  に dashboard.py から `_cur_role=='admin'` と `claude_api_key` を渡し、admin時のみ
+  「📣 Content Studio」タブを MotoGP Performance Analysis の最終タブに追加。非adminにはタブ非表示
+  ＋ `render_content_studio` 内で二重ガード（`is_admin` False → 警告表示で return）。
+
+### 22b. パイプライン（`motogp_tool/content_studio.py` 新規）
+1. **AI Editor-in-Chief**: `build_candidates(df,cls,label)` がセッションから話題候補
+   （Race Summary / Ideal Lap / Top Speed / Consistency / Sector Analysis / Tyre-Pace）を
+   データヒューリスティックで0-100点スコアリング→★表示でランク。`AI Story`テーマは最上位を自動採用。
+2. **テーマ選択**（9種）→ **Headline生成**（`ai_headlines`・★appeal付き・AIあり時Claude/なし時データ駆動）。
+3. **テンプレート**（A Photo+Graph / B Graph Full / C Dark / D White）＋**サイズ**（IG 1080×1350 / Square / Story）。
+4. **カルーセル自動生成**（`build_pages`→`render_carousel`・Pillow）: Hook/Data/Lesson/CTA の4 PNG。
+   Dataページは単位が揃った数値≥3点=棒グラフ、混在=ビッグ数値カード（誤読防止）。CTAは QRコード（`qrcode`）＋URL。
+5. **Caption + Hashtags**（`ai_caption`）: 7プラットフォーム別（Instagram/X/Facebook/Threads/LinkedIn/Note/Blog）に
+   文体・文字数・ハッシュタグ量を最適化。AIなし時もデータ駆動fallbackで必ず生成。
+6. **Engagement予測**（`predict_engagement`・ヒューリスティック）: スコア＋理由＋改善提案。
+7. **PNG出力**: 全ページZIP / 個別PNG。
+8. **🚀 Weekly Content**: 上位N話題から1クリックで週次バッチ（各カルーセルPNG＋caption.txt）をZIP生成。
+
+### 22c. 依存・設計
+- `requirements.txt` に **Pillow / qrcode** 追加。Pillow未導入でもimport非破壊（遅延import、テキスト構造にfallback）。
+- AIは任意（Claude APIキー設定で Headline/Caption をAI化、未設定でもデータ駆動で全機能動作）。
+- import循環回避: `content_studio`→`app_page` は top-level、`app_page`→`content_studio` はタブ内**遅延import**。
+- ローカル検証: 6ライダー合成セッションで candidate ランク / headline / caption(IG/X/LinkedIn) / engagement /
+  4テンプレ×PNG描画(1080×1350) / ZIP生成 を全合格確認（plotly/streamlit stub・実Pillow/qrcode）。
+- 新規: `motogp_tool/content_studio.py`。変更: `motogp_tool/app_page.py`(signature+tab), `dashboard.py`(呼び出し), `requirements.txt`。
