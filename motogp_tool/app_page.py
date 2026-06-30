@@ -64,6 +64,26 @@ def _laptime_ticks(ymin: float, ymax: float, max_ticks: int = 6):
     return vals, [seconds_to_lap_time_label(v) for v in vals]
 
 
+# modebar buttons to drop, leaving only "toImage" (camera / PNG download) —
+# keeps the clean look but lets every chart be saved as an image
+_IMG_ONLY_BUTTONS = [
+    "zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
+    "autoScale2d", "resetScale2d", "hoverClosestCartesian",
+    "hoverCompareCartesian", "toggleSpikelines",
+]
+
+
+def _plotly_chart(fig, *, key: str):
+    """st.plotly_chart wrapper — modebar appears on hover with just the camera
+    icon, so each chart can be downloaded as a PNG."""
+    st.plotly_chart(fig, use_container_width=True, key=key, config={
+        "displayModeBar": "hover",
+        "displaylogo": False,
+        "modeBarButtonsToRemove": _IMG_ONLY_BUTTONS,
+        "toImageButtonOptions": {"format": "png", "filename": key, "scale": 2},
+    })
+
+
 @st.cache_data(show_spinner=False)
 def _parse_pdf_cached(data: bytes):
     parsed = parse_analysis_bytes(data)
@@ -650,8 +670,7 @@ def _tab_head_to_head(df, cls):
         font=dict(family="Arial", color="#111"),
     )
     fig.update_yaxes(autorange="reversed", gridcolor="#E5E7EB", zeroline=False)
-    st.plotly_chart(fig, use_container_width=True, key="h2h_bar",
-                    config={"displayModeBar": False})
+    _plotly_chart(fig, key="h2h_bar")
 
     # plain-language diagnosis
     if h.get("diagnosis"):
@@ -728,8 +747,7 @@ def _tab_track_map(df, cls):
         try:
             asset = circuit_map.load_image_asset(use_slug)
             fig = circuit_map.build_image_track_figure(asset, deltas, labels=labels)
-            st.plotly_chart(fig, use_container_width=True, key="map_image",
-                            config={"displayModeBar": False})
+            _plotly_chart(fig, key="map_image")
             _asset_source_caption(asset)
         except Exception as e:  # noqa: BLE001 — never crash the tab on a bad asset
             _sector_strip(deltas, labels)
@@ -760,8 +778,7 @@ def _sector_strip(deltas, labels):
     fig.update_yaxes(visible=False, range=[0, 1])
     fig.update_layout(height=120, margin=dict(l=6, r=6, t=6, b=6),
                       plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF")
-    st.plotly_chart(fig, use_container_width=True, key="map_sector_strip",
-                    config={"displayModeBar": False})
+    _plotly_chart(fig, key="map_sector_strip")
 
 
 def _colour_legend():
@@ -818,8 +835,7 @@ def _multi_rider_lap_trend(df, riders, key):
     fig.update_xaxes(gridcolor="#EEE")
     fig.update_yaxes(title="Lap time", tickvals=tickvals, ticktext=ticktext,
                      range=[ymin - pad, ymax + pad], gridcolor="#EEE")
-    st.plotly_chart(fig, use_container_width=True, key=key,
-                    config={"displayModeBar": False})
+    _plotly_chart(fig, key=key)
 
 
 def _multi_rider_speed_trend(df, riders, key):
@@ -849,8 +865,7 @@ def _multi_rider_speed_trend(df, riders, key):
                       legend=dict(orientation="h", y=1.14), font=dict(color="#111"))
     fig.update_xaxes(gridcolor="#EEE")
     fig.update_yaxes(gridcolor="#EEE")
-    st.plotly_chart(fig, use_container_width=True, key=key,
-                    config={"displayModeBar": False})
+    _plotly_chart(fig, key=key)
 
 
 def _multi_rider_sector_trends(df, riders):
@@ -893,9 +908,7 @@ def _multi_rider_sector_trends(df, riders):
                     font=dict(color="#111"))
                 fig.update_xaxes(gridcolor="#EEE")
                 fig.update_yaxes(gridcolor="#EEE")
-                st.plotly_chart(fig, use_container_width=True,
-                                key=f"lap_sector_multi_{scol}",
-                                config={"displayModeBar": False})
+                _plotly_chart(fig, key=f"lap_sector_multi_{scol}")
 
 
 def _tab_lap_detail(df, cls):
@@ -967,8 +980,7 @@ def _tab_lap_detail(df, cls):
         trend.update_xaxes(gridcolor="#EEE")
         trend.update_yaxes(title="Lap time", tickvals=tickvals, ticktext=ticktext,
                            range=[ymin - pad, ymax + pad], gridcolor="#EEE")
-        st.plotly_chart(trend, use_container_width=True, key="lap_trend",
-                        config={"displayModeBar": False})
+        _plotly_chart(trend, key="lap_trend")
         st.caption("Shows valid / slow laps only (out / pit laps excluded so the "
                    "scale stays readable). Full list in the table below.")
 
@@ -994,8 +1006,7 @@ def _tab_lap_detail(df, cls):
             legend=dict(orientation="h", y=1.12), font=dict(color="#111"))
         sec_fig.update_xaxes(gridcolor="#EEE")
         sec_fig.update_yaxes(gridcolor="#EEE")
-        st.plotly_chart(sec_fig, use_container_width=True, key="lap_sector_trend",
-                        config={"displayModeBar": False})
+        _plotly_chart(sec_fig, key="lap_sector_trend")
 
     # Speed: best-lap speed vs the rider's max speed-trap
     sp = engine.speed_profile(df, no)
@@ -1026,8 +1037,7 @@ def _tab_lap_detail(df, cls):
             plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF", font=dict(color="#111"))
         spd_fig.update_xaxes(gridcolor="#EEE")
         spd_fig.update_yaxes(gridcolor="#EEE")
-        st.plotly_chart(spd_fig, use_container_width=True, key="lap_speed_trend",
-                        config={"displayModeBar": False})
+        _plotly_chart(spd_fig, key="lap_speed_trend")
     st.caption("Speed-trap depends on slipstream, corner exit, gearing and traffic "
                "— read it with the sectors, not on its own. Max speed on a "
                "non-best lap often means a tow.")
@@ -1092,8 +1102,7 @@ def _run_laptime_trend(sub, key):
     fig.update_xaxes(gridcolor="#EEE")
     fig.update_yaxes(title="Lap time", tickvals=tickvals, ticktext=ticktext,
                      range=[ymin - pad, ymax + pad], gridcolor="#EEE")
-    st.plotly_chart(fig, use_container_width=True, key=key,
-                    config={"displayModeBar": False})
+    _plotly_chart(fig, key=key)
 
 
 def _tab_run_review(df, cls):
@@ -1247,6 +1256,4 @@ def _tab_run_review(df, cls):
                 legend=dict(orientation="h", y=1.15), font=dict(color="#111"))
             sec_fig.update_xaxes(gridcolor="#EEE")
             sec_fig.update_yaxes(gridcolor="#EEE")
-            st.plotly_chart(sec_fig, use_container_width=True,
-                            key="run_sector_trend",
-                            config={"displayModeBar": False})
+            _plotly_chart(sec_fig, key="run_sector_trend")
