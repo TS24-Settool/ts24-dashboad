@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTableWidget,
     QTableWidgetItem, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-    QWidget, QLineEdit, QFrame, QScrollArea,
+    QWidget, QLineEdit, QFrame, QScrollArea, QListWidget, QListWidgetItem,
 )
 
 # ── パス設定 ──────────────────────────────────────────────────────────
@@ -3053,6 +3053,743 @@ class SetupTrendTab(QWidget):
 # 姿勢分析タブ
 # ════════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════════
+# 🔧 3フェーズ Suspension Run Compare（Braking / Apex / Exit）
+# ════════════════════════════════════════════════════════════════════
+class PhaseRunCompareWidget(QWidget):
+    """Braking / Apex / Exit の 3フェーズで F/R サスペンション Position を
+    Run単位・複数Run比較で確認するウィジェット（PostureAnalysisTab の内部サブタブ）。
+
+    設計方針（Tatsuki 要望 2026-07-01 / FOR_CLAUDE_CODE）:
+      - Position は既存 DB 列のみ使用（lap_suspension の brk/apex/ce の susF/R_avg）。
+      - Suspension Speed は既存の `brk_f_dive_spd_*`（Braking F）と `ce_r_spd_*`（Exit R）のみ。
+        3フェーズ×F/R のサス速度は DB 未整備 → 「not available yet」と明示し、
+        車速（`*_spd_avg` は km/h）をサス速度として代用表示しない。
+      - Lap by lap の点 と Run trend（線形近似）を同一グラフに表示し、複数Run を比較。
+    """
+
+    # 物理限界（これを超える値は計測誤差として除外）
+    F_MAX = 130.0   # mm（F Full Stroke）
+    R_MAX = 70.0    # mm（R Full Stroke）
+    LAP_MIN = 60.0  # s（アウトラップ / 計測エラー下限）
+    LAP_MAX = 300.0
+
+    _PHASES = ["Braking", "Apex", "Exit"]
+    # 各フェーズの F/R Position 列（DataFrame は全小文字化済み）
+    _PHASE_POS = {
+        "Braking": ("brk_susf_avg",  "brk_susr_avg"),
+        "Apex":    ("apex_susf_avg", "apex_susr_avg"),
+        "Exit":    ("ce_susf_avg",   "ce_susr_avg"),
+    }
+    # 利用可能なサス速度（相対ダンピング速度指数）。None = DB 未整備。
+    #   値 = (avg列, peak列, 短縮タグ)
+    _PHASE_SPD = {
+        "Braking": {"F": ("brk_f_dive_spd_avg", "brk_f_dive_spd_peak", "F-Dive"), "R": None},
+        "Apex":    {"F": None, "R": None},
+        "Exit":    {"F": None, "R": ("ce_r_spd_avg", "ce_r_spd_peak", "R|v|")},
+    }
+    _PHASE_COLORS = {"Braking": "#C0392B", "Apex": "#0078D4", "Exit": "#2E9E4F"}
+    _RUN_PALETTE = ["#0078D4", "#FF8C00", "#2E9E4F", "#C0392B", "#8E44AD",
+                    "#16A085", "#D4A017", "#E91E63", "#3F51B5", "#5D6D7E"]
+    _METRICS = ["F & R Position (mm)", "F Position (mm)", "R Position (mm)",
+                "Pitch = F−R (mm)", "Heave = (F+R)/2 (mm)"]
+    _TCOLS = ["Run ID", "Rider", "Circuit", "Session", "Run No", "Lap",
+              "Lap Time", "Phase", "F pos (mm)", "R pos (mm)", "Pitch",
+              "Heave", "F spd(idx)", "R spd(idx)"]
+    _TBL_CAP = 2000
+
+    def __init__(self, pg_module, parent=None):
+        super().__init__(parent)
+        self._pg = pg_module
+        self._df = None
+        self._loading = False
+        self._setup_ui()
+
+    # ── UI 構築 ─────────────────────────────────────────────────────
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(4)
+
+        # フィルターバー
+        fb = QHBoxLayout()
+        fb.setSpacing(4)
+        fb.addWidget(QLabel("Circuit:"))
+        self._combo_circ = QComboBox(); self._combo_circ.setMinimumWidth(110)
+        fb.addWidget(self._combo_circ)
+        fb.addWidget(QLabel("Rider:"))
+        self._combo_rider = QComboBox(); self._combo_rider.setMinimumWidth(78)
+        fb.addWidget(self._combo_rider)
+        fb.addWidget(QLabel("Session:"))
+        self._combo_sess = QComboBox(); self._combo_sess.setMinimumWidth(96)
+        fb.addWidget(self._combo_sess)
+        fb.addWidget(QLabel("Phase:"))
+        self._combo_phase = QComboBox()
+        self._combo_phase.addItems(["All"] + self._PHASES)
+        self._combo_phase.setCurrentText("Apex")
+        fb.addWidget(self._combo_phase)
+        fb.addWidget(QLabel("Metric:"))
+        self._combo_metric = QComboBox(); self._combo_metric.setMinimumWidth(160)
+        self._combo_metric.addItems(self._METRICS)
+        fb.addWidget(self._combo_metric)
+        fb.addStretch()
+        root.addLayout(fb)
+
+        if self._pg is None:
+            root.addWidget(QLabel("pyqtgraph が必要です: pip install pyqtgraph"))
+            return
+
+        # 利用可否・注記行
+        self._lbl_note = QLabel("…")
+        self._lbl_note.setWordWrap(True)
+        self._lbl_note.setStyleSheet(
+            "color:#555; font-style:italic; font-size:10px; padding:2px;")
+        root.addWidget(self._lbl_note)
+
+        pg = self._pg
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+
+        # 左=Run選択 / 右=グラフ+テーブル
+        main = QSplitter(Qt.Orientation.Horizontal)
+
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(2, 2, 2, 2); lv.setSpacing(2)
+        lv.addWidget(QLabel("<b style='font-size:10px;'>Run 選択（複数可）</b>"))
+        self._run_list = QListWidget()
+        self._run_list.setMinimumWidth(196)
+        lv.addWidget(self._run_list, 1)
+        brow = QHBoxLayout()
+        b_all = QPushButton("全選択"); b_non = QPushButton("全解除")
+        for b in (b_all, b_non):
+            b.setFixedHeight(22)
+        brow.addWidget(b_all); brow.addWidget(b_non)
+        lv.addLayout(brow)
+        main.addWidget(left)
+
+        # 右: 2×2
+        right = QSplitter(Qt.Orientation.Vertical)
+
+        class _LapAxis(pg.AxisItem):
+            def tickStrings(self, values, scale, spacing):
+                out = []
+                for v in values:
+                    try:
+                        s = float(v)
+                        if s <= 0:
+                            out.append(""); continue
+                        m = int(s) // 60
+                        out.append(f"{m}'{s - m*60:05.2f}")
+                    except Exception:
+                        out.append("")
+                return out
+
+        top = QSplitter(Qt.Orientation.Horizontal)
+        self._pw_pos = pg.PlotWidget()
+        self._pw_sum = pg.PlotWidget()
+        for _p in (self._pw_pos, self._pw_sum):
+            _p.showGrid(x=True, y=True, alpha=0.3)
+            _p.addLegend()
+        top.addWidget(_make_help_panel(
+            self._pw_pos,
+            "Position 推移（Lap by Lap + Run Trend）",
+            "Position 推移（選択フェーズ）\n\n"
+            "  X = Lap No / Y = Suspension Position (mm)\n"
+            "  点 = 各ラップ実測（lap by lap）\n"
+            "  破線/実線 = Run の trend（線形近似）\n\n"
+            "Metric:\n"
+            "  F & R Position = F(実線●) と R(破線▲)を同時表示\n"
+            "  Pitch = F − R（＋=ノーズDOWN寄り）\n"
+            "  Heave = (F + R) / 2（全体沈み込み）\n\n"
+            "色 = Run。複数Runを重ねて比較できる。\n"
+            "Phase=All のときは Apex を表示（3フェーズ比較は右の Phase Summary）。\n"
+            "F 130mm / R 70mm = Full Stroke。§0 参考値。",
+        ))
+        top.addWidget(_make_help_panel(
+            self._pw_sum,
+            "Phase Summary（Run単位 平均 F/R）",
+            "Phase Summary（Run単位の平均 Position）\n\n"
+            "  X = 選択した各 Run / Y = 平均 Position (mm)\n"
+            "  Braking(赤) / Apex(青) / Exit(緑) を色分け\n"
+            "  実線● = F 平均 / 破線▲ = R 平均\n\n"
+            "セットアップ変更に伴う Run 間の姿勢変化を、\n"
+            "各フェーズ・F/R で比較する。\n"
+            "Phase=All で3フェーズ同時、単一選択でそのフェーズのみ。",
+        ))
+        top.setStretchFactor(0, 1); top.setStretchFactor(1, 1)
+
+        bot = QSplitter(Qt.Orientation.Horizontal)
+        self._pw_spd = pg.PlotWidget(
+            axisItems={"bottom": _LapAxis(orientation="bottom")})
+        self._pw_spd.showGrid(x=True, y=True, alpha=0.3)
+        self._pw_spd.addLegend()
+        self._pw_spd.setLabel("left", "Susp Speed (mm/s 相対指数)")
+        self._pw_spd.setLabel("bottom", "Lap No")
+        bot.addWidget(_make_help_panel(
+            self._pw_spd,
+            "Suspension Speed（利用可能な指標のみ）",
+            "Suspension Speed — Lap推移\n\n"
+            "実線● = avg / 破線× = peak。色 = Run。\n\n"
+            "【利用可能（DB実在）】\n"
+            "  Braking F: brk_f_dive_spd_avg/peak（フロント圧縮=Diving）\n"
+            "  Exit R:    ce_r_spd_avg/peak（リア速度 絶対値|v|）\n\n"
+            "【未整備 = not available yet】\n"
+            "  Braking R / Apex F / Apex R / Exit F のサス速度\n\n"
+            "⚠ これは相対ダンピング速度指数（校正済み絶対 mm/s ではない）。\n"
+            "⚠ 車速（*_spd_avg は km/h）はサス速度ではないため表示しない。",
+        ))
+        self._tbl = QTableWidget()
+        self._tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._tbl.setColumnCount(len(self._TCOLS))
+        self._tbl.setHorizontalHeaderLabels(self._TCOLS)
+        try:
+            from PyQt6.QtWidgets import QHeaderView
+            self._tbl.horizontalHeader().setSectionResizeMode(
+                QHeaderView.ResizeMode.ResizeToContents)
+        except Exception:
+            pass
+        bot.addWidget(_make_help_panel(
+            self._tbl,
+            "数値テーブル（3フェーズ×F/R）",
+            "数値テーブル\n\n"
+            "選択 Run × Lap × Phase ごとの F/R Position、\n"
+            "Pitch(F−R)、Heave((F+R)/2)、利用可能なサス速度。\n\n"
+            "  F spd / R spd = 相対ダンピング速度指数\n"
+            "  『n/a』= そのフェーズ×側のサス速度は DB 未整備\n"
+            "  『—』  = 値が NULL（サンプル不足等）\n\n"
+            f"表示は先頭 {self._TBL_CAP} 行まで。",
+        ))
+        bot.setStretchFactor(0, 1); bot.setStretchFactor(1, 1)
+
+        right.addWidget(top); right.addWidget(bot)
+        right.setStretchFactor(0, 1); right.setStretchFactor(1, 1)
+
+        main.addWidget(right)
+        main.setStretchFactor(0, 0); main.setStretchFactor(1, 1)
+        main.setSizes([210, 1000])
+        root.addWidget(main, 1)
+
+        # シグナル配線
+        self._combo_circ.currentTextChanged.connect(self._on_circuit_changed)
+        self._combo_rider.currentTextChanged.connect(self._on_rider_changed)
+        self._combo_sess.currentTextChanged.connect(self._on_session_changed)
+        self._combo_phase.currentTextChanged.connect(lambda *_: self._redraw())
+        self._combo_metric.currentTextChanged.connect(lambda *_: self._redraw())
+        self._run_list.itemChanged.connect(self._on_run_toggle)
+        b_all.clicked.connect(lambda: self._check_all(True))
+        b_non.clicked.connect(lambda: self._check_all(False))
+
+    # ── データ受け渡し ──────────────────────────────────────────────
+    def set_dataframe(self, df):
+        """PostureAnalysisTab が読み込んだ lap_suspension DataFrame を受け取る。"""
+        self._df = df
+        if self._pg is None:
+            return
+        self._loading = True
+        self._repop_circuit()
+        self._repop_rider()
+        self._repop_session()
+        self._repop_runs(default_check=True)
+        self._loading = False
+        self._redraw()
+
+    # ── フィルタ再構築（選択を可能な限り保持）───────────────────────
+    def _repop_circuit(self):
+        cur = self._combo_circ.currentText()
+        self._combo_circ.blockSignals(True)
+        self._combo_circ.clear()
+        self._combo_circ.addItem("全")
+        if self._df is not None and "circuit" in self._df.columns:
+            for c in sorted(self._df["circuit"].dropna().unique().tolist()):
+                self._combo_circ.addItem(str(c))
+        if cur and self._combo_circ.findText(cur) >= 0:
+            self._combo_circ.setCurrentText(cur)
+        elif self._combo_circ.count() > 1:
+            self._combo_circ.setCurrentIndex(1)   # 既定=先頭サーキット（Run一覧を絞る）
+        self._combo_circ.blockSignals(False)
+
+    def _repop_rider(self):
+        cur = self._combo_rider.currentText()
+        self._combo_rider.blockSignals(True)
+        self._combo_rider.clear()
+        self._combo_rider.addItem("全")
+        df = self._df
+        if df is not None:
+            c = self._combo_circ.currentText()
+            if c and c != "全" and "circuit" in df.columns:
+                df = df[df["circuit"] == c]
+            if "rider" in df.columns:
+                for x in sorted(df["rider"].dropna().unique().tolist()):
+                    self._combo_rider.addItem(str(x))
+        if cur and self._combo_rider.findText(cur) >= 0:
+            self._combo_rider.setCurrentText(cur)
+        else:
+            self._combo_rider.setCurrentIndex(0)
+        self._combo_rider.blockSignals(False)
+
+    def _repop_session(self):
+        cur = self._combo_sess.currentText()
+        self._combo_sess.blockSignals(True)
+        self._combo_sess.clear()
+        self._combo_sess.addItem("全")
+        df = self._df
+        if df is not None:
+            c = self._combo_circ.currentText()
+            if c and c != "全" and "circuit" in df.columns:
+                df = df[df["circuit"] == c]
+            r = self._combo_rider.currentText()
+            if r and r != "全" and "rider" in df.columns:
+                df = df[df["rider"] == r]
+            if "session" in df.columns:
+                for x in sorted(df["session"].dropna().unique().tolist()):
+                    self._combo_sess.addItem(str(x))
+        if cur and self._combo_sess.findText(cur) >= 0:
+            self._combo_sess.setCurrentText(cur)
+        else:
+            self._combo_sess.setCurrentIndex(0)
+        self._combo_sess.blockSignals(False)
+
+    def _repop_runs(self, default_check=False):
+        prev = set(self._checked_run_ids())
+        self._run_list.blockSignals(True)
+        self._run_list.clear()
+        base = self._base_df()
+        if base is not None and not base.empty and "run_id" in base.columns:
+            meta_cols = [c for c in ("run_id", "rider", "session", "run_no", "round")
+                         if c in base.columns]
+            uniq = base[meta_cols].drop_duplicates("run_id")
+            sort_by = [c for c in ("round", "session", "rider", "run_no")
+                       if c in uniq.columns]
+            if sort_by:
+                uniq = uniq.sort_values(sort_by)
+            for rec in uniq.to_dict("records"):
+                rid = rec.get("run_id")
+                it = QListWidgetItem(self._run_label(rec))
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setData(Qt.ItemDataRole.UserRole, rid)
+                it.setCheckState(Qt.CheckState.Checked if rid in prev
+                                 else Qt.CheckState.Unchecked)
+                self._run_list.addItem(it)
+        self._run_list.blockSignals(False)
+        # 何も選ばれていなければ先頭数件を既定選択
+        if default_check and not self._checked_run_ids():
+            self._run_list.blockSignals(True)
+            for i in range(min(4, self._run_list.count())):
+                self._run_list.item(i).setCheckState(Qt.CheckState.Checked)
+            self._run_list.blockSignals(False)
+
+    # ── フィルタ変更ハンドラ ────────────────────────────────────────
+    def _on_circuit_changed(self, *_):
+        if self._loading:
+            return
+        self._loading = True
+        self._repop_rider(); self._repop_session()
+        self._repop_runs(default_check=True)
+        self._loading = False
+        self._redraw()
+
+    def _on_rider_changed(self, *_):
+        if self._loading:
+            return
+        self._loading = True
+        self._repop_session(); self._repop_runs(default_check=True)
+        self._loading = False
+        self._redraw()
+
+    def _on_session_changed(self, *_):
+        if self._loading:
+            return
+        self._loading = True
+        self._repop_runs(default_check=True)
+        self._loading = False
+        self._redraw()
+
+    def _on_run_toggle(self, _item):
+        if self._loading:
+            return
+        self._redraw()
+
+    def _check_all(self, state):
+        self._loading = True
+        st = Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
+        for i in range(self._run_list.count()):
+            self._run_list.item(i).setCheckState(st)
+        self._loading = False
+        self._redraw()
+
+    def _checked_run_ids(self):
+        out = []
+        for i in range(self._run_list.count()):
+            it = self._run_list.item(i)
+            if it.checkState() == Qt.CheckState.Checked:
+                out.append(it.data(Qt.ItemDataRole.UserRole))
+        return out
+
+    # ── データ整形ヘルパー ──────────────────────────────────────────
+    def _base_df(self):
+        """Circuit / Rider / Session フィルタ + lap_time レンジ適用（Run 未適用）。"""
+        if self._df is None:
+            return None
+        df = self._df
+        c = self._combo_circ.currentText()
+        if c and c != "全" and "circuit" in df.columns:
+            df = df[df["circuit"] == c]
+        r = self._combo_rider.currentText()
+        if r and r != "全" and "rider" in df.columns:
+            df = df[df["rider"] == r]
+        s = self._combo_sess.currentText()
+        if s and s != "全" and "session" in df.columns:
+            df = df[df["session"] == s]
+        if "lap_time_s" in df.columns:
+            df = df[df["lap_time_s"].between(self.LAP_MIN, self.LAP_MAX)]
+        return df
+
+    @staticmethod
+    def _num(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        if f != f:
+            return None
+        return f
+
+    @classmethod
+    def _icell(cls, v):
+        f = cls._num(v)
+        return "—" if f is None else f"{int(f)}"
+
+    @classmethod
+    def _fcell(cls, v):
+        f = cls._num(v)
+        return "—" if f is None else f"{f:.1f}"
+
+    @staticmethod
+    def _fmt_lap(s):
+        if s is None or s <= 0:
+            return "—"
+        m = int(s) // 60
+        return f"{m}'{s - m*60:05.2f}"
+
+    @staticmethod
+    def _run_label(rec, short=False):
+        rider = rec.get("rider", "?")
+        sess = rec.get("session", "?")
+        rn = rec.get("run_no", "?")
+        try:
+            rn = f"R{int(rn)}"
+        except (TypeError, ValueError):
+            rn = f"R{rn}"
+        if short:
+            return f"{rider} {sess}{rn}"
+        rnd = rec.get("round", "")
+        return f"{rider}  {sess}  {rn}  ({rnd})"
+
+    @staticmethod
+    def _linfit(xs, ys):
+        """単回帰 y = a + b·x を返す（点数<2 や退化は None）。"""
+        n = len(xs)
+        if n < 2:
+            return None
+        sx = sum(xs); sy = sum(ys)
+        sxx = sum(x * x for x in xs)
+        sxy = sum(x * y for x, y in zip(xs, ys))
+        denom = n * sxx - sx * sx
+        if denom == 0:
+            return None
+        b = (n * sxy - sx * sy) / denom
+        a = (sy - b * sx) / n
+        return a, b
+
+    def _valid_xy(self, rs, col, lo, hi):
+        """(lap_no, col) を数値化・NaN除去・物理レンジ内・lap_no昇順で返す。"""
+        if col not in rs.columns or "lap_no" not in rs.columns:
+            return [], []
+        d = rs[["lap_no", col]].copy()
+        d["lap_no"] = pd.to_numeric(d["lap_no"], errors="coerce")
+        d[col] = pd.to_numeric(d[col], errors="coerce")
+        d = d.dropna()
+        d = d[(d[col] >= lo) & (d[col] <= hi)]
+        d = d.sort_values("lap_no")
+        return d["lap_no"].tolist(), d[col].tolist()
+
+    def _valid_fr(self, rs, fcol, rcol):
+        """F/R が共に有効なラップのみの DataFrame（lap_no昇順）。"""
+        cols = ["lap_no", fcol, rcol]
+        if not all(c in rs.columns for c in cols):
+            return None
+        d = rs[cols].copy()
+        for c in cols:
+            d[c] = pd.to_numeric(d[c], errors="coerce")
+        d = d.dropna()
+        d = d[d[fcol].between(0, self.F_MAX) & d[rcol].between(0, self.R_MAX)]
+        return d.sort_values("lap_no")
+
+    def _mean_valid(self, rs, col, lo, hi):
+        if col not in rs.columns:
+            return None
+        s = pd.to_numeric(rs[col], errors="coerce").dropna()
+        s = s[(s >= lo) & (s <= hi)]
+        if s.empty:
+            return None
+        return float(s.mean())
+
+    # ── 描画 ────────────────────────────────────────────────────────
+    def _redraw(self):
+        if self._loading or self._pg is None or self._df is None:
+            return
+        base = self._base_df()
+        runs = self._checked_run_ids()
+        phase = self._combo_phase.currentText()
+        metric = self._combo_metric.currentText()
+        sub = (base[base["run_id"].isin(runs)]
+               if (base is not None and runs and "run_id" in base.columns)
+               else None)
+        self._update_note(phase)
+        self._draw_position(sub, runs, phase, metric)
+        self._draw_summary(sub, runs, phase)
+        self._draw_speed(sub, runs, phase)
+        self._fill_table(sub, runs, phase)
+
+    def _update_note(self, phase):
+        avail, na = [], []
+        for ph in self._PHASES:
+            for side in ("F", "R"):
+                (avail if self._PHASE_SPD[ph][side] else na).append(f"{ph} {side}")
+        self._lbl_note.setText(
+            "サス速度（相対ダンピング速度指数・校正絶対値ではない）: "
+            f"利用可 = {', '.join(avail)} ／ 未整備(not available yet) = {', '.join(na)}. "
+            "※ 車速(*_spd_avg=km/h)はサス速度ではないため速度グラフに表示しません。"
+        )
+
+    def _points(self, p, xs, ys, color, name, symbol):
+        p.plot(xs, ys, pen=None, symbol=symbol, symbolSize=7,
+               symbolBrush=self._pg.mkBrush(color),
+               symbolPen=self._pg.mkPen("w", width=0.5), name=name)
+
+    def _trend(self, p, xs, ys, color, dashed=False):
+        fit = self._linfit(xs, ys)
+        if fit is None:
+            return
+        a, b = fit
+        x0, x1 = min(xs), max(xs)
+        if x0 == x1:
+            return
+        style = Qt.PenStyle.DashLine if dashed else Qt.PenStyle.SolidLine
+        p.plot([x0, x1], [a + b * x0, a + b * x1],
+               pen=self._pg.mkPen(color, width=2, style=style))
+
+    def _draw_position(self, sub, runs, phase, metric):
+        p = self._pw_pos
+        p.clear(); p.addLegend()
+        eff = phase if phase in self._PHASES else "Apex"
+        fcol, rcol = self._PHASE_POS[eff]
+        title = f"Position 推移 — {eff}"
+        if phase == "All":
+            title += "（All=Apex表示・3フェーズ比較は右）"
+        p.setTitle(title, size="9pt")
+        if sub is not None and not sub.empty and runs:
+            for i, rid in enumerate(runs):
+                rs = sub[sub["run_id"] == rid]
+                if rs.empty:
+                    continue
+                color = self._RUN_PALETTE[i % len(self._RUN_PALETTE)]
+                label = self._run_label(rs.iloc[0])
+                if metric.startswith("F &"):
+                    d = self._valid_fr(rs, fcol, rcol)
+                    if d is not None and not d.empty:
+                        xs = d["lap_no"].tolist()
+                        self._points(p, xs, d[fcol].tolist(), color, f"{label} F", "o")
+                        self._trend(p, xs, d[fcol].tolist(), color, dashed=False)
+                        self._points(p, xs, d[rcol].tolist(), color, f"{label} R", "t")
+                        self._trend(p, xs, d[rcol].tolist(), color, dashed=True)
+                elif metric.startswith("F Position"):
+                    xs, ys = self._valid_xy(rs, fcol, 0, self.F_MAX)
+                    if xs:
+                        self._points(p, xs, ys, color, label, "o")
+                        self._trend(p, xs, ys, color)
+                elif metric.startswith("R Position"):
+                    xs, ys = self._valid_xy(rs, rcol, 0, self.R_MAX)
+                    if xs:
+                        self._points(p, xs, ys, color, label, "t")
+                        self._trend(p, xs, ys, color)
+                elif metric.startswith("Pitch"):
+                    d = self._valid_fr(rs, fcol, rcol)
+                    if d is not None and not d.empty:
+                        xs = d["lap_no"].tolist()
+                        ys = (d[fcol] - d[rcol]).tolist()
+                        self._points(p, xs, ys, color, label, "d")
+                        self._trend(p, xs, ys, color)
+                elif metric.startswith("Heave"):
+                    d = self._valid_fr(rs, fcol, rcol)
+                    if d is not None and not d.empty:
+                        xs = d["lap_no"].tolist()
+                        ys = ((d[fcol] + d[rcol]) / 2).tolist()
+                        self._points(p, xs, ys, color, label, "s")
+                        self._trend(p, xs, ys, color)
+        ylab = {"F & R Position (mm)": "Position (mm)",
+                "F Position (mm)": "F Position (mm)",
+                "R Position (mm)": "R Position (mm)",
+                "Pitch = F−R (mm)": "Pitch (mm)  [F−R]",
+                "Heave = (F+R)/2 (mm)": "Heave (mm)"}.get(metric, "mm")
+        p.setLabel("left", ylab)
+        p.setLabel("bottom", "Lap No")
+        p.enableAutoRange(axis="y")
+
+    def _draw_summary(self, sub, runs, phase):
+        p = self._pw_sum
+        p.clear(); p.addLegend()
+        ax = p.getAxis("bottom")
+        phases = self._PHASES if phase == "All" else (
+            [phase] if phase in self._PHASES else self._PHASES)
+        if sub is None or sub.empty or not runs:
+            ax.setTicks(None)
+            p.setLabel("left", "Position (mm)")
+            p.setLabel("bottom", "Run")
+            return
+        ticks = []
+        for i, rid in enumerate(runs):
+            rs = sub[sub["run_id"] == rid]
+            lab = self._run_label(rs.iloc[0], short=True) if not rs.empty else str(i)
+            ticks.append((i, lab))
+        for ph in phases:
+            fcol, rcol = self._PHASE_POS[ph]
+            col = self._PHASE_COLORS[ph]
+            xs_f, ys_f, xs_r, ys_r = [], [], [], []
+            for i, rid in enumerate(runs):
+                rs = sub[sub["run_id"] == rid]
+                fv = self._mean_valid(rs, fcol, 0, self.F_MAX)
+                rv = self._mean_valid(rs, rcol, 0, self.R_MAX)
+                if fv is not None:
+                    xs_f.append(i); ys_f.append(fv)
+                if rv is not None:
+                    xs_r.append(i); ys_r.append(rv)
+            if xs_f:
+                p.plot(xs_f, ys_f, pen=self._pg.mkPen(col, width=2),
+                       symbol="o", symbolSize=9, symbolBrush=self._pg.mkBrush(col),
+                       symbolPen=self._pg.mkPen("w", width=0.5), name=f"{ph} F")
+            if xs_r:
+                p.plot(xs_r, ys_r,
+                       pen=self._pg.mkPen(col, width=1.5, style=Qt.PenStyle.DashLine),
+                       symbol="t", symbolSize=9, symbolBrush=self._pg.mkBrush("w"),
+                       symbolPen=self._pg.mkPen(col, width=1.5), name=f"{ph} R")
+        ax.setTicks([ticks])
+        p.setLabel("left", "平均 Position (mm)")
+        p.setLabel("bottom", "Run")
+        p.enableAutoRange()
+
+    def _draw_speed(self, sub, runs, phase):
+        p = self._pw_spd
+        p.clear(); p.addLegend()
+        phases = self._PHASES if phase == "All" else (
+            [phase] if phase in self._PHASES else self._PHASES)
+        plotted = False
+        if sub is not None and not sub.empty and runs:
+            for i, rid in enumerate(runs):
+                rs = sub[sub["run_id"] == rid]
+                if rs.empty or "lap_no" not in rs.columns:
+                    continue
+                rs = rs.sort_values("lap_no")
+                color = self._RUN_PALETTE[i % len(self._RUN_PALETTE)]
+                label = self._run_label(rs.iloc[0], short=True)
+                for ph in phases:
+                    for side in ("F", "R"):
+                        trip = self._PHASE_SPD[ph][side]
+                        if trip is None:
+                            continue
+                        avgc, pkc, tag = trip
+                        xs, ys = self._valid_xy(rs, avgc, 0, 1e6)
+                        if xs:
+                            self._points(p, xs, ys, color,
+                                         f"{label} {ph[:3]}{side} {tag}", "o")
+                            self._trend(p, xs, ys, color)
+                            plotted = True
+                        xp, yp = self._valid_xy(rs, pkc, 0, 1e6)
+                        if xp:
+                            p.plot(xp, yp, pen=self._pg.mkPen(
+                                       color, width=1.1, style=Qt.PenStyle.DashLine),
+                                   symbol="x", symbolSize=6,
+                                   symbolBrush=self._pg.mkBrush(color),
+                                   symbolPen=self._pg.mkPen(color, width=1.0),
+                                   name=f"{label} {ph[:3]}{side} peak")
+                            plotted = True
+        if not plotted:
+            title = "Suspension Speed — 選択フェーズに利用可能なサス速度なし（not available yet）"
+        else:
+            title = "Suspension Speed（利用可能な指標のみ）"
+        p.setTitle(title, size="9pt")
+        if plotted:
+            p.enableAutoRange(axis="y")
+
+    def _phase_speed_vals(self, r, ph):
+        out = {}
+        for side in ("F", "R"):
+            trip = self._PHASE_SPD[ph][side]
+            if trip is None:
+                out[side] = "n/a"
+            else:
+                v = self._num(r.get(trip[0]))
+                out[side] = "—" if v is None else f"{v:.0f}"
+        return out["F"], out["R"]
+
+    def _fill_table(self, sub, runs, phase):
+        tbl = self._tbl
+        tbl.setRowCount(0)
+        if sub is None or sub.empty or not runs:
+            return
+        phases = self._PHASES if phase == "All" else (
+            [phase] if phase in self._PHASES else self._PHASES)
+        rows = []
+        truncated = False
+        for rid in runs:
+            rs = sub[sub["run_id"] == rid]
+            if "lap_no" in rs.columns:
+                rs = rs.sort_values("lap_no")
+            for _, r in rs.iterrows():
+                for ph in phases:
+                    fcol, rcol = self._PHASE_POS[ph]
+                    f = self._num(r.get(fcol))
+                    rr = self._num(r.get(rcol))
+                    if f is not None and not (0 <= f <= self.F_MAX):
+                        f = None
+                    if rr is not None and not (0 <= rr <= self.R_MAX):
+                        rr = None
+                    pitch = (f - rr) if (f is not None and rr is not None) else None
+                    heave = ((f + rr) / 2) if (f is not None and rr is not None) else None
+                    fspd, rspd = self._phase_speed_vals(r, ph)
+                    if len(rows) >= self._TBL_CAP:
+                        truncated = True
+                        break
+                    rows.append((r, ph, f, rr, pitch, heave, fspd, rspd))
+                if truncated:
+                    break
+            if truncated:
+                break
+        tbl.setRowCount(len(rows))
+        for ri, (r, ph, f, rr, pitch, heave, fspd, rspd) in enumerate(rows):
+            vals = [
+                str(r.get("run_id", "—")),
+                str(r.get("rider", "—")),
+                str(r.get("circuit", "—")),
+                str(r.get("session", "—")),
+                self._icell(r.get("run_no")),
+                self._icell(r.get("lap_no")),
+                self._fmt_lap(self._num(r.get("lap_time_s"))),
+                ph,
+                self._fcell(f), self._fcell(rr),
+                self._fcell(pitch), self._fcell(heave),
+                fspd, rspd,
+            ]
+            for ci, val in enumerate(vals):
+                tbl.setItem(ri, ci, QTableWidgetItem(val))
+        if truncated:
+            self._lbl_note.setText(
+                self._lbl_note.text()
+                + f"  ／ ⚠ テーブルは先頭 {self._TBL_CAP} 行に制限（Run/Phase を絞ってください）。")
+
+
 class PostureAnalysisTab(QWidget):
     """🎯 姿勢分析タブ
     Pitch = ApexSusF - ApexSusR  (負値=ノーズDOWN=良好なターンイン)
@@ -3166,6 +3903,12 @@ class PostureAnalysisTab(QWidget):
                 self._combo_circ.addItems(circs)
                 self._combo_circ.blockSignals(False)
             self._update_all()
+            # 3フェーズ Run比較サブタブ（独自フィルタ）へ同じ DataFrame を渡す
+            if hasattr(self, "_phase_cmp"):
+                try:
+                    self._phase_cmp.set_dataframe(self._df)
+                except Exception:
+                    pass
         except Exception as e:
             if hasattr(self, "_lbl_status"):
                 self._lbl_status.setText(f"❌ 読み込みエラー: {e}")
@@ -3390,10 +4133,12 @@ class PostureAnalysisTab(QWidget):
         self._pw_radar.hideAxis("bottom")
         self._pw_radar.hideAxis("left")
 
-        # ── 内部サブタブ: 既存4パネル / Damping-Phase を分離 ───────────
+        # ── 内部サブタブ: 既存4パネル / Damping-Phase / 3フェーズRun比較 ──
         self._inner_tabs = QTabWidget()
         self._inner_tabs.addTab(vsplit, "📊 APEX分析（基本）")
         self._inner_tabs.addTab(self._build_damping_phase_tab(), "⚙️ Damping / Phase")
+        self._phase_cmp = PhaseRunCompareWidget(self._pg)
+        self._inner_tabs.addTab(self._phase_cmp, "🔧 3フェーズ Run比較")
         root.addWidget(self._inner_tabs, stretch=1)
 
     # ════════════════════════════════════════════════════════════════

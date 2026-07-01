@@ -2351,3 +2351,41 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-06-29）の指示で、DB Master �
 - rollback: `backups/TS24_DB_Master.pre_refresh_<ts>.xlsx` を戻す。
 - 未実施（別承認）: DB Master 再生成（GO 文言 `DB Master refresh GO`）/ race_results シート新設（別タスク）/ Supabase / push。
 - 新規: `reports/db_master_refresh_readiness_20260629.md`。
+
+---
+
+## 42. Workbench 3フェーズ Suspension Run Compare UI 追加（既存DB列のみ・DB書込なし）— 2026-07-01 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-01）/ ノート `2026-07-01 What still missing on Workbench` の要望で、
+`PostureAnalysisTab`（🦾 Suspension/Posture）に **Braking / Apex / Exit の3フェーズ Suspension Run Compare UI（MVP）** を追加。
+**既存 DB 列のみ使用**。DB schema変更・正本DB書込・派生再計算・2D再処理・Supabase・origin push は**なし**。
+レポート = `reports/workbench_phase_run_compare_ui_20260701.md`。
+
+### 42a. 実装（`ts24_workbench.py`）
+- 新ヘルパークラス **`PhaseRunCompareWidget`**（`PostureAnalysisTab` を肥大化させず分離）。親の DataFrame を
+  `set_dataframe()` で共有（DB 二重読込なし）。import に `QListWidget, QListWidgetItem` 追加。
+- 内部サブタブに **`🔧 3フェーズ Run比較`** を増設（既存 `📊 APEX分析（基本）` / `⚙️ Damping / Phase` は不変）。
+  `_load_data` 成功時に `self._phase_cmp.set_dataframe(self._df)` を呼ぶ（try/except 保護）。外側 Circuit コンボ（`_update_all`）とは独立。
+- 独自フィルタ: Circuit / Rider / Session（連動再構築・選択保持）/ Run 複数選択リスト（全選択・全解除・既定先頭4）/
+  Phase(All/Braking/Apex/Exit) / Metric(F&R / F / R Position・Pitch=F−R・Heave=(F+R)/2)。
+- グラフ2×2: ①Position 推移（X=lap_no・点=lap実測+線=Run trend線形近似・色=Run・F実線●/R破線▲・All時はApex表示）
+  ②Phase Summary（X=Run・平均F/R・Braking赤/Apex青/Exit緑）③Suspension Speed（**利用可能な Braking F=`brk_f_dive_spd_*` /
+  Exit R=`ce_r_spd_*` のみ** avg実線/peak破線、未整備は `not available yet`）④数値テーブル（Run/Lap/Phase 別・F/R/Pitch/Heave・
+  速度は `n/a`(未整備)/`—`(NULL) 区別・先頭2000行）。
+- データ定義: Braking=`brk_susF/R_avg` / Apex=`apex_susF/R_avg` / Exit=`ce_susF/R_avg`、Pitch=F−R、Heave=(F+R)/2。
+  物理限界(F130/R70mm)超・lap_time 60–300s 外は除外。
+
+### 42b. ★データ制約の扱い（重要）
+- **3フェーズ×F/R のサス速度は DB 未整備**。実在は Braking F / Exit R のみ → 速度グラフはこの2つのみ表示。
+- `brk_spd_avg`/`apex_spd_avg`/`ce_spd_avg` は**車速(km/h)** → **サス速度として代用表示しない**。未整備は UI 注記/`n/a` で明示。
+
+### 42c. 検証
+- `py_compile` PASS。**offscreen スモークテスト全項目 PASS**: 内部3サブタブ / Circuit8・Rider2・Session7 /
+  ARAGON 20Run・既定4選択 / テーブル14列・Apex42行→All126行（3×）/ 全選択519行・全解除0行 / Circuit切替(ASSEN17/全157) /
+  Exit注記(利用可=Braking F,Exit R) / **既存無回帰**（refresh OK・Damping/Phase 1081行・MainWindow 7タブ）。
+- GUI 目視（最終）は Tatsuki ローカル（`python3 ts24_workbench.py`）。
+
+### 42d. スコープ外（禁止遵守）/ 次
+- 正本DB schema変更 / `lap_suspension` 新列 / サス速度の推測補完 / 2D再処理 / DB Master再生成 / Supabase / origin push は**なし**。
+- 次候補（要承認）: 3フェーズ×F/R suspension speed 派生列の設計・dry-run（2D raw から phase別 dive/rebound speed 定義を先に確定）。
+- 変更: `ts24_workbench.py`。新規: `reports/workbench_phase_run_compare_ui_20260701.md`。
