@@ -5,13 +5,14 @@ content_studio.py — 📣 Content Studio (admin-only)
 Turns a loaded MotoGP timing session into ready-to-post social content in a few
 clicks:  analysis → Instagram/X/… post.
 
-The studio is built around the **TS24 Rider Note brand narrative**: every post is
-a 4-page carousel that teaches, not just reports —
+The studio is built around the **TS24 Rider Note brand narrative**: an editorial
+carousel (magazine style — heavy condensed headlines, highlight boxes, real
+charts with annotation callouts, a dark takeaway bar) that teaches, not just
+reports —
 
-    1. Hook      — a question / surprising headline
-    2. Data      — the graph + the key numbers (proof)
-    3. Learning  — the takeaway a normal rider can apply
-    4. CTA       — "Analyse your own riding with TS24 Rider Note"
+    1. Cover    — a photo (editor-supplied) + the headline (a surprising fact)
+    2..N Charts — real per-lap charts (pace / sector / top-speed) + the lesson
+    last CTA    — "Analyse your own riding with TS24 Rider Note" + QR
 
 Pipeline exposed in the UI:
     pick theme → AI editor-in-chief ranks angles → AI headlines (★ rated)
@@ -56,24 +57,12 @@ BRAND_NAME   = "TS24 Rider Note"
 BRAND_URL    = "ts24ridernote.com"
 BRAND_TAG    = "Analyse your own riding."
 
-# accent + scheme palettes used by the PNG renderer
-_SCHEMES = {
-    "light": {
-        "bg": (255, 255, 255), "fg": (17, 17, 17), "muted": (110, 116, 124),
-        "accent": (0, 120, 212), "card": (244, 246, 249), "line": (224, 228, 234),
-    },
-    "dark": {
-        "bg": (12, 14, 20), "fg": (245, 247, 250), "muted": (150, 158, 170),
-        "accent": (225, 6, 0), "card": (26, 30, 40), "line": (44, 50, 62),
-    },
-}
-
-# Carousel templates the user picks from
+# Carousel paper styles the user picks from (mapped to _PAPER_BG in the renderer)
 TEMPLATES = {
-    "A · Photo + Graph (Light)":  {"scheme": "light", "chart": "inset"},
-    "B · Graph Full Screen (Light)": {"scheme": "light", "chart": "full"},
-    "C · Dark Theme":             {"scheme": "dark",  "chart": "inset"},
-    "D · White Theme":            {"scheme": "light", "chart": "inset"},
+    "A · Cream (editorial)":  {"paper": "cream"},
+    "B · Cream + full chart": {"paper": "cream"},
+    "C · Dark":               {"paper": "dark"},
+    "D · White":              {"paper": "white"},
 }
 
 # Export canvas sizes (w, h)
@@ -339,22 +328,168 @@ def ai_headlines(api_key: str, cand: dict, label: str, custom: str = "") -> list
     return fallback
 
 
-def build_pages(cand: dict, headline: str, label: str) -> list[dict]:
-    """The fixed 4-page brand narrative, filled from the candidate."""
-    circuit = (st.session_state.get("mgp_circuit") or "").replace("-", " ").title()
-    big = cand["data_points"][0] if cand.get("data_points") else ("", "", "")
-    return [
-        {"kind": "hook", "eyebrow": circuit or label, "title": headline,
-         "subtitle": cand.get("rider") or "", "footer": label},
-        {"kind": "data", "eyebrow": "THE DATA", "title": cand["headline_fact"],
-         "data_points": cand.get("data_points", []),
-         "big_value": str(big[1]), "big_label": str(big[0]), "footer": label},
-        {"kind": "learning", "eyebrow": "THE LESSON", "title": "What it means for you",
-         "body": cand["learning"], "footer": label},
-        {"kind": "cta", "eyebrow": BRAND_NAME, "title": "Want to analyse your riding?",
-         "body": f"Every rider has a hidden ideal lap.\n{BRAND_TAG}",
-         "url": BRAND_URL, "footer": ""},
-    ]
+# one line colour per rider overlaid on a chart (matches the dashboard)
+_RIDER_COLORS = [(27, 158, 62), (31, 119, 180), (214, 39, 40)]   # green / blue / red
+
+
+def _circuit_name(label: str) -> str:
+    c = (st.session_state.get("mgp_circuit") or "").replace("-", " ").strip()
+    return c.title() if c else (label.split("·")[1].strip() if "·" in label else label)
+
+
+def _top_riders(cls, n: int = 3) -> list[tuple]:
+    """[(rider_no, legend_label '#79 Ai OGURA', short 'Ogura'), ...] top-n by pos."""
+    out = []
+    for _, r in cls.head(n).iterrows():
+        out.append((r["rider_no"], _rl(r), _short_name(_rl(r))))
+    return out
+
+
+def _despike(xs, ys, k=3.5):
+    """Drop robust outliers (out/in laps) so a marketing chart stays clean on
+    any session. Keeps points within k robust-σ of the median; falls back to
+    the raw series if that would leave too few."""
+    if len(ys) < 4:
+        return xs, ys
+    a = np.asarray(ys, dtype=float)
+    med = np.median(a)
+    mad = np.median(np.abs(a - med))
+    if mad <= 0:
+        return xs, ys
+    keep = np.abs(a - med) <= k * 1.4826 * mad
+    if keep.sum() < 3:
+        return xs, ys
+    return [xs[i] for i in range(len(xs)) if keep[i]], \
+           [ys[i] for i in range(len(ys)) if keep[i]]
+
+
+def _series_from(df, riders, ycol, *, flying=True, statuses=None) -> list[dict]:
+    """Per-lap series for a chart: one dict {name,color,x,y} per rider."""
+    series = []
+    for i, (no, legend, _short) in enumerate(riders):
+        try:
+            g = engine.lap_detail(df, no)
+        except Exception:              # noqa: BLE001
+            g = None
+        if g is None or g.empty or ycol not in g.columns:
+            continue
+        sub = g
+        if statuses is not None and "lap_status" in sub.columns:
+            sub = sub[sub["lap_status"].isin(statuses)]
+        elif flying and "is_flying" in sub.columns:
+            sub = sub[sub["is_flying"]]
+        sub = sub[sub[ycol].notna()].sort_values("lap_no")
+        if sub.empty:
+            continue
+        xs = [int(v) for v in sub["lap_no"]]
+        ys = [float(v) for v in sub[ycol]]
+        xs, ys = _despike(xs, ys)
+        series.append({"name": legend, "color": _RIDER_COLORS[i % 3],
+                       "x": xs, "y": ys})
+    return series
+
+
+def _extremum_annotation(series, primary_idx, *, want_min, fmt, text):
+    """A single data-true callout on the primary rider's best point."""
+    if primary_idx >= len(series) or not series[primary_idx]["y"]:
+        return []
+    s = series[primary_idx]
+    j = (min if want_min else max)(range(len(s["y"])), key=lambda k: s["y"][k])
+    return [{"x": s["x"][j], "y": s["y"][j], "color": _RIDER_COLORS[0],
+             "text": f"{text}\n{fmt(s['y'][j])}"}]
+
+
+def _chart_page(cand, df, cls, label) -> dict:
+    """Turn a candidate into a chart-driven insight page (falls back to stat
+    cards / text when a time-series isn't meaningful for the theme)."""
+    theme = cand["theme"]
+    riders = _top_riders(cls, 3)
+    hi = cand.get("rider") or ""
+    base = {"kind": "insight", "eyebrow": theme.upper(), "title": cand["headline_fact"],
+            "highlight": hi, "hi_color": "green", "takeaway": cand.get("learning"),
+            "footer": label}
+
+    if theme == "Top Speed":
+        s = _series_from(df, riders, "speed", flying=True)
+        base.update(eyebrow="THE PROOF · TOP SPEED",
+                    chart={"type": "lines", "series": s, "y_fmt": "plain",
+                           "unit": " km/h", "y_title": "Speed (km/h)",
+                           "annotations": _extremum_annotation(
+                               s, 0, want_min=False, fmt=lambda v: f"{v:.0f} km/h",
+                               text="HIGHEST TOP SPEED")})
+        return base
+
+    if theme == "Sector Analysis":
+        dps = cand.get("data_points", [])
+        worst = max(range(len(dps)), key=lambda k: _num(dps[k][1]) or -9) if dps else 1
+        scol = f"t{worst + 1}"
+        s = _series_from(df, riders, scol, flying=True)
+        base.update(eyebrow=f"WHERE THE RACE WAS WON · SECTOR {worst + 1}",
+                    hi_color="green",
+                    chart={"type": "lines", "series": s, "y_fmt": "plain",
+                           "unit": "s", "y_title": f"T{worst + 1} (s)",
+                           "annotations": _extremum_annotation(
+                               s, 0, want_min=True, fmt=lambda v: f"{v:.3f}s",
+                               text="FASTEST HERE")})
+        return base
+
+    if theme in ("Race Summary", "AI Story", "Consistency", "Tyre / Pace Drop"):
+        s = _series_from(df, riders, "lap_time_s", statuses=["valid", "slow"])
+        base.update(eyebrow="RACE PACE · LAP TIME", hi_color="pink",
+                    chart={"type": "lines", "series": s, "y_fmt": "laptime",
+                           "unit": "", "y_title": "Lap time",
+                           "annotations": _extremum_annotation(
+                               s, 0, want_min=True, fmt=seconds_to_lap_time_label,
+                               text="FASTEST LAP")})
+        return base
+
+    # Ideal Lap & everything else → big-number stat cards
+    base.update(stat_cards=[{"value": str(v), "label": str(l), "unit": str(u)}
+                            for l, v, u in cand.get("data_points", [])[:3]])
+    return base
+
+
+def build_pages(cand: dict, headline: str, label: str,
+                df=None, cls=None, cands=None) -> list[dict]:
+    """Editorial carousel: photo cover → chart insights → CTA.
+
+    When df/cls are given, the insight pages carry REAL per-lap charts (lap-time,
+    sector, top-speed) like the published Rider Note posts. Without them it still
+    produces a valid cover + stat-card page + CTA."""
+    circuit = _circuit_name(label)
+    cover = {
+        "kind": "cover", "eyebrow": "RIDER NOTE · DATA ANALYSIS",
+        "tag": f"{circuit} · MotoGP Race Analysis".upper(),
+        "title": headline, "highlight": cand.get("rider") or "",
+        "subtitle": cand.get("hook") or "", "footer": ""}
+
+    insights: list[dict] = []
+    if df is not None and cls is not None and not cls.empty:
+        insights.append(_chart_page(cand, df, cls, label))
+        # supporting angles → the multi-page "story" (distinct themes, chart-first)
+        order = ["Race Summary", "Sector Analysis", "Top Speed", "Consistency",
+                 "Tyre / Pace Drop", "Ideal Lap"]
+        pool = sorted(cands or [], key=lambda c: order.index(c["theme"])
+                      if c["theme"] in order else 99)
+        for c in pool:
+            if len(insights) >= 3:
+                break
+            if c["theme"] == cand["theme"]:
+                continue
+            insights.append(_chart_page(c, df, cls, label))
+    else:
+        big = cand["data_points"][0] if cand.get("data_points") else ("", "", "")
+        insights.append({
+            "kind": "insight", "eyebrow": "THE DATA", "title": cand["headline_fact"],
+            "highlight": cand.get("rider") or "", "hi_color": "green",
+            "stat_cards": [{"value": str(v), "label": str(l), "unit": str(u)}
+                           for l, v, u in cand.get("data_points", [])[:3]],
+            "takeaway": cand.get("learning"), "footer": label})
+
+    cta = {"kind": "cta", "eyebrow": BRAND_NAME, "title": "Want to analyse your riding?",
+           "highlight": "", "body": "Every rider has a hidden ideal lap.\n" + BRAND_TAG,
+           "url": BRAND_URL, "footer": ""}
+    return [cover] + insights + [cta]
 
 
 def ai_caption(api_key: str, cand: dict, headline: str, label: str,
@@ -452,40 +587,84 @@ def predict_engagement(cand: dict, headline: str, api_key: str = "") -> dict:
 # 4. PNG carousel renderer (Pillow)
 # ════════════════════════════════════════════════════════════════════════════
 def _load_pil():
-    from PIL import Image, ImageDraw, ImageFont          # noqa: F401
+    from PIL import Image, ImageDraw, ImageFont           # noqa: F401
     return Image, ImageDraw, ImageFont
 
 
-_FONT_CANDIDATES = [
+# ── editorial brand tokens ───────────────────────────────────────────────────
+from pathlib import Path as _Path
+_FONT_DIR = _Path(__file__).parent / "assets" / "fonts"
+
+_INK   = (24, 24, 24)
+_CREAM = (243, 239, 228)
+_PAPER = (255, 255, 255)
+_GOLD  = (196, 156, 62)
+_GREEN = (32, 166, 90)
+_PINK  = (231, 30, 120)
+_RED   = (210, 66, 48)
+_MUTED = (128, 126, 120)
+_GRID  = (228, 224, 213)
+_DARK  = (18, 18, 18)
+_HI = {"gold": _GOLD, "green": _GREEN, "pink": _PINK, "red": _RED}
+
+# template → paper colour for the insight/CTA pages
+_PAPER_BG = {
+    "A · Cream (editorial)": _CREAM,
+    "B · Cream + full chart": _CREAM,
+    "C · Dark": _DARK,
+    "D · White": _PAPER,
+}
+
+_SYS_FALLBACK = [
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/System/Library/Fonts/Helvetica.ttc",
 ]
+_FONT_CACHE: dict = {}
+_FONT_FILE = {"display": "Anton-Regular.ttf", "label": "Oswald.ttf",
+              "body": "Archivo.ttf"}
 
 
-def _font(ImageFont, size: int, bold: bool = False):
-    paths = _FONT_CANDIDATES if bold else _FONT_CANDIDATES[::-1]
-    for p in paths:
-        try:
-            return ImageFont.truetype(p, size)
-        except Exception:              # noqa: BLE001
-            continue
+def _font(kind: str, size: int, weight: int | None = None):
+    """kind: 'display' (Anton, headlines) · 'label' (Oswald, eyebrows/numbers) ·
+    'body' (Archivo, copy). weight applies to the two variable fonts."""
+    key = (kind, size, weight)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    from PIL import ImageFont
+    f = None
     try:
-        return ImageFont.load_default(size=size)          # Pillow ≥ 10
+        f = ImageFont.truetype(str(_FONT_DIR / _FONT_FILE[kind]), size)
+        if weight is not None:
+            try:
+                f.set_variation_by_axes([weight] if kind == "label" else [weight, 100])
+            except Exception:          # noqa: BLE001
+                pass
     except Exception:                  # noqa: BLE001
-        return ImageFont.load_default()
+        for p in _SYS_FALLBACK:
+            try:
+                f = ImageFont.truetype(p, size)
+                break
+            except Exception:          # noqa: BLE001
+                continue
+        if f is None:
+            f = ImageFont.load_default()
+    _FONT_CACHE[key] = f
+    return f
 
 
-def _wrap(draw, text, font, max_w):
-    words, lines, cur = text.split(), [], ""
+def _tw(d, s, f):
+    return d.textlength(str(s), font=f)
+
+
+def _wrap(d, text, font, max_w):
+    words, lines, cur = str(text).split(), [], ""
     for w in words:
         trial = (cur + " " + w).strip()
-        if draw.textlength(trial, font=font) <= max_w:
+        if _tw(d, trial, font) <= max_w or not cur:
             cur = trial
         else:
-            if cur:
-                lines.append(cur)
+            lines.append(cur)
             cur = w
     if cur:
         lines.append(cur)
@@ -493,64 +672,19 @@ def _wrap(draw, text, font, max_w):
 
 
 def _num(val):
-    """Best-effort float from a data-point value ('+0.122' -> 0.122, 'P5' -> None)."""
+    """Best-effort float from a data-point value ('+0.122' → 0.122, 'P5' → None)."""
     s = str(val).strip()
-    if s.startswith("P"):                          # rank position, not a magnitude
+    if s.startswith("P"):
         return None
     s = s.replace("+", "").replace("s", "").replace(",", "").replace("km/h", "")
     try:
         return float(s)
-    except Exception:                              # noqa: BLE001
+    except Exception:                  # noqa: BLE001
         return None
 
 
-def _draw_bars(draw, ImageFont, pal, x, y, w, h, data_points):
-    """Bar chart — only meaningful when every value shares one unit (e.g. sector
-    deltas in s). Caller checks unit homogeneity before calling this."""
-    vals = [(lbl, abs(_num(val) or 0.0), val, unit) for lbl, val, unit in data_points]
-    mx = max(v[1] for v in vals) or 1.0
-    n = len(vals)
-    gap = 28
-    bw = (w - gap * (n - 1)) / n
-    f_lbl = _font(ImageFont, 30, bold=True)
-    f_val = _font(ImageFont, 30, bold=True)
-    for i, (lbl, mag, raw, unit) in enumerate(vals):
-        bx = x + i * (bw + gap)
-        bh = max(8, (mag / mx) * (h - 90))
-        by = y + (h - 90) - bh
-        draw.rounded_rectangle([bx, by, bx + bw, y + (h - 90)], radius=10,
-                               fill=pal["accent"])
-        vt = f"{raw}{unit}"
-        draw.text((bx + bw / 2 - draw.textlength(vt, font=f_val) / 2, by - 40),
-                  vt, font=f_val, fill=pal["fg"])
-        draw.text((bx + bw / 2 - draw.textlength(str(lbl), font=f_lbl) / 2,
-                   y + h - 78), str(lbl), font=f_lbl, fill=pal["muted"])
-
-
-def _draw_stat_cards(draw, ImageFont, pal, x, y, w, h, data_points):
-    """Big-number stat cards in a row — used when the data points mix units
-    (e.g. lap time + km/h + rank), where bar heights would mislead."""
-    pts = data_points[:3] or [("", "", "")]
-    n = len(pts)
-    gap = 28
-    cw = (w - gap * (n - 1)) / n
-    f_val = _font(ImageFont, 56, bold=True)
-    f_lbl = _font(ImageFont, 30, bold=True)
-    for i, (lbl, val, unit) in enumerate(pts):
-        cx = x + i * (cw + gap)
-        draw.rounded_rectangle([cx, y, cx + cw, y + h], radius=18, fill=pal["bg"],
-                               outline=pal["line"], width=2)
-        vt = f"{val}{unit}"
-        # shrink to fit the card
-        fv = f_val
-        for sz in (56, 48, 40, 34):
-            fv = _font(ImageFont, sz, bold=True)
-            if draw.textlength(vt, font=fv) <= cw - 32:
-                break
-        draw.text((cx + cw / 2 - draw.textlength(vt, font=fv) / 2, y + h / 2 - 50),
-                  vt, font=fv, fill=pal["accent"])
-        draw.text((cx + cw / 2 - draw.textlength(str(lbl), font=f_lbl) / 2,
-                   y + h - 56), str(lbl), font=f_lbl, fill=pal["muted"])
+def _rr(d, box, r, **kw):
+    d.rounded_rectangle([round(v) for v in box], radius=r, **kw)
 
 
 def _draw_qr(Image, url, box):
@@ -565,104 +699,388 @@ def _draw_qr(Image, url, box):
         return None
 
 
-def render_carousel(pages, template_key, size_key) -> list:
-    """Return a list of PIL.Image carousel pages."""
+# ── headline with highlight boxes ────────────────────────────────────────────
+def _hi_tokens(title, highlight):
+    words = str(title).split()
+    if not highlight:
+        return [(w, False) for w in words]
+    hw = str(highlight).split()
+    low = [w.lower().strip(".,'") for w in words]
+    hl = [w.lower().strip(".,'") for w in hw]
+    idx = -1
+    for s in range(len(words) - len(hl) + 1):
+        if low[s:s + len(hl)] == hl:
+            idx = s
+            break
+    return [(w, idx != -1 and idx <= k < idx + len(hl)) for k, w in enumerate(words)]
+
+
+def _wrap_tokens(d, tokens, font, max_w):
+    lines, cur, curw, sw = [], [], 0, _tw(d, " ", font) + 4
+    for word, hi in tokens:
+        w = _tw(d, word, font)
+        add = w if not cur else curw + sw + w
+        if add <= max_w or not cur:
+            cur.append((word, hi))
+            curw = add
+        else:
+            lines.append(cur)
+            cur, curw = [(word, hi)], w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _draw_headline(d, x, y, tokens, font, max_w, line_h, base_col, hi_col):
+    """Wrapped ALL-CAPS display headline; consecutive highlighted words get one
+    filled box (white text). Returns the y just below the last line."""
+    sw = _tw(d, " ", font) + 4
+    bb = d.textbbox((0, 0), "HZg", font=font)
+    for line in _wrap_tokens(d, tokens, font, max_w):
+        pos, cx = [], x
+        for word, hi in line:
+            w = _tw(d, word, font)
+            pos.append((word, hi, cx, w))
+            cx += w + sw
+        j = 0
+        while j < len(pos):                       # highlight boxes first (merge runs)
+            if pos[j][1]:
+                k = j
+                while k + 1 < len(pos) and pos[k + 1][1]:
+                    k += 1
+                bx0, bx1 = pos[j][2], pos[k][2] + pos[k][3]
+                _rr(d, [bx0 - 9, y + bb[1] - 5, bx1 + 9, y + bb[3] + 9], 7, fill=hi_col)
+                j = k + 1
+            else:
+                j += 1
+        for word, hi, cx, w in pos:
+            d.text((cx, y), word, font=font, fill=(255, 255, 255) if hi else base_col)
+        y += line_h
+    return y
+
+
+def _eyebrow(d, x, y, text, color, size=26, tracking=4):
+    f = _font("label", size, 600)
+    cx = x
+    for ch in str(text).upper():
+        d.text((cx, y), ch, font=f, fill=color)
+        cx += _tw(d, ch, f) + (tracking if ch != " " else tracking + 6)
+    return size + 8
+
+
+def _logo(d, x, y, on_dark):
+    """TS24. mark in a gold-outlined box. Returns its width."""
+    f = _font("label", 34, 700)
+    txt = "TS24"
+    tw = _tw(d, txt, f) + _tw(d, ".", f)
+    padx, h = 16, 50
+    box_w = tw + 2 * padx
+    _rr(d, [x, y, x + box_w, y + h], 8, outline=_GOLD, width=3)
+    ink = (255, 255, 255) if on_dark else _INK
+    d.text((x + padx, y + 5), txt, font=f, fill=ink)
+    d.text((x + padx + _tw(d, txt, f), y + 5), ".", font=f, fill=_GOLD)
+    return box_w
+
+
+def _counter(d, x_right, y, idx, n, color):
+    f = _font("label", 28, 600)
+    s = f"{idx + 1}/{n}"
+    d.text((x_right - _tw(d, s, f), y), s, font=f, fill=color)
+
+
+def _chrome(d, W, pad, idx, n, on_dark, top_rule):
+    if top_rule:
+        d.rectangle([0, 0, W, 9], fill=_GOLD)
+    lw = _logo(d, pad, 48, on_dark)
+    _counter(d, W - pad, 58, idx, n, _MUTED if not on_dark else (210, 210, 210))
+    return lw
+
+
+# ── charts ───────────────────────────────────────────────────────────────────
+def _xticks(a, b, n=6):
+    step = max(1, round((b - a) / n))
+    t, v = [], int(a)
+    while v <= b:
+        t.append(v)
+        v += step
+    return t
+
+
+def _line_chart(d, box, series, y_fmt, unit, y_title, annotations):
+    x0, y0, x1, y1 = box
+    _rr(d, box, 22, fill=_PAPER, outline=_GRID, width=2)
+    if not series:
+        f = _font("label", 30, 500)
+        d.text((x0 + 30, (y0 + y1) // 2 - 15), "No lap data available",
+               font=f, fill=_MUTED)
+        return
+
+    # top row: y-axis title, then the rider legend (matches the print layout)
+    fl = _font("label", 24, 600)
+    lx, ly = x0 + 30, y0 + 24
+    if y_title:
+        ft0 = _font("label", 24, 700)
+        d.text((lx, ly), y_title, font=ft0, fill=_INK)
+        lx += _tw(d, y_title, ft0) + 34
+    for s in series:
+        d.line([(lx, ly + 13), (lx + 24, ly + 13)], fill=s["color"], width=5)
+        d.ellipse([lx + 8, ly + 6, lx + 16, ly + 14], fill=s["color"])
+        d.text((lx + 32, ly), s["name"], font=fl, fill=_INK)
+        lx += 32 + _tw(d, s["name"], fl) + 28
+
+    pl, pr, pt, pb = x0 + 104, x1 - 34, y0 + 70, y1 - 52
+    allx = [v for s in series for v in s["x"]]
+    ally = [v for s in series for v in s["y"]]
+    xmin, xmax = min(allx), max(allx)
+    ymin, ymax = min(ally), max(ally)
+    if ymax == ymin:
+        ymax = ymin + 1
+    pad = (ymax - ymin) * 0.14
+    ymin, ymax = ymin - pad, ymax + pad
+    if xmax == xmin:
+        xmax = xmin + 1
+
+    def sx(v):
+        return pl + (v - xmin) / (xmax - xmin) * (pr - pl)
+
+    def sy(v):
+        return pb - (v - ymin) / (ymax - ymin) * (pb - pt)
+
+    ft = _font("label", 22, 500)
+    for k in range(5):
+        yy = ymin + (ymax - ymin) * k / 4
+        py = sy(yy)
+        d.line([(pl, py), (pr, py)], fill=_GRID, width=1)
+        lab = (seconds_to_lap_time_label(yy) if y_fmt == "laptime"
+               else f"{yy:.1f}")
+        d.text((pl - 12 - _tw(d, lab, ft), py - 12), lab, font=ft, fill=_MUTED)
+    for xv in _xticks(xmin, xmax):
+        px = sx(xv)
+        d.text((px - _tw(d, str(xv), ft) / 2, pb + 12), str(xv), font=ft, fill=_MUTED)
+
+    for s in series:
+        pts = [(sx(a), sy(b)) for a, b in zip(s["x"], s["y"])]
+        if len(pts) >= 2:
+            d.line(pts, fill=s["color"], width=4, joint="curve")
+        for px, py in pts:
+            d.ellipse([px - 4, py - 4, px + 4, py + 4], fill=s["color"])
+
+    def _callout(px, py, text, color):
+        f1 = _font("label", 22, 700)
+        f2 = _font("label", 19, 500)
+        head, _, sub = str(text).partition("\n")
+        w = max(_tw(d, head, f1), _tw(d, sub, f2)) + 24
+        h = 30 + (24 if sub else 0)
+        bx = min(max(px - w / 2, pl + 4), pr - w - 4)
+        by = py - h - 24 if py - h - 24 > pt else py + 22
+        d.ellipse([px - 7, py - 7, px + 7, py + 7], outline=color, width=3)
+        d.line([(px, py), (bx + w / 2, by + (h if by < py else 0))], fill=color, width=2)
+        _rr(d, [bx, by, bx + w, by + h], 8, fill=color)
+        d.text((bx + 12, by + 5), head, font=f1, fill=(255, 255, 255))
+        if sub:
+            d.text((bx + 12, by + 30), sub, font=f2, fill=(255, 255, 255))
+
+    for a in (annotations or []):
+        _callout(sx(a["x"]), sy(a["y"]), a["text"], a.get("color", _GREEN))
+
+
+def _stat_cards(d, box, cards, accent):
+    x0, y0, x1, y1 = box
+    n = len(cards) or 1
+    gap = 24
+    cw = (x1 - x0 - gap * (n - 1)) / n
+    for i, c in enumerate(cards):
+        cx = x0 + i * (cw + gap)
+        first = i == 0
+        _rr(d, [cx, y0, cx + cw, y1], 20,
+            fill=(236, 246, 240) if first else _PAPER,
+            outline=accent if first else _GRID, width=2)
+        val = str(c["value"]) + (c.get("unit") or "")
+        sz = 76
+        for sz in (76, 64, 54, 46, 38):
+            fv = _font("display", sz)
+            if _tw(d, val, fv) <= cw - 30:
+                break
+        col = accent if first else _INK
+        d.text((cx + cw / 2 - _tw(d, val, fv) / 2, y0 + (y1 - y0) / 2 - sz * 0.72),
+               val, font=fv, fill=col)
+        fll = _font("label", 24, 600)
+        lab = str(c["label"]).upper()
+        while _tw(d, lab, fll) > cw - 20 and len(lab) > 4:
+            lab = lab[:-2]
+        d.text((cx + cw / 2 - _tw(d, lab, fll) / 2, y1 - 52), lab, font=fll, fill=_MUTED)
+
+
+def _takeaway(d, box, text, emph, hi_col, on_dark):
+    x0, y0, x1, y1 = box
+    _rr(d, box, 16, fill=(38, 38, 42) if on_dark else _DARK)
+    f = _font("body", 30, 600)
+    inner, maxw = x0 + 28, (x1 - x0) - 56
+    lines = _wrap(d, text, f, maxw)[:3]
+    ty = y0 + ((y1 - y0) - len(lines) * 40) / 2
+    hw = {w.lower().strip(".,") for w in (emph or [])}
+    for ln in lines:
+        cx = inner
+        for word in ln.split():
+            col = hi_col if word.lower().strip(".,") in hw else (238, 238, 238)
+            d.text((cx, ty), word, font=f, fill=col)
+            cx += _tw(d, word + " ", f)
+        ty += 40
+
+
+# ── cover photo ──────────────────────────────────────────────────────────────
+def _cover_fit(Image, photo, W, H):
+    img = Image.open(io.BytesIO(photo)).convert("RGB")
+    scale = max(W / img.width, H / img.height)
+    nw, nh = int(img.width * scale) + 1, int(img.height * scale) + 1
+    img = img.resize((nw, nh))
+    left, top = (nw - W) // 2, (nh - H) // 2
+    return img.crop((left, top, left + W, top + H))
+
+
+def _darken(Image, base):
+    W, H = base.size
+    ys = np.arange(H) / H
+    a_top = np.clip((0.22 - ys) / 0.22, 0, 1) * 150
+    a_bot = np.clip((ys - 0.40) / 0.60, 0, 1) * 225
+    col = np.clip(np.maximum(a_top, a_bot), 0, 238).astype("uint8")
+    mask = Image.fromarray(np.repeat(col[:, None], W, axis=1), mode="L")
+    return Image.composite(Image.new("RGB", (W, H), (0, 0, 0)), base, mask)
+
+
+def _cover_bg(Image, photo, W, H):
+    if photo:
+        try:
+            return _darken(Image, _cover_fit(Image, photo, W, H))
+        except Exception:          # noqa: BLE001
+            pass
+    base = Image.new("RGB", (W, H), (16, 17, 20))
+    ys = np.arange(H) / H
+    col = (18 + ys * 10).astype("uint8")
+    arr = np.stack([col, col, (col + 6)], axis=-1)
+    arr = np.repeat(arr[:, None, :], W, axis=1)
+    return Image.fromarray(arr, "RGB")
+
+
+# ── page renderers ───────────────────────────────────────────────────────────
+def _render_cover(Image, ImageDraw, page, W, H, pad, photo, idx, n):
+    im = _cover_bg(Image, photo, W, H)
+    d = ImageDraw.Draw(im)
+    lw = _logo(d, pad, 54, True)
+    _eyebrow(d, pad + lw + 22, 68, page.get("eyebrow", ""), (232, 232, 232), size=24)
+    _counter(d, W - pad, 60, idx, n, (225, 225, 225))
+
+    # bottom stack — measured from the base up
+    tag = str(page.get("tag", "")).upper()
+    ftag = _font("label", 24, 700)
+    tokens = _hi_tokens(str(page.get("title", "")).upper(), str(page.get("highlight", "")).upper())
+    fh = _font("display", 86)
+    lh = 92
+    lines = _wrap_tokens(d, tokens, fh, W - 2 * pad)
+    hl_h = len(lines) * lh
+    sub = page.get("subtitle") or ""
+    fsub = _font("body", 33, 500)
+    sub_lines = _wrap(d, sub, fsub, W - 2 * pad)[:2] if sub else []
+    sub_h = len(sub_lines) * 42
+
+    base_y = H - 96
+    y = base_y - sub_h - (24 if sub_lines else 0) - hl_h - 26 - 46
+    # tag pill
+    tw = _tw(d, tag, ftag)
+    _rr(d, [pad, y, pad + tw + 34, y + 42], 6, fill=_GOLD)
+    d.text((pad + 17, y + 8), tag, font=ftag, fill=_INK)
+    y += 46 + 26
+    y = _draw_headline(d, pad, y, tokens, fh, W - 2 * pad, lh, (255, 255, 255), _GOLD)
+    y += 24
+    for ln in sub_lines:
+        d.text((pad, y), ln, font=fsub, fill=(226, 226, 226))
+        y += 42
+    return im
+
+
+def _render_insight(Image, ImageDraw, page, W, H, pad, bg, idx, n):
+    on_dark = bg == _DARK
+    im = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(im)
+    _chrome(d, W, pad, idx, n, on_dark, top_rule=True)
+    base_col = (245, 245, 245) if on_dark else _INK
+
+    y = 142
+    y += _eyebrow(d, pad, y, page.get("eyebrow", ""), _GOLD, size=25) + 14
+    tokens = _hi_tokens(str(page.get("title", "")).upper(), str(page.get("highlight", "")).upper())
+    hi_col = _HI.get(page.get("hi_color", "green"), _GREEN)
+    fh = _font("display", 58)
+    y = _draw_headline(d, pad, y, tokens, fh, W - 2 * pad, 64, base_col, hi_col) + 22
+
+    take = page.get("takeaway")
+    bar_h = 150 if take else 0
+    bar_top = H - 70 - bar_h
+    area = (pad, y, W - pad, bar_top - 24)
+
+    if page.get("chart"):
+        c = page["chart"]
+        _line_chart(d, area, c["series"], c.get("y_fmt", "plain"),
+                    c.get("unit", ""), c.get("y_title", ""), c.get("annotations"))
+    elif page.get("stat_cards"):
+        cards = page["stat_cards"]
+        band = (area[0], area[1], area[2], min(area[3], area[1] + 320))
+        _stat_cards(d, band, cards, hi_col)
+
+    if take:
+        _takeaway(d, (pad, bar_top, W - pad, H - 70), take,
+                  [page.get("highlight", "")], hi_col, on_dark)
+    return im
+
+
+def _render_cta(Image, ImageDraw, page, W, H, pad, bg, idx, n):
+    on_dark = bg == _DARK
+    im = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(im)
+    _chrome(d, W, pad, idx, n, on_dark, top_rule=True)
+    base_col = (245, 245, 245) if on_dark else _INK
+
+    y = 200
+    y += _eyebrow(d, pad, y, BRAND_NAME, _GOLD, size=26) + 24
+    tokens = _hi_tokens(str(page.get("title", "")).upper(), "ANALYSE")
+    fh = _font("display", 72)
+    y = _draw_headline(d, pad, y, tokens, fh, W - 2 * pad, 80, base_col, _GREEN) + 30
+    fb = _font("body", 34, 500)
+    for para in str(page.get("body", "")).split("\n"):
+        for ln in _wrap(d, para, fb, W - 2 * pad):
+            d.text((pad, y), ln, font=fb, fill=_MUTED)
+            y += 46
+        y += 8
+
+    url = page.get("url", BRAND_URL)
+    qr = _draw_qr(Image, url, 250)
+    qy = H - pad - 250
+    if qr is not None:
+        im.paste(qr, (pad, qy))
+        d.text((pad + 286, qy + 96), url, font=_font("label", 40, 600), fill=base_col)
+    else:
+        fu = _font("label", 46, 700)
+        ty = qy + 96
+        d.polygon([(pad, ty + 6), (pad, ty + 34), (pad + 24, ty + 20)], fill=_GREEN)
+        d.text((pad + 40, ty), url, font=fu, fill=_GREEN)
+    return im
+
+
+def render_carousel(pages, template_key, size_key, photo=None) -> list:
+    """Return a list of PIL.Image editorial carousel pages."""
     Image, ImageDraw, ImageFont = _load_pil()
-    tpl = TEMPLATES.get(template_key, TEMPLATES["D · White Theme"])
-    pal = _SCHEMES[tpl["scheme"]]
+    bg = _PAPER_BG.get(template_key, _CREAM)
     W, H = SIZES.get(size_key, (1080, 1350))
-    pad = 84
+    pad = 64
+    n = len(pages)
     imgs = []
-
     for idx, page in enumerate(pages):
-        im = Image.new("RGB", (W, H), pal["bg"])
-        d = ImageDraw.Draw(im)
-
-        # top accent bar + page counter
-        d.rectangle([0, 0, W, 14], fill=pal["accent"])
-        f_eye = _font(ImageFont, 34, bold=True)
-        eyebrow = str(page.get("eyebrow", "")).upper()
-        d.text((pad, 70), eyebrow, font=f_eye, fill=pal["accent"])
-        f_pg = _font(ImageFont, 30, bold=True)
-        pg = f"{idx + 1}/{len(pages)}"
-        d.text((W - pad - d.textlength(pg, font=f_pg), 70), pg,
-               font=f_pg, fill=pal["muted"])
-
         kind = page.get("kind")
-        y = 180
-
-        if kind == "hook":
-            f_t = _font(ImageFont, 96, bold=True)
-            for ln in _wrap(d, page["title"], f_t, W - 2 * pad):
-                d.text((pad, y), ln, font=f_t, fill=pal["fg"])
-                y += 108
-            if page.get("subtitle"):
-                f_s = _font(ImageFont, 48, bold=True)
-                d.text((pad, y + 24), page["subtitle"], font=f_s, fill=pal["accent"])
-
-        elif kind == "data":
-            f_t = _font(ImageFont, 56, bold=True)
-            for ln in _wrap(d, page["title"], f_t, W - 2 * pad):
-                d.text((pad, y), ln, font=f_t, fill=pal["fg"])
-                y += 66
-            y += 24
-            big_full = (template_key.startswith("B"))
-            chart_h = int(H * (0.42 if big_full else 0.34))
-            dps = page.get("data_points", [])
-            # bars only when ≥3 points share one unit and are all numeric;
-            # otherwise stat cards (mixed units → bar heights would mislead).
-            units = {u for _, _, u in dps}
-            numeric = all(_num(v) is not None for _, v, _ in dps) if dps else False
-            use_bars = len(dps) >= 3 and len(units) == 1 and numeric
-            if use_bars:
-                d.rounded_rectangle([pad, y, W - pad, y + chart_h], radius=24,
-                                    fill=pal["card"])
-                _draw_bars(d, ImageFont, pal, pad + 40, y + 40,
-                           W - 2 * pad - 80, chart_h - 40, dps)
-            else:
-                _draw_stat_cards(d, ImageFont, pal, pad, y,
-                                 W - 2 * pad, chart_h, dps)
-
-        elif kind == "learning":
-            f_t = _font(ImageFont, 64, bold=True)
-            d.text((pad, y), page["title"], font=f_t, fill=pal["accent"])
-            y += 110
-            f_b = _font(ImageFont, 50)
-            for para in str(page.get("body", "")).split("\n"):
-                for ln in _wrap(d, para, f_b, W - 2 * pad):
-                    d.text((pad, y), ln, font=f_b, fill=pal["fg"])
-                    y += 64
-                y += 14
-
+        if kind == "cover":
+            im = _render_cover(Image, ImageDraw, page, W, H, pad, photo, idx, n)
         elif kind == "cta":
-            f_brand = _font(ImageFont, 44, bold=True)
-            d.text((pad, y), BRAND_NAME, font=f_brand, fill=pal["accent"])
-            y += 90
-            f_t = _font(ImageFont, 72, bold=True)
-            for ln in _wrap(d, page["title"], f_t, W - 2 * pad):
-                d.text((pad, y), ln, font=f_t, fill=pal["fg"])
-                y += 84
-            y += 20
-            f_b = _font(ImageFont, 46)
-            for para in str(page.get("body", "")).split("\n"):
-                d.text((pad, y), para, font=f_b, fill=pal["muted"])
-                y += 64
-            qr = _draw_qr(Image, page.get("url", BRAND_URL), 240)
-            qy = H - pad - 240
-            if qr is not None:
-                im.paste(qr, (pad, qy))
-                f_u = _font(ImageFont, 44, bold=True)
-                d.text((pad + 280, qy + 90), page.get("url", BRAND_URL),
-                       font=f_u, fill=pal["fg"])
-            else:
-                f_u = _font(ImageFont, 52, bold=True)
-                d.text((pad, qy + 90), "→ " + page.get("url", BRAND_URL),
-                       font=f_u, fill=pal["accent"])
-
-        # footer
-        if page.get("footer"):
-            f_f = _font(ImageFont, 26)
-            d.text((pad, H - 56), str(page["footer"]), font=f_f, fill=pal["muted"])
+            im = _render_cta(Image, ImageDraw, page, W, H, pad, bg, idx, n)
+        else:
+            im = _render_insight(Image, ImageDraw, page, W, H, pad, bg, idx, n)
         imgs.append(im)
     return imgs
 
@@ -693,7 +1111,8 @@ def render_content_studio(df, cls, label, *, api_key: str = "", is_admin: bool =
                 unsafe_allow_html=True)
     st.caption(f"Turn this session into ready-to-post content for **{BRAND_NAME}**. "
                "Analysis → Instagram post in a few clicks. "
-               "Every post follows the brand story: **Hook → Data → Lesson → CTA**.")
+               "Editorial carousel: **Cover photo → real charts → CTA**, in the "
+               "published Rider Note style.")
 
     if cls is None or cls.empty:
         st.info("Load a session (upload / online fetch / demo) first — Content "
@@ -743,6 +1162,15 @@ def render_content_studio(df, cls, label, *, api_key: str = "", is_admin: bool =
                             index=0, key="cs_template")
     size_key = c2.selectbox("3 · Size", list(SIZES.keys()), index=0, key="cs_size")
 
+    # cover photo (page 1 background) — supplied by the editor per post
+    photo_up = st.file_uploader(
+        "Cover photo (page 1 background) — optional, use a shot that fits the story",
+        type=["jpg", "jpeg", "png", "webp"], key="cs_cover_photo")
+    photo_bytes = photo_up.getvalue() if photo_up is not None else None
+    if photo_bytes is None:
+        st.caption("No cover photo yet → page 1 uses a dark fallback. "
+                   "Drop in a rider/bike photo for the published look.")
+
     # ── 2) headlines ─────────────────────────────────────────────────────────
     st.markdown("#### 4 · Headline")
     sig = f"{theme}|{custom}|{cand['headline_fact']}"
@@ -758,11 +1186,11 @@ def render_content_studio(df, cls, label, *, api_key: str = "", is_admin: bool =
     chosen = st.text_input("Edit headline", value=chosen, key="cs_hl_edit")
 
     # ── 3) carousel preview ──────────────────────────────────────────────────
-    pages = build_pages(cand, chosen, label)
-    st.markdown("#### 5 · Carousel preview  ·  Hook → Data → Lesson → CTA")
+    pages = build_pages(cand, chosen, label, df, cls, cands)
+    st.markdown("#### 5 · Carousel preview  ·  Cover → Charts → CTA")
     try:
-        imgs = render_carousel(pages, template, size_key)
-        cols = st.columns(4)
+        imgs = render_carousel(pages, template, size_key, photo=photo_bytes)
+        cols = st.columns(len(imgs) or 1)
         for i, im in enumerate(imgs):
             cols[i].image(im, caption=f"Page {i + 1}", use_container_width=True)
     except ModuleNotFoundError:
@@ -842,7 +1270,7 @@ def render_content_studio(df, cls, label, *, api_key: str = "", is_admin: bool =
                 prog = st.progress(0.0)
                 for k, c in enumerate(cands[:n]):
                     hl = ai_headlines(api_key, c, label)[0]["text"]
-                    pg = build_pages(c, hl, label)
+                    pg = build_pages(c, hl, label, df, cls, cands)
                     folder = f"{k + 1:02d}_{_slugify(c['theme'])}"
                     try:
                         ims = render_carousel(pg, template, size_key)

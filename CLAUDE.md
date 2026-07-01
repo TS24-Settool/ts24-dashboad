@@ -1674,3 +1674,51 @@ python -m motogp_tool.build_circuit_assets_from_official assen mugello   # 個�
   `Medium / Hard` 形式）。タイヤ情報が無いクラスではブロックごと非表示（=既存UIに影響なし）。
 - 変更: `motogp_tool/engine.py`（best_lap_tyre + session_review拡張）, `motogp_tool/app_page.py`
   （_tyre_str + Session Review表示）。`parse_analysis_pdf.py` は既に抽出済みのため無改修。
+
+---
+
+## 25. Content Studio — エディトリアル・カルーセル全面リデザイン（2026-07-01 実施）
+
+**目的:** §22 のInstagram画像生成を「白カードに文字」的な簡素な見た目から、実際に公開されている
+**TS24 Rider Note の雑誌風エディトリアル・デザイン**（重厚なCondensed見出し＋ハイライトボックス、
+本物のチャート＋注釈コールアウト、ダークな要点バー、写真表紙）へ作り替える（Tatsuki要望＝提示された
+公開投稿モックアップに合わせる）。表紙写真は投稿ごとに Tatsuki が用意する。
+
+### 25a. バンドルフォント（OFL・リポジトリ同梱でCloudでも同一描画）
+- `motogp_tool/assets/fonts/`:
+  **Anton-Regular**（見出し=極太Condensed / 静的）, **Oswald**（アイキャッチ・数値・凡例 / 可変wght
+  200-700）, **Archivo**（本文・要点バー / 可変wght·wdth）。各OFLライセンス同梱。DejaVu/Arialを最終
+  フォールバックに保持。`_font(kind,size,weight)` が可変フォントを `set_variation_by_axes` で重み設定＋キャッシュ。
+- 新規ハード依存なし（Pillow/qrcode は既存 §22、numpy も既存。**matplotlib不使用**＝チャートは全て
+  Pillowで自前描画）。
+
+### 25b. デザインシステム（`content_studio.py` レンダラ全面刷新）
+- パレット: クリーム地 `#F3EFE4` / ゴールド `#C49C3E`（TS24アクセント=上部ルール・ロゴ枠・アイブロウ・タグ）/
+  ハイライト green `#20A65A`・pink `#E71E78`・red。ライダー線色 green/blue/red（ダッシュボード踏襲）。
+- ページ種別: **cover**（写真フルブリード＋暗化グラデ＋ゴールドTS24ロゴ枠＋ゴールドタグpill＋Anton見出し
+  ＋ハイライトBox＋サブ）/ **insight**（上部ゴールドルール＋ロゴ＋ページ番号＋ゴールドアイブロウ＋Anton見出し
+  ＋色付きハイライトBox＋白パネルの実チャート＋下部ダーク要点バー）/ **cta**（見出し＋QR＋緑URL）。
+- テンプレ4種（TEMPLATES）= 用紙色のみ（Cream×2 / Dark / White）。サイズ3種（IG Portrait/Square/Story）維持。
+- ハイライトBox: 見出しを (word, is_hi) にトークン化→折返し→連続ハイライト語を1つの塗りBox＋白文字で描画
+  （`_hi_tokens`/`_wrap_tokens`/`_draw_headline`）。空白14px=Box余白と衝突する問題を余白9px＋語間+4pxで解消。
+
+### 25c. 本物のチャート（Pillow自前描画・データ真実性）
+- `_line_chart`: 白角丸パネル＋凡例（先頭にY軸タイトル→ライダー凡例）＋グリッド＋Y目盛（lap-time=`M'SS.mmm`
+  / 数値）＋X目盛＋折線＋マーカー＋**注釈コールアウト**（データ真実の1点のみ: 最速ラップ/最高速/最速セクター
+  を緑Boxで指す）。
+- テーマ→チャート: Top Speed=speed推移 / Sector Analysis=最差セクター推移 / Race Summary·AI Story·
+  Consistency·Tyre=lap-time推移 / Ideal Lap 他=ビッグ数値statカード。系列は `engine.lap_detail` から抽出。
+- **`_despike`（頑健外れ値除去 / MADベース）**: アウトラップ等でチャートが暴れるのを防ぎ、どのセッションでも
+  「公開品質」の線になるよう中央値±3.5σ外を除去（残数<3なら生データにフォールバック）。データ捏造ではなく
+  ノイズ除去。要点バーは candidate の `learning` を使用。
+
+### 25d. UI・ページ構成
+- `build_pages(cand, headline, label, df, cls, cands)`: 表紙→（自テーマのチャート＋他の強い角度を最大3枚）→
+  CTA の**5ページ**。df/cls無しでも表紙＋statカード＋CTAで動作。
+- `render_content_studio` に**表紙写真アップローダ**追加（任意・未指定時はダーク表紙にフォールバック）。
+  `render_carousel(pages, template, size, photo=)` に写真bytesを受け渡し。Weekly Contentバッチも新シグネチャ。
+- ローカル検証: demo Qatar FP1（22台/343ラップ）で cover(写真あり/なし)・chart×3・statカード・CTA(QR)を
+  Cream/White/Dark × IG/Square/Story で全描画確認（PNG目視）。GUI(Streamlit)起動はサンドボックス制約で
+  未実施＝Cloudデプロイ後に Tatsuki が目視確認。
+- 新規: `motogp_tool/assets/fonts/*`（Anton/Oswald/Archivo＋OFL）。変更: `motogp_tool/content_studio.py`
+  （レンダラ刷新・build_pages・UI）。`app_page.py`/`dashboard.py` は無改修（呼び出し口 §22 のまま）。
