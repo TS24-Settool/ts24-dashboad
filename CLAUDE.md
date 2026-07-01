@@ -2389,3 +2389,41 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-01）/ ノート `2026-07-01 Wh
 - 正本DB schema変更 / `lap_suspension` 新列 / サス速度の推測補完 / 2D再処理 / DB Master再生成 / Supabase / origin push は**なし**。
 - 次候補（要承認）: 3フェーズ×F/R suspension speed 派生列の設計・dry-run（2D raw から phase別 dive/rebound speed 定義を先に確定）。
 - 変更: `ts24_workbench.py`。新規: `reports/workbench_phase_run_compare_ui_20260701.md`。
+
+---
+
+## 43. 3フェーズ×F/R Suspension Speed 指標設計 + scratch feasibility（write/ロジック変更なし）— 2026-07-01 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-01）の指示で、Workbench `3フェーズ Run比較` の `not available yet`（Braking R / Apex F/R / Exit F の
+サス速度）を埋めるための **3フェーズ×F/R Suspension Speed 指標を設計し scratch/read-only で feasibility 確認**。
+**正本DB schema変更・本番 `build_master_db.py` ロジック変更・2D再処理・正本DB書込なし**。設計 report のみ。
+レポート = `reports/phase_susp_speed_metric_design_20260701.md`。多エージェント設計レビュー（物理/データ/品質/UI）＋6主張の敵対的検証で **ENDORSE WITH CHANGES**。
+
+### 43a. scratch feasibility（read-only・正本DB `mode=ro`）
+- 本番 `build_master_db.py` を **import のみ**（低レベル parse・`AREAS`・`_vel`/`_zone_mask` 再利用）で、ARAGON/ASSEN/JEREZ×DA77/JA52 の **70 outing/475 lap** に
+  「3フェーズ×F/R×{dive,reb,abs}×{avg,peak}」を再計算。scratch script はセッション scratchpad（非コミット）。
+- **決定論**: 既存4列（`brk_f_dive_spd_avg/peak`, `ce_r_spd_avg/peak`）を同一パスで再計算し本番 `extract_outing` と **1900ペア突合→不一致0（PASS）**。
+  正本DB照合 scratch値カバー率 **98.9%/98.6%**。→ マトリクスは本番と同一 grid/velocity/mask 基盤（他18セルは構成担保・full rebuild で再ゲート要）。
+- ゾーン n>=5 成立: Braking 95% / Apex 99% / Exit 64%（Exit 希薄は CORNER_EXIT 本質・欠陥でない）。
+- **★peak(max) は Apex/Exit で外れ値支配**（max/p95 最大7.24×・`apex_f_dive` max=7011mm/s=非物理スパイク）。Braking-F は1.6×で良性。
+
+### 43b. 推奨設計（6補正込み）
+- 列 = **26列 family**: **22新規**（`brk_f_reb`/`brk_r_dive`/`brk_r_reb`/`apex_f_dive`/`apex_f_reb`/`apex_r_dive`/`apex_r_reb`/
+  `ce_f_dive`/`ce_f_reb`/`ce_r_dive`/`ce_r_reb` × avg/peak）＋**2凍結**（`brk_f_dive_spd_*`・byte一致・peak=max）＋**2 abs別名**（`ce_r_spd_*`・`superseded_by` directional）。
+- 方向 dive/reb 主（圧縮=コンプ・伸び=リバウンド クリッカー対応）。ただし**相対ダンピング速度指数**（非校正・車速km/h と混同禁止）。
+- **peak = 新22列は p95（max ではない）**／既存2 peak と abs別名は max のまま（reducer を列ごとに記録し誤比較防止）。
+- **null 二段ガード分割**: avg=n>=5 / **peak(p95)=n>=10**（n=5 で p95 が max へ退化するため）。0 は「速度ゼロ」を意味しない（NULL 厳守）。
+- **abs は distinct 統計**（`ce_r_abs 51.7 < ce_r_dive 62.4/ce_r_reb 63.2`）＝冗長でない。v1 は既存 ce_r 別名のみ、他5セルへの abs 追加は v2（Apex 活動量）へ。
+- **低解釈セル明示**: `ce_f_dive`（立上り前輪は伸び側）・`brk_r_dive`（制動リアは伸び切り）は計算するが UI で低解釈と注記し本命 `ce_f_reb`/`brk_r_reb` へ誘導。
+
+### 43c. Quality Gate / UI / rollout（設計のみ）
+- Gate（`data_quality_log`/`metric_version_log`）: 既存46列不変(BLOCKING)・0≠NULL・zone-sample・range（avg/peak 別）・unit(relative mm/s・km/h禁止)・
+  CE null-rate band は **full-DB ~45% 基準**（sample 37.5% ではない）。`backfill_susp_zone_speed.py` の `NEW_COLS` を5→22拡張し **full rebuild へ決定論ゲート再実行**。
+- UI: `PhaseRunCompareWidget._PHASE_SPD` を dive-only MVP で埋め、`col in rs.columns` ガードで DB反映前に安全マージ可。km/h 車速と別軸・構造NULL を `not available yet` と区別。
+- rollout（GO後・別タスク）: `extract_outing` per-lap ブロック拡張（=本番ロジック変更）+ SCHEMA/`_build_lap_suspension` 22列 + 拡張決定論ゲート + ALTER/UPDATE。rollback=DROP COLUMN/backup。
+
+### 43d. Tatsuki 承認事項 / スコープ外
+- open questions: ①peak n>=10 の可否 ②abs 範囲(v1) ③Exit-R 初日 abs維持 ④UI Reb 即時可視化 ⑤位置前処理（**非平滑化推奨**＝byte-compat保持）⑥rollout GO(full DB)。
+- 次ゲート文言 = `Phase suspension speed design GO`。
+- 未実施: schema変更 / `lap_suspension` 新列 / 本番ロジック変更 / 2D再処理 / DB Master / Supabase / origin push。
+- 新規: `reports/phase_susp_speed_metric_design_20260701.md`（+ scratchpad scratch script・非コミット）。
