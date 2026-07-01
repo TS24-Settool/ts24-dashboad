@@ -421,6 +421,15 @@ def _gap_delta(gap):
     return f"{gap:+.3f}s"
 
 
+def _tyre_str(t):
+    """{'front':'Slick-Medium','rear':'Slick-Hard'} -> 'Medium / Hard'."""
+    if not t:
+        return "—"
+    def _short(v):
+        return v.split("-")[-1] if v else "?"
+    return f"{_short(t.get('front'))} / {_short(t.get('rear'))}"
+
+
 def _tab_session_review(df, cls):
     opts = engine.rider_options(cls)
     if not opts:
@@ -475,6 +484,15 @@ def _tab_session_review(df, cls):
               _sector_lbl(loss) if loss and loss[1] > 0 else "—")
     g2.metric("Biggest sector gain",
               _sector_lbl(gain) if gain and gain[1] < 0 else "—")
+
+    # tyre choice vs the reference — MotoGP-only: Moto2/Moto3 race a single
+    # control compound, so the source PDF reports nothing and this is skipped
+    tyre, ref_tyre = r.get("tyre"), r.get("ref_tyre")
+    if tyre or ref_tyre:
+        y1, y2 = st.columns(2)
+        y1.metric("Tyre (F/R)", _tyre_str(tyre))
+        y1.caption("compound on the best lap's run")
+        y2.metric("Ref tyre (F/R)", _tyre_str(ref_tyre))
 
     # top speed in context (read alongside the sectors, not on its own)
     ts = engine.top_speed_review(df, cls, my_no)

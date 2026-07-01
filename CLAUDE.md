@@ -1649,3 +1649,28 @@ python -m motogp_tool.build_circuit_assets_from_official assen mugello   # 個�
 - 新規: `motogp_tool/build_circuit_assets_from_official.py`。変更: `motogp_tool/circuits/*/`（22サーキット分の
   track_map.png/layout.json/metadata.json、既存Mugelloプレースホルダーも上書き）。`circuit_map.py`/
   `app_page.py`/`build_circuit_assets.py` は無改修。
+
+---
+
+## 24. Session Review — タイヤ種類（コンパウンド）比較表示（2026-07-01 実施）
+
+**目的:** MotoGPリザルトにのみ記載されるタイヤ種類（Front/Rear コンパウンド）を Session Review タブで
+自ライダーと比較対象ライダーの間で確認できるようにする（Tatsuki要望）。
+
+### 24a. データソース（新規取得は不要）
+- タイヤ情報は**既に取得・解析済みの Analysis PDF** 内の "Front Tyre"/"Rear Tyre" 行
+  （例 `Slick-Medium`）に含まれ、`parse_analysis_pdf.py` が per-lap で `front_tyre`/`rear_tyre` 列に
+  抽出済みだった。従来はCSVエクスポート列に入るだけで、どのタブにも未表示だった。
+- **MotoGP限定である理由を実データで確認**: Moto2/Moto3 はワンメイク（コントロールタイヤ）で選択肢が
+  無くPDFにタイヤ記載が無い。実際に Assen 2026 の MotoGP RACE（`Slick-Medium` 検出）と Moto2 RACE
+  （タイヤ列なし→`None`）の両PDFを取得して挙動確認済み。
+
+### 24b. 実装
+- `engine.py` に **`best_lap_tyre(df, rider_no)`** 追加: そのライダーの**ベスト flying lap を走ったラン**の
+  Front/Rear コンパウンドを `{'front','rear'}` で返す（`front_tyre`/`rear_tyre` 列が無い＝Moto2/3 や
+  タイヤ非記載時は `None`）。`session_review()` の戻り値に `tyre` / `ref_tyre`（比較対象ライダー分）を追加。
+- `app_page.py`: `_tab_session_review` のセクター損得の直下に、`tyre` または `ref_tyre` が存在するときのみ
+  2カラムで「Tyre (F/R)」「Ref tyre (F/R)」を表示（`_tyre_str()` が `Slick-Medium`→`Medium` に短縮、
+  `Medium / Hard` 形式）。タイヤ情報が無いクラスではブロックごと非表示（=既存UIに影響なし）。
+- 変更: `motogp_tool/engine.py`（best_lap_tyre + session_review拡張）, `motogp_tool/app_page.py`
+  （_tyre_str + Session Review表示）。`parse_analysis_pdf.py` は既に抽出済みのため無改修。

@@ -298,6 +298,25 @@ def consistency_stats(df: pd.DataFrame, rider_no, pace_pct: float = 0.03) -> dic
     return out
 
 
+def best_lap_tyre(df: pd.DataFrame, rider_no) -> dict | None:
+    """Front/rear tyre compound on this rider's best flying lap (the session's
+    primary tyre choice). None when the source PDF doesn't report tyre — true
+    for Moto2/Moto3, which race a single control compound with nothing to
+    report, vs. MotoGP's rider-chosen Michelin allocation."""
+    if "front_tyre" not in df.columns and "rear_tyre" not in df.columns:
+        return None
+    fly = df[(df["rider_no"] == rider_no) & (df["is_flying"])]
+    times = fly["lap_time_s"].dropna()
+    if times.empty:
+        return None
+    best = fly.loc[times.idxmin()]
+    front = best.get("front_tyre")
+    rear = best.get("rear_tyre")
+    front = front if pd.notna(front) else None
+    rear = rear if pd.notna(rear) else None
+    return {"front": front, "rear": rear} if (front or rear) else None
+
+
 # ── 8. head-to-head summary + plain-language diagnosis ──────────────────────
 _SECTOR_HINT = {
     "T1": "braking & entry in sector 1 (start/finish → IP1)",
@@ -534,11 +553,13 @@ def session_review(df: pd.DataFrame, cls: pd.DataFrame, rider_no,
         "consistency_range": cs.get("consistency_range"),
         "pace_laps": cs.get("pace_laps"), "worst_sector": cs.get("worst_sector"),
         "consistency_warning": None, "focus_text": None,
+        "tyre": best_lap_tyre(df, rider_no), "ref_tyre": None,
     }
     if ref_no is not None:
         ref_row = cls[cls["rider_no"] == ref_no]
         if not ref_row.empty:
             out["ref"] = _rider_label(ref_row.iloc[0])
+        out["ref_tyre"] = best_lap_tyre(df, ref_no)
         h = h2h_summary(df, rider_no, ref_no, mode)
         out["biggest_loss"] = h["loss_sector"]
         out["biggest_gain"] = h["gain_sector"]
