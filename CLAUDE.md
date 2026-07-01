@@ -1576,3 +1576,76 @@ CLAUDE.mdに stale/deprecated・WorkbenchはDB優先を明記。④dashboard用J
 - ローカル検証: 6ライダー合成セッションで candidate ランク / headline / caption(IG/X/LinkedIn) / engagement /
   4テンプレ×PNG描画(1080×1350) / ZIP生成 を全合格確認（plotly/streamlit stub・実Pillow/qrcode）。
 - 新規: `motogp_tool/content_studio.py`。変更: `motogp_tool/app_page.py`(signature+tab), `dashboard.py`(呼び出し), `requirements.txt`。
+
+---
+
+## 23. Track Map — 公式Circuit Information PDFからの自動抽出パイプライン（2026-07-01 実施）
+
+**目的:** MotoGP公式の結果PDF群に必ず付いている本物のサーキットマップ（FL/I1/I2/I3/S ラベル付き）を
+Track Map機能に取り込む。従来（`build_circuit_assets.py`）は自前GPS外形からプレースホルダーPNGを
+生成するのみで、`circuit_map.py` docstring 記載の通り「セクター境界＝均等距離の近似値」だった。
+本パイプラインは**本物のI1/I2/I3境界位置**をPDFのベクターテキストから直接取得し、この近似を解消する。
+
+### 23a. 著作権に関する重要な判断（Tatsuki承認 2026-07-01）
+- ソースPDF（例: `resources.motogp.com/files/results/2026/NED/CircuitInformation.pdf`）には
+  **「These data/results cannot be reproduced, stored and/or transmitted ... without the previous
+  express consent by the copyright owner」**（© MotoGP Sports Entertainment Group）と明記されている。
+  既存の「Sporting Maps」プレースホルダー（出典不明の第三者サイト、ライセンス確認待ちと明記済み）より
+  直接的・明示的な制限。
+- 本GitHubリポジトリ（`TS24-Settool/ts24-dashboad`）は **public** であることを確認済み。
+- 上記2点をTatsukiに提示した上で、**個人利用目的につき、そのままcommit・push**の方針で承認を得た
+  （`circuits/<slug>/track_map.png` として本物の公式グラフィックをpublicリポジトリに保存）。
+  各circuitの `metadata.json` に上記著作権注記と利用目的（`personal_limited_user_app`）を必ず記録すること。
+  将来この方針を見直す場合はここを更新すること。
+
+### 23b. 抽出方式（`motogp_tool/build_circuit_assets_from_official.py` 新規）
+PDFはラスター画像ではなく**完全にベクター**（"fl"/"i1"/"i2"/"i3"/"s" はテキスト、トラック形状はfillパス）。
+1. `event_files.circuit_information.url`（PulseLive `/events` レスポンスに直接含まれる。session単位の
+   classification drill-downは不要）から event単位で1 PDFを取得。
+2. ページ内テキストから "fl"/"i1"/"i2"/"i3"/"s" の単語を座標クラスタリング（1ページに小サムネイル＋
+   本メインマップの2群があることが多く、面積が大きい方を採用）。
+3. トラックのリボン形状は「ラベル群の近傍にあり、サイズが妥当（25-350pt）な図形の中で最も頂点数が多い
+   もの」として検出（固定の頂点数閾値は不可 — サーキットにより形状の複雑さが大きく異なるため相対比較）。
+4. crop = リボン形状 ∪ ラベル群のbbox + 余白 → PNGレンダリング。ラベル中心座標を正規化してlayout.jsonへ。
+5. I1→T1終端・I2→T2終端・I3→T3終端・FL→T4終端（=S/F）として `labels.json` の `T1..T4` にマップ
+   （outline_norm/sector_boundsは未実装＝既存の色付きドット表示にフォールバック。アーク着色は将来課題）。
+6. 出力先は既存の image-asset 形式そのまま（`circuits/<slug>/{track_map.png,layout.json,metadata.json}`,
+   `status:"supported"`）なので **`circuit_map.py` 本体は一切変更不要**。
+
+### 23c. サーキット名解決のバグと修正（重要・再発防止）
+初回実行で **Red Bull Ring にブラジル新規サーキット（Autódromo Internacional de Goiânia）の
+マップが誤って割り当てられる事故を検出→修正**。原因: 自由記述の `circuit.name` を
+`circuit_map.detect_slug()` に渡すと、"Autódromo..." が "AUT"（オーストリア国コード）に
+部分文字列一致してしまい、Goiânia用の長いキーワードが辞書に存在しないため誤マッチが確定してしまう
+（Mugello/Portimaoは同じ"AUT"接頭辞を持つが、"MUGELLO"/"ALGARVE"という長いキーワードが先にマッチする
+ため事故にならなかった＝運が良かっただけ）。
+**恒久対応（今回のスクリプト内のみ・`circuit_map.detect_slug`自体は変更していない）:**
+- 自由記述の `circuit.name` / `event.name` は一切マッチングに使わない。
+- 優先順位は `event.short_name → circuit.place → circuit.nation`。nationを先頭にすると
+  スペインのように1国に複数サーキット（Jerez/Aragon/Valencia、nationは全て"SPA"）がある場合に
+  国コード止まりで誤って早期確定してしまうため、**per-round固有の`short_name`を最優先**にした。
+- 全22サーキットのPDF由来`circuit.name`と抽出結果のslugをTatsuki不在で目視突合し、Red Bull Ring以外の
+  誤マッチが無いことを確認済み（監査ログはこのセッションのみ・恒久ファイルなし）。
+
+### 23d. 結果（2026-07-01時点）
+- **22/24サーキットで成功**（既存Mugelloプレースホルダーも本物に置き換え）。
+- **buddh**（インドGP, 2023開催）: PDF自体に地図が含まれておらず抽出不可（ファイルサイズも他の1/3）→skip。
+- **sokol**: 2022-2026シーズンのイベント一覧に該当イベントが見つからず（カレンダー未開催）→skip。
+- 上記2サーキットは従来通りTrack Mapタブでは sector-strip（棒比較）表示にフォールバックする
+  （`circuit_map.track_map_registry()` のstatusゲートは無改修）。
+
+### 23e. 再実行方法
+```bash
+python -m motogp_tool.build_circuit_assets_from_official            # 全サーキット
+python -m motogp_tool.build_circuit_assets_from_official assen mugello   # 個別指定
+```
+新シーズンでcircuit_information PDFが更新された場合、再実行すれば `years` リスト内の最新のものに
+上書きされる（`source_url`/`source_event`は`metadata.json`に記録されるため差分追跡可能）。
+
+### 23f. 残課題（将来）
+- `outline_norm`/`sector_bounds` を実際のリボン形状のベクターパスから生成し、コーナー全体をアーク着色
+  する（現状はI1/I2/I3/FL位置に色付きドットのみ）。
+- buddh（PDFに地図なし）・sokol（イベント無し）の代替ソース検討。
+- 新規: `motogp_tool/build_circuit_assets_from_official.py`。変更: `motogp_tool/circuits/*/`（22サーキット分の
+  track_map.png/layout.json/metadata.json、既存Mugelloプレースホルダーも上書き）。`circuit_map.py`/
+  `app_page.py`/`build_circuit_assets.py` は無改修。

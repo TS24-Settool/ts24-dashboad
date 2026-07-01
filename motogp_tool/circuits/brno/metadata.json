@@ -1,10 +1,10 @@
 {
-  "circuit_id": "mugello",
-  "name": "Autodromo Internazionale del Mugello",
+  "circuit_id": "brno",
+  "name": "CREDITAS Autodrom Brno",
   "status": "supported",
   "source": "motogp_official_circuit_information_pdf",
-  "source_url": "https://resources.motogp.com/files/results/2026/ITA/CircuitInformation.pdf",
-  "source_event": "ITA 2026",
+  "source_url": "https://resources.motogp.com/files/results/2026/CZE/CircuitInformation.pdf",
+  "source_event": "CZE 2026",
   "usage": "personal_limited_user_app",
   "note": "Track map and real S/F + I1-I3 timing-loop positions extracted directly from MotoGP's official Circuit Information PDF (vector text/paths, not OCR/Sporting-Maps placeholder). The source PDF states its data/results \u201ccannot be reproduced, stored and/or transmitted ... without the previous express consent by the copyright owner\u201d (\u00a9 MotoGP Sports Entertainment Group). Used here for personal/internal analysis per team decision 2026-07-01 (see CLAUDE.md)."
 }
