@@ -903,7 +903,7 @@ def _multi_rider_sector_trends(df, riders):
                     height=220, margin=dict(l=8, r=8, t=28, b=8),
                     title=dict(text=slab + " (s)", x=0.02, font=dict(size=13)),
                     plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
-                    showlegend=(row == 0 and c == 0),
+                    showlegend=True,
                     legend=dict(orientation="h", y=1.28, font=dict(size=10)),
                     font=dict(color="#111"))
                 fig.update_xaxes(gridcolor="#EEE")
