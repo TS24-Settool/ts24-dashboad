@@ -331,7 +331,18 @@ def _split_identity(words: list[str]) -> dict:
     if toks and _RE_NATION.match(toks[-1]):
         out["nation"] = toks[-1]
         toks = toks[:-1]
-    # split name (up to & incl first all-caps surname after a given name) vs team
+    # Preferred split: the 'Motorcycle' (manufacturer) column sits right after the
+    # surname, so the rider name is every token before the first manufacturer. This
+    # keeps multi-word surnames intact — e.g. 'Fabio DI GIANNANTONIO' would
+    # otherwise be truncated to 'Fabio DI' because 'DI' is all-caps.
+    manuf_idx = next((k for k, t in enumerate(toks) if t.upper() in _MANUFACTURERS), None)
+    if manuf_idx is not None and manuf_idx >= 1:
+        out["name"] = " ".join(toks[:manuf_idx]) or None
+        out["team"] = " ".join(toks[manuf_idx:]) or None
+        out["manuf"] = toks[manuf_idx]
+        return out
+    # Fallback (no manufacturer token, e.g. older sponsor-only layouts): name runs
+    # up to & incl the first all-caps surname after a given name; rest = team.
     name_end, seen_given = None, False
     for k, t in enumerate(toks):
         if not any(ch.isalpha() for ch in t):

@@ -614,13 +614,17 @@ def _tab_classification(cls: pd.DataFrame):
     }
     st.dataframe(sty, hide_index=True, use_container_width=True,
                  column_config=colcfg)
-    st.caption("**Ideal** = sum of each rider's best T1–T4 (theoretical best lap). "
-               "**Lost** = Lost potential (Best − Ideal, time left on the table). "
-               "**Spd Rk** = top-speed rank · **Lap−Spd** = lap-time position − "
-               "speed rank (large **+** = faster in a straight line than on the "
-               "clock → likely corner/sector loss; mind slipstream, gearing & "
-               "traffic, not just power). Green cell = session-fastest sector. "
-               "Highlighted row = selected rider (teammates lightly shaded).")
+    st.caption("**Pos** = official session order (finishing order for a race, "
+               "best-lap order for practice / qualifying) — so the fastest lap "
+               "may belong to a lower-placed rider. **Gap** = to the session's "
+               "fastest lap. **Ideal** = sum of each rider's best T1–T4 "
+               "(theoretical best lap). **Lost** = Lost potential (Best − Ideal, "
+               "time left on the table). **Spd Rk** = top-speed rank · "
+               "**Lap−Spd** = lap-time position − speed rank (large **+** = faster "
+               "in a straight line than on the clock → likely corner/sector loss; "
+               "mind slipstream, gearing & traffic, not just power). Green cell = "
+               "session-fastest sector. Highlighted row = selected rider "
+               "(teammates lightly shaded).")
 
 
 # ── tab: head-to-head ───────────────────────────────────────────────────────

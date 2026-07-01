@@ -1722,3 +1722,35 @@ python -m motogp_tool.build_circuit_assets_from_official assen mugello   # 個�
   未実施＝Cloudデプロイ後に Tatsuki が目視確認。
 - 新規: `motogp_tool/assets/fonts/*`（Anton/Oswald/Archivo＋OFL）。変更: `motogp_tool/content_studio.py`
   （レンダラ刷新・build_pages・UI）。`app_page.py`/`dashboard.py` は無改修（呼び出し口 §22 のまま）。
+
+---
+
+## 26. MotoGPリザルト — 氏名分割ミス & 順位の是正（2026-07-01 実施）
+
+**発端:** CZE(Brno) MotoGP RACE で「Fabio DI GIANNANTONIO」が Rider=「Fabio DI」/ Team=「GIANNANTONIO
+DUCATI」と誤表示、さらに Classification の順位がレース結果と不一致（Tatsuki指摘）。両方とも実PDF＋
+PulseLive公式結果で原因特定→修正。
+
+### 26a. 氏名の複数語ラストネーム分割（`parse_analysis_pdf.py` / `_split_identity`）
+- **原因:** 氏名/チームの分割を「given name の後の**最初の**全大文字トークン＝姓の終わり」で判定していたため、
+  「Fabio **DI GIANNANTONIO**」の姓が2語（DI + GIANNANTONIO）だと "DI" で切れて Rider="Fabio DI"、
+  残りがチーム扱いになっていた。
+- **修正:** これらのAnalysis PDFの identity 行は `[順位, 番号, given…, SURNAME…, MANUFACTURER, NATION]` で
+  **メーカー列が姓の直後**に来る。よって「**最初のメーカートークンの手前まで＝氏名、以降＝チーム**」に変更
+  （`_MANUFACTURERS` 集合で判定）。多語姓（DI GIANNANTONIO / DALLA PORTA / VAN DER … 等）が保たれる。
+  メーカートークンが無い旧スポンサー表記（例 `David MUÑOZ / LIQUI MOLY Dynavolt`）は従来の全大文字ヒューリ
+  スティックにフォールバック（無改変）。CZE全20台・sector checksum 394/394 で健全性確認。
+
+### 26b. Classification 順位 = 公式セッション順（`engine.py` / `classification`）
+- **原因:** `classification()` が **best_lap で再ソート**し position を振っていた。レースでは「最速ラップ≠優勝」
+  なので順位がレース結果とズレる（CZEでは最速ラップの Di Giannantonio が P1表示になっていた）。
+- **確定した正:** 公式Analysis PDFは**ライダーを公式クラス順で列挙**（レース=着順 / 予選・練習=ベスト順）。
+  PulseLive `/classification` と照合し、**PDF内の初出順＝公式着順**が完全一致することを確認（CZE: P1 Marquez /
+  P2 Ogura / P3 Bagnaia / P4 Di Giannantonio …）。
+- **修正:** `df` のライダー初出順（`dict.fromkeys`）を position の基準にソート。初出順が取れない入力のみ
+  best_lap ソートにフォールバック。**Gap は行順に依存しない**よう `best_lap - best_lap.min()`（=セッション最速
+  ラップ差＝pole基準）に変更。練習(demo FP1)は初出順==ベスト順のため**無回帰**（P1=最速を確認）。
+- Classificationタブのキャプションに「Pos=公式セッション順（レース=着順）」「Gap=最速ラップ差」を明記。
+- 波及: Session Reviewの「一つ前の順位のライダー」比較・`recommend_reference` はレースで着順ベースになり適正化。
+  `session_summary` の Best lap KPI は `idxmin` で最速ラップを直接採るため無影響。
+- 変更: `motogp_tool/parse_analysis_pdf.py`, `motogp_tool/engine.py`, `motogp_tool/app_page.py`（キャプション）。
