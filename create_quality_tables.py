@@ -175,6 +175,32 @@ SEED_METRICS = [
     ("ph12_rear0_s", "lap_suspension", "v1", "PH1-2代理(BRAKE_FRONT>=0.3bar進入相)で SUSP_REAR<=0mm の累積秒", "s", "両ch存在時のみ。0秒は実測値として許容", "build_master_db.py", "2026-06-20", "§19a"),
 ]
 
+# ── §44 (2026-07-01 Tatsuki GO): 3フェーズ×F/R×方向 サス速度 22新列をシード ──
+# 相対ダンピング速度指数(mm/s, uncalibrated grid-M gradient)。車速km/hと混同禁止。
+# avg=mean(方向n>=5) / peak=p95(方向n>=10)。未満はNULL(0で代用しない)。既存 brk_f_dive/ce_r(abs) は凍結。
+_PHASE44 = {"brk": ("FULL_BRAKING", "制動"), "apex": ("MID_CORNER", "中コーナー"), "ce": ("CORNER_EXIT", "立上り")}
+_DIR44 = {"dive": "圧縮(v>0)", "reb": "伸び(-v,v<0)"}
+_LOW_INTERP44 = {"brk_r_dive", "ce_f_dive"}   # 低解釈セル(本命は brk_r_reb / ce_f_reb)
+for _pk in ("brk", "apex", "ce"):
+    for _sk in ("f", "r"):
+        for _d in ("dive", "reb"):
+            if _pk == "brk" and _sk == "f" and _d == "dive":
+                continue   # 既存 brk_f_dive_spd_* を凍結(重複登録しない)
+            _zone, _jp = _PHASE44[_pk]; _cell = f"{_pk}_{_sk}_{_d}"
+            _note = f"§44 3フェーズ方向別サス速度。{_jp}×{'F' if _sk=='f' else 'R'}×{_d}"
+            if _cell in _LOW_INTERP44:
+                _note += "（低解釈セル: 本命は " + (f"{_pk}_{_sk}_reb" if _d == "dive" else _cell) + "）"
+            SEED_METRICS.append((
+                f"{_cell}_spd_avg", "lap_suspension", "v1",
+                f"{_zone}内 {_sk.upper()}サス {_DIR44[_d]}方向速度の平均(mean)", "mm/s(相対)",
+                "方向サンプル n>=5、未満はNULL。0で代用しない。相対指数・車速km/h混同禁止",
+                "build_master_db.py", "2026-07-01", _note))
+            SEED_METRICS.append((
+                f"{_cell}_spd_peak", "lap_suspension", "v1",
+                f"{_zone}内 {_sk.upper()}サス {_DIR44[_d]}方向速度の peak=p95(maxではない)", "mm/s(相対)",
+                "方向サンプル n>=10、未満はNULL。p95採用(Apex/Exit maxは外れ値支配)。既存2 peakはmax凍結",
+                "build_master_db.py", "2026-07-01", _note))
+
 
 def backup_db(db_path: Path) -> Path:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

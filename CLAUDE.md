@@ -2427,3 +2427,35 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-01）の指示で、Workbench `
 - 次ゲート文言 = `Phase suspension speed design GO`。
 - 未実施: schema変更 / `lap_suspension` 新列 / 本番ロジック変更 / 2D再処理 / DB Master / Supabase / origin push。
 - 新規: `reports/phase_susp_speed_metric_design_20260701.md`（+ scratchpad scratch script・非コミット）。
+
+---
+
+## 44. ★Phase Suspension Speed 派生列 apply（Tatsuki GO 受領 → 正本DB反映）— 2026-07-01 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-01 実行ゲート）。**Tatsuki が本セッションで「私の方からのGO承認します」と明示GO**
+（=`Phase suspension speed design GO`）→ §43 設計 + Tatsuki Braking sketch を正本DBへ反映。
+**正本DB `lap_suspension` に 3フェーズ×F/R×方向 サス速度 22新列を「追加のみ」で反映**（既存データ byte 一致・業務テーブル不変）。
+レポート = `reports/phase_susp_speed_apply_20260701.md`。**2回目の正本業務テーブル書込（schema 変更を伴う初のケース・追加のみ）**。
+
+### 44a. 実装（本番ロジック拡張・追加のみ）
+- `build_master_db.py`: `extract_outing` に per-lap `phase_spd_matrix`（22値）算出を追加。既存 `vf/vr/fb_mask/ce_mask` 再利用＋`mc_mask=MID_CORNER`。
+  `_dir_stat`: dive=v>0 / reb=-v(v<0)、**avg=mean(方向n>=5) / peak=p95(方向n>=10)**、未満NULL。**既存 `brk_f_dive_spd_*` 凍結・`ce_r_spd_*`(abs) 不変**。
+  定数 `PHASE_SPD_NEW_COLS`(22)/`PEAK_NMIN=10`。`SCHEMA` へ f-string 注入・`_build_lap_suspension(+matrix_by_lapid)` は末尾付与（named INSERT・placeholder 算出）・`build_all` で matrix 収集。
+- 新規 `apply_phase_susp_speed.py`（既定 dry-run）: 決定論ゲート（既存45列 lap_id JOIN・`abs<1e-6`・集合一致）→ `--apply` で backup→ALTER 22→UPDATE(新列のみ)→before==after assert(既存列sha256/業務件数)→commit/rollback。
+- `create_quality_tables.py`: `metric_version_log` に22列シード（guard_rule に n>=5/n>=10・peak=p95(新)/max(既存)・相対指数・車速混同禁止・低解釈セル明記）。管理テーブルのみ。
+- `ts24_workbench.py`: `PhaseRunCompareWidget._PHASE_SPD` を 6 slot 充填（**Braking F=brk_f_dive(既存) / Braking R=brk_r_reb(本命) / Apex F/R=dive / Exit F=ce_f_reb(本命) / Exit R=ce_r(abs 旧互換)**）。`_update_note` を col-guard 化＋relative-index/本命/構造NULL 注記。`_draw_speed` は既存 col-guard で無回帰。
+
+### 44b. 実行結果（正本DB反映）
+- full-DB scratch rebuild（受入ゲート 0件）→ **決定論ゲート PASS（既存45列×1202 lap 不一致0・lap_id 集合一致）**。
+- apply: バックアップ `02_DATABASE/_backup_phase_susp_speed_20260701_234644/`・**ALTER 22 + UPDATE 1202**。
+  業務テーブル before==after: **runs275/laps1202/lap_suspension1202/race_results866/pdf_lap_times7613**（不変 assert 合格）。
+- 検証: `lap_suspension` 69列/1202行・22新列存在・**zero-leak 0**・**n-condition 0**・凍結列不変（brk_f_dive1072/ce_r661）・`metric_version_log` 32行。
+  **★最終 integrity**: pre-apply backup vs 現正本で既存全列（凍結4速度列含む）**mismatch 0**＝追加のみ・既存 byte 一致を実証。
+- 分布: Braking ~11% null / Apex 0.3% / Exit ~46%（本質的希薄）。p95 が peak 外れ値を抑制（apex_f_dive peak max3336→p95 549）。
+  WARNING（非ブロッキング）: `apex_f_dive_spd_avg` max801（busy MID_CORNER lap・実信号）。
+- Workbench: py_compile PASS・**offscreen smoke PASS**（Speed slot 6/6・`not available yet` 解消・Braking table F/R spd 数値化・既存タブ無回帰 Damping1081/MainWindow7）。**GUI 目視は Tatsuki ローカル**。
+
+### 44c. rollback / スコープ外
+- rollback: DB=バックアップ復元 / Code=revert（Workbench は col-guard で新列無くても起動可）。
+- 未実施（別承認）: Supabase cleanup/sync・DB Master 再生成・origin push・新2D取込・大規模UI改修。
+- 変更: `build_master_db.py`/`ts24_workbench.py`/`create_quality_tables.py`。新規: `apply_phase_susp_speed.py`/`reports/phase_susp_speed_apply_20260701.md`。正本DB: lap_suspension +22列・metric_version_log +22行。

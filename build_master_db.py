@@ -47,6 +47,26 @@ AREAS = {
 }
 MIN_LAP_S = 30.0
 
+# ── 3フェーズ×F/R×方向 サス速度マトリクス (§43/§44 設計・Tatsuki GO 2026-07-01) ──
+# 既存 brk_f_dive_spd_*(凍結・peak=max) と ce_r_spd_*(abs) は不変。以下22列を「追加のみ」。
+#   フェーズ: brk=FULL_BRAKING / apex=MID_CORNER / ce=CORNER_EXIT
+#   方向: dive=圧縮(v>0) / reb=伸び(-v,v<0)。avg=mean(n>=5) / peak=p95(n>=10)。n未満はNULL(0で代用しない)。
+#   相対ダンピング速度指数(グリッドM微分)。校正済み絶対mm/sではない・車速km/hと混同禁止。
+PEAK_NMIN = 10   # peak(p95) は方向サンプル n>=10（avg の NMIN_Z=5 より厳格：小nでp95がmaxへ退化するため）
+PHASE_SPD_NEW_COLS = [
+    "brk_f_reb_spd_avg",  "brk_f_reb_spd_peak",
+    "brk_r_dive_spd_avg", "brk_r_dive_spd_peak",
+    "brk_r_reb_spd_avg",  "brk_r_reb_spd_peak",
+    "apex_f_dive_spd_avg","apex_f_dive_spd_peak",
+    "apex_f_reb_spd_avg", "apex_f_reb_spd_peak",
+    "apex_r_dive_spd_avg","apex_r_dive_spd_peak",
+    "apex_r_reb_spd_avg", "apex_r_reb_spd_peak",
+    "ce_f_dive_spd_avg",  "ce_f_dive_spd_peak",
+    "ce_f_reb_spd_avg",   "ce_f_reb_spd_peak",
+    "ce_r_dive_spd_avg",  "ce_r_dive_spd_peak",
+    "ce_r_reb_spd_avg",   "ce_r_reb_spd_peak",
+]
+
 # ── 正規化 ──
 def circuit_canon(c):
     u = re.sub(r"[^A-Z0-9]", "", str(c or "").upper())
@@ -300,6 +320,27 @@ def extract_outing(mes_path, base=None):
             if int(pm.sum()) >= 1:
                 cnt0 = int(np.sum((R["SUSP_REAR"] <= 0.0) & pm))
                 ph12_rear0_s = round(cnt0 * dtg, 3)
+        # ── 3フェーズ×F/R×方向 サス速度マトリクス (§44 / Tatsuki GO 2026-07-01) ──
+        # 既存 vf/vr/fb_mask/ce_mask を再利用（既存列の値は不変）。mc_mask=MID_CORNER を追加。
+        # dive=v>0(圧縮) / reb=-v(v<0,伸び)。avg=mean(n>=5) / peak=p95(n>=10)。既存 brk_f_dive は凍結のため除外。
+        mc_mask = _zone_mask("MID_CORNER")
+        def _dir_stat(v, mask, positive):
+            if v is None or mask is None or int(mask.sum()) < NMIN_Z:
+                return (None, None)
+            vz = v[mask]; vz = vz[np.isfinite(vz)]
+            s = vz[vz > 0] if positive else -vz[vz < 0]
+            a = round(float(s.mean()), 1) if s.size >= NMIN_Z else None
+            p = round(float(np.percentile(s, 95)), 1) if s.size >= PEAK_NMIN else None
+            return (a, p)
+        _psm = []
+        for _pk, _mask in (("brk", fb_mask), ("apex", mc_mask), ("ce", ce_mask)):
+            for _sk, _v in (("f", vf), ("r", vr)):
+                for _pos in (True, False):           # True=dive, False=reb
+                    if _pk == "brk" and _sk == "f" and _pos:
+                        continue                     # brk_f_dive_spd_* は既存列を凍結
+                    _a, _p = _dir_stat(_v, _mask, _pos)
+                    _psm.append(_a); _psm.append(_p)
+        phase_spd_matrix = tuple(_psm)               # PHASE_SPD_NEW_COLS 順の22値
         laps.append({"lap_no":i+1,"lap_time_s":round(lap_t,3),
                      "susf_mean":round(float(R["SUSP_FRONT"].mean()),2) if R.get("SUSP_FRONT") is not None else None,
                      "susf_max":round(float(R["SUSP_FRONT"].max()),2) if R.get("SUSP_FRONT") is not None else None,
@@ -308,6 +349,7 @@ def extract_outing(mes_path, base=None):
                      "rear_light_brk":rear_light_brk,
                      "brk_f_dive_spd_avg":brk_f_dive_avg,"brk_f_dive_spd_peak":brk_f_dive_peak,
                      "ce_r_spd_avg":ce_r_spd_avg,"ce_r_spd_peak":ce_r_spd_peak,"ph12_rear0_s":ph12_rear0_s,
+                     "phase_spd_matrix":phase_spd_matrix,
                      "metrics":metrics})
     # HED Laptimes.Fastest を権威に、物理的に不可能な(=記録最速より速い) stray マーカー由来の
     # 偽ラップを除外。例: D2-#77-09(Jerez) は .LAP に 84.5s の部分ラップ(1周の81%)が混入し
@@ -575,6 +617,7 @@ CREATE TABLE lap_suspension(
   ce_count INTEGER, ce_spd_avg REAL, ce_susF_avg REAL, ce_susR_avg REAL, wf_f_ce_n REAL, wf_r_ce_n REAL,
   f_dive_spd REAL, f_reb_spd REAL, r_dive_spd REAL, r_reb_spd REAL, rear_light_brk REAL,
   brk_f_dive_spd_avg REAL, brk_f_dive_spd_peak REAL, ce_r_spd_avg REAL, ce_r_spd_peak REAL, ph12_rear0_s REAL,
+  {', '.join(c+' REAL' for c in PHASE_SPD_NEW_COLS)},
   lap_susF_mean REAL, lap_susF_min REAL, lap_susF_max REAL, lap_susR_mean REAL,
   updated_at TEXT DEFAULT (datetime('now')));
 CREATE INDEX idx_runs_evt ON runs(event_id);
@@ -594,9 +637,10 @@ def _sessions_in_2d(ev, rnd):
     return out
 
 # ── lap_suspension 再生成 (新 run_id・3エリア lap_metrics から射影) ──
-def _build_lap_suspension(conn, extra_by_lapid=None):
+def _build_lap_suspension(conn, extra_by_lapid=None, matrix_by_lapid=None):
     """laps + lap_metrics + runs(バネレート) から lap_suspension を再構築。
     extra_by_lapid: lap_id -> (brk_f_dive_avg, brk_f_dive_peak, ce_r_avg, ce_r_peak, ph12_rear0_s)。
+    matrix_by_lapid: lap_id -> PHASE_SPD_NEW_COLS 順の22値タプル (§44 追加のみ・既存列は不変)。
     ゾーン限定サス速度は laps に持たず lap_suspension のみへ射影 (Tatsuki 2026-06-20)。
     apex ← MID_CORNER, brk/fullbrk ← FULL_BRAKING (旧 brake進入エリアは廃止のため同値)。
     WheelForce Proxy: WF_F=susF×(F_SPR_L+F_SPR_R)/2, WF_R=susR×R_SPR×0.5 (LR=2.0→MR=0.5)。
@@ -628,6 +672,7 @@ def _build_lap_suspension(conn, extra_by_lapid=None):
         b_n,b_sf,b_sr,b_spd = fb   if fb   else (None,None,None,None)
         c_n,c_sf,c_sr,c_spd = ce   if ce   else (None,None,None,None)
         ex=(extra_by_lapid or {}).get(lid,(None,None,None,None,None))
+        mx=(matrix_by_lapid or {}).get(lid,(None,)*len(PHASE_SPD_NEW_COLS))
         rows.append((lid,run_id,rnd,circ,sess,rider,run_no,lap_no,date,lt,_fmt(lt),
                      a_n,a_spd,a_sf,a_sr, wf_f(a_sf),wf_r(a_sr),
                      b_n,b_spd,b_sf,b_sr, wf_f(b_sf),wf_r(b_sr),
@@ -635,17 +680,20 @@ def _build_lap_suspension(conn, extra_by_lapid=None):
                      c_n,c_spd,c_sf,c_sr, wf_f(c_sf),wf_r(c_sr),
                      fdive,freb,rdive,rreb,rlb,
                      ex[0],ex[1],ex[2],ex[3],ex[4],
-                     smean,None,smax,srmean))
-    conn.executemany("""INSERT INTO lap_suspension
-        (lap_id,run_id,round,circuit,session,rider,run_no,lap_no,date,lap_time_s,lap_time_fmt,
-         apex_count,apex_spd_avg,apex_susF_avg,apex_susR_avg,wf_f_apex_n,wf_r_apex_n,
-         brk_count,brk_spd_avg,brk_susF_avg,brk_susR_avg,wf_f_brk_n,wf_r_brk_n,
-         fullbrk_count,fullbrk_susF,fullbrk_susR,
-         ce_count,ce_spd_avg,ce_susF_avg,ce_susR_avg,wf_f_ce_n,wf_r_ce_n,
-         f_dive_spd,f_reb_spd,r_dive_spd,r_reb_spd,rear_light_brk,
-         brk_f_dive_spd_avg,brk_f_dive_spd_peak,ce_r_spd_avg,ce_r_spd_peak,ph12_rear0_s,
-         lap_susF_mean,lap_susF_min,lap_susF_max,lap_susR_mean)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+                     smean,None,smax,srmean, *mx))
+    # 22新列は末尾に付与（named INSERT なので物理列順に依存しない）。placeholder 数は列数から算出。
+    _cols = ("lap_id,run_id,round,circuit,session,rider,run_no,lap_no,date,lap_time_s,lap_time_fmt,"
+             "apex_count,apex_spd_avg,apex_susF_avg,apex_susR_avg,wf_f_apex_n,wf_r_apex_n,"
+             "brk_count,brk_spd_avg,brk_susF_avg,brk_susR_avg,wf_f_brk_n,wf_r_brk_n,"
+             "fullbrk_count,fullbrk_susF,fullbrk_susR,"
+             "ce_count,ce_spd_avg,ce_susF_avg,ce_susR_avg,wf_f_ce_n,wf_r_ce_n,"
+             "f_dive_spd,f_reb_spd,r_dive_spd,r_reb_spd,rear_light_brk,"
+             "brk_f_dive_spd_avg,brk_f_dive_spd_peak,ce_r_spd_avg,ce_r_spd_peak,ph12_rear0_s,"
+             "lap_susF_mean,lap_susF_min,lap_susF_max,lap_susR_mean,"
+             + ",".join(PHASE_SPD_NEW_COLS))
+    _nc = len(_cols.split(","))
+    conn.executemany(
+        f"INSERT INTO lap_suspension ({_cols}) VALUES ({','.join(['?']*_nc)})", rows)
     return len(rows)
 
 # サーキット長(m)。is_outlap 物理下限ガード用。
@@ -719,6 +767,7 @@ def build_all(out_db=None):
         if stmt.strip(): conn.execute(stmt)
     runs_rows=[]; laps_rows=[]; lm_rows=[]; ev_rows=[]
     extra_by_lapid={}   # lap_id -> ゾーン限定サス速度5値 (lap_suspension へ射影, laps は不変)
+    matrix_by_lapid={}  # lap_id -> PHASE_SPD_NEW_COLS 順の22値 (§44 追加のみ, laps は不変)
     stat=defaultdict(int)
 
     for name,ev in sorted(evs.items(), key=lambda kv: kv[1]["date"]):
@@ -765,6 +814,7 @@ def build_all(out_db=None):
                                           l["f_dive_spd"],l["f_reb_spd"],l["r_dive_spd"],l["r_reb_spd"],l["rear_light_brk"]))
                         extra_by_lapid[lap_id]=(l["brk_f_dive_spd_avg"],l["brk_f_dive_spd_peak"],
                                                 l["ce_r_spd_avg"],l["ce_r_spd_peak"],l["ph12_rear0_s"])
+                        matrix_by_lapid[lap_id]=l["phase_spd_matrix"]
                         for area,mt in l["metrics"].items():
                             lm_rows.append((lap_id,area,mt["n"],mt["susf"],mt["susr"],mt["speed"],mt["brake"],mt["thr"]))
                         stat["laps"]+=1
@@ -850,7 +900,7 @@ def build_all(out_db=None):
     #   apex      ← MID_CORNER, brk/fullbrk ← FULL_BRAKING(旧 brake進入エリアは廃止のため同一)
     #   WheelForce Proxy: WF_F = susF×(F_SPR_L+F_SPR_R)/2,  WF_R = susR×R_SPR×0.5 (LR=2.0→MR=0.5)
     #   lap_susF_min は新 laps に列が無いため NULL。
-    n_lapsus = _build_lap_suspension(conn, extra_by_lapid)
+    n_lapsus = _build_lap_suspension(conn, extra_by_lapid, matrix_by_lapid)
     conn.commit()
 
     print(f"\n===== {db_path.name} 構築完了 =====")

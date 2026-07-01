@@ -3081,12 +3081,21 @@ class PhaseRunCompareWidget(QWidget):
         "Apex":    ("apex_susf_avg", "apex_susr_avg"),
         "Exit":    ("ce_susf_avg",   "ce_susr_avg"),
     }
-    # 利用可能なサス速度（相対ダンピング速度指数）。None = DB 未整備。
-    #   値 = (avg列, peak列, 短縮タグ)
+    # 各 phase×side のサス速度（相対ダンピング速度指数）。値 = (avg列, peak列, 短縮タグ)。
+    # §44 apply(2026-07-01)で lap_suspension に 22 方向別列を追加。dive/reb は本命方向を採用:
+    #   Braking F = brk_f_dive（既存・凍結・peak=max・Tatsuki AVE F-Sus-Speed）
+    #   Braking R = brk_r_reb（本命: 制動でリアは伸び側。brk_r_dive は低解釈）
+    #   Apex  F/R = apex_f_dive / apex_r_dive（新・peak=p95。中コーナーは dive/reb ほぼ対称）
+    #   Exit  F   = ce_f_reb（本命: 立上りで前は伸び側。ce_f_dive は低解釈）
+    #   Exit  R   = ce_r_spd（既存 abs・旧互換維持。directional ce_r_dive/reb は列追加済）
+    # DB 未追加列は _draw_speed の col-guard で自動的に非表示（None のまま扱われる）。
     _PHASE_SPD = {
-        "Braking": {"F": ("brk_f_dive_spd_avg", "brk_f_dive_spd_peak", "F-Dive"), "R": None},
-        "Apex":    {"F": None, "R": None},
-        "Exit":    {"F": None, "R": ("ce_r_spd_avg", "ce_r_spd_peak", "R|v|")},
+        "Braking": {"F": ("brk_f_dive_spd_avg", "brk_f_dive_spd_peak", "F-Dive"),
+                    "R": ("brk_r_reb_spd_avg",  "brk_r_reb_spd_peak",  "R-Reb")},
+        "Apex":    {"F": ("apex_f_dive_spd_avg", "apex_f_dive_spd_peak", "F-Dive"),
+                    "R": ("apex_r_dive_spd_avg", "apex_r_dive_spd_peak", "R-Dive")},
+        "Exit":    {"F": ("ce_f_reb_spd_avg", "ce_f_reb_spd_peak", "F-Reb"),
+                    "R": ("ce_r_spd_avg",     "ce_r_spd_peak",     "R|v|")},
     }
     _PHASE_COLORS = {"Braking": "#C0392B", "Apex": "#0078D4", "Exit": "#2E9E4F"}
     _RUN_PALETTE = ["#0078D4", "#FF8C00", "#2E9E4F", "#C0392B", "#8E44AD",
@@ -3554,15 +3563,22 @@ class PhaseRunCompareWidget(QWidget):
         self._fill_table(sub, runs, phase)
 
     def _update_note(self, phase):
+        # DB に実列が存在する slot のみ「利用可」。未適用DBでは自動で not available yet 表示（col-guard）。
+        have = set(self._df.columns) if self._df is not None else set()
         avail, na = [], []
         for ph in self._PHASES:
             for side in ("F", "R"):
-                (avail if self._PHASE_SPD[ph][side] else na).append(f"{ph} {side}")
-        self._lbl_note.setText(
-            "サス速度（相対ダンピング速度指数・校正絶対値ではない）: "
-            f"利用可 = {', '.join(avail)} ／ 未整備(not available yet) = {', '.join(na)}. "
-            "※ 車速(*_spd_avg=km/h)はサス速度ではないため速度グラフに表示しません。"
-        )
+                trip = self._PHASE_SPD[ph][side]
+                (avail if (trip and trip[0] in have) else na).append(f"{ph} {side}")
+        txt = ("サス速度 = relative damping-speed index (mm/s, uncalibrated・校正絶対値ではない): "
+               f"利用可 = {', '.join(avail) or '—'}")
+        if na:
+            txt += f" ／ 未整備(not available yet) = {', '.join(na)}"
+        txt += (". avg=主線(実線) / peak(新列=p95, 既存=max)=補助線(破線). "
+                "本命方向: Braking R=Reb・Exit F=Reb（brk_r_dive/ce_f_dive は低解釈）. "
+                "点が無い=構造的NULL(サンプル不足)で『未整備』とは別. "
+                "※ 車速(brk/apex/ce_spd_avg=km/h)はサス速度ではないため表示しません。")
+        self._lbl_note.setText(txt)
 
     def _points(self, p, xs, ys, color, name, symbol):
         p.plot(xs, ys, pen=None, symbol=symbol, symbolSize=7,
