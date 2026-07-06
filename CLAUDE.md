@@ -1754,3 +1754,55 @@ PulseLive公式結果で原因特定→修正。
 - 波及: Session Reviewの「一つ前の順位のライダー」比較・`recommend_reference` はレースで着順ベースになり適正化。
   `session_summary` の Best lap KPI は `idxmin` で最速ラップを直接採るため無影響。
 - 変更: `motogp_tool/parse_analysis_pdf.py`, `motogp_tool/engine.py`, `motogp_tool/app_page.py`（キャプション）。
+
+---
+
+## 27. MotoGP Session PDF（公式リザルト一式）対応 — 🏆 Race Results タブ（2026-07-06 実施）
+
+**発端（Tatsuki）:** 「GitHubにMotoGPのこの形式のResultCSVはありますか？あればMotoGP Performance analysisで
+使えるようにして」+ NED RAC `Session.pdf` を提示。**回答: リポジトリにこの形式のResult CSVは存在しなかった**
+（既存CSVは `data/demo_qatar_motogp_fp1.csv` = Analysis由来per-lap形式のみ）→ Session PDFを直接パースして
+公式リザルトを取り込み、**Result CSVはツールからダウンロード生成できる形**で実装した。
+
+### 27a. Session PDF の構造（resources.motogp.com/files/results/<year>/<GP>/<class>/<SES>/Session.pdf）
+セッション終了後の全公式ドキュメントを1PDFに結合したバンドル（NED RAC = 26ページ）:
+CLASSIFICATION（公式結果+コンディション+レース進行ログ）/ 選手権ポイント / LAP CHART / FASTEST LAP OF EACH
+RIDER / EVENT BEST MAXIMUM SPEED / **CHRONOLOGICAL ANALYSIS OF PERFORMANCES（= 単体Analysis PDFと同一の
+per-lap/per-sector表）** / ANALYSIS BY LAP / STARTING GRID / TOP SPEED & AVERAGE ほか。
+→ **Session PDF 1つのアップロードで既存の全ラップ解析 + 公式リザルトが同時に得られる**。
+
+### 27b. 実装（`motogp_tool/parse_session_pdf.py` 新規）
+- `_section_pages()`: ページ先頭のセクションタイトルで26ページを区分（無題ページは直前セクションの続き）。
+- **公式結果**: CLASSIFICATIONページの視覚行（`_cluster_rows`）から Pos/Pts/#/Rider/Nation/Team/Motorcycle/
+  TotalTime/Km-h/Gap を抽出。"Not classified"/"Not finished first lap" 等の見出しで status 遷移。
+  先頭整数の個数で [pos,pts,no]/[pos,no]（0点入賞圏外）/[no]（DNF）を判別。国籍は「全大文字姓の直後の
+  3大文字トークン」（KTM/LCR/HRC等のチーム内3大文字は直前が小文字混じりのため誤マッチしない）。
+  Gapは "2.004"/"1'16.826"/"1 lap"/"11 laps" 全対応（gap_s/laps_behind に分解）。
+- **コンディション/進行ログ**: PDFの生テキスト順はレイヤー重なりでスクランブルされるため**視覚行ベース**で
+  パース。condition(Dry)/Air/Ground/Humidity/Pole/Fastest Lap/レース周回・距離 + レースディレクション
+  ログ（クラッシュ・ペナルティ・スタート時刻等、`HH:MM'SS` 行）。
+- **per-lapデータ**: CHRONOLOGICALページ群をサブドキュメント化し**既存の実績ある `parse_analysis_pdf._parse_doc`
+  をそのまま実行**（NED RAC: 466ラップ/21台/チェックサム461/462合格）。
+- `parse_any_bytes()`: Session/Analysis を自動判別する統一入口（先頭3ページに "CLASSIFICATION AFTER" が
+  あればSessionバンドル）。CLI: `python -m motogp_tool.parse_session_pdf Session.pdf [results.csv]`。
+- meta修正: 2026年式の表記（レース="GRAND PRIX"/スプリント="TISSOT SPRINT"）→ Race/Sprint に正規化、
+  イベント名に張り付くスポンサー語 "TISSOT" 除去。weather=Track condition を反映。
+
+### 27c. ペナルティ補正（`engine.apply_official_positions` 新規）— 重要な発見
+NED RAC で **§26 の「PDF初出順=公式着順」ルールが破れるケース**を実データで確認: #33 BINDER / #47
+A.FERNANDEZ の**レース後16秒ペナルティ**（タイヤ内圧規定違反）により、Chronoページの掲載順（オントラック
+着順）と公式最終結果が3名分ズレる（#42/#10/#33）。→ 公式リザルトが読めた場合は classification の順位を
+**公式順（ペナルティ込み）で再整列**（Classified=公式順 → DNF=従来順で後続、position連番振り直し、
+rank_delta再計算）。`recommend_reference`（一つ前の順位比較）もペナルティ込み順位で適正化される。
+
+### 27d. UI（`app_page.py`）
+- アップローダは1つのまま **Analysis / Session 両PDF対応**（`_parse_pdf_cached` → `parse_any_bytes`）。
+- Session PDF読込時のみ **「🏆 Race Results」タブ**を Session Review の直後に追加: Winner/Fastest Lap/Pole
+  のKPI、コンディション行（Dry · Air 29°C · Ground 43°C · Humidity 58% · 26 laps · 118.092 km）、
+  公式結果テーブル（表彰台=金ハイライト/DNF=グレー）、**⬇️ Result CSV ダウンロード**、レース進行ログexpander。
+- リザルトのみのPDF（Classification単体等・ラップデータ無し）でも Race Results 単独表示で動作。
+- demo/online fetch/Clear 時に mgp_results 等の残留をクリア（stale表示防止。demo/online の stale
+  mgp_meta 残留も同時修正）。engine: `results_df`/`export_results_csv`/`apply_official_positions` 追加。
+- 新規: `motogp_tool/parse_session_pdf.py`。変更: `motogp_tool/engine.py` / `motogp_tool/app_page.py`。
+  `parse_analysis_pdf.py`/`fetch_official.py`/`dashboard.py` は無改修。オンラインfetchのSession PDF自動取得
+  （PulseLive `files` からの取得）は将来課題。
