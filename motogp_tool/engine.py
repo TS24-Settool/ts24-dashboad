@@ -122,6 +122,35 @@ def classification(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def apply_official_positions(cls: pd.DataFrame, rdf: pd.DataFrame) -> pd.DataFrame:
+    """Re-order the classification by the OFFICIAL result (Session PDF).
+    The chrono appearance order (§ classification above) is the on-track order
+    and cannot see post-race penalties — e.g. Assen 2026, where 16s penalties
+    dropped #33/#47 below their on-track positions. Classified riders take the
+    official order; unclassified riders keep their current relative order below
+    them; positions are renumbered sequentially so downstream consumers
+    (recommend_reference, rank_delta) stay consistent."""
+    if cls is None or cls.empty or rdf is None or rdf.empty:
+        return cls
+    official = {int(n): int(p) for n, p in zip(rdf["rider_no"], rdf["position"])
+                if pd.notna(n) and pd.notna(p)}
+    if not official:
+        return cls
+    cls = cls.copy()
+    cur = {no: i for i, no in enumerate(cls["rider_no"])}
+    cls["_ord"] = [
+        (0, official[int(n)]) if pd.notna(n) and int(n) in official
+        else (1, cur.get(n, 10 ** 6))
+        for n in cls["rider_no"]
+    ]
+    cls = cls.sort_values("_ord", kind="stable").drop(columns="_ord") \
+             .reset_index(drop=True)
+    cls["position"] = np.arange(1, len(cls) + 1)
+    if "speed_rank" in cls:
+        cls["rank_delta"] = cls["position"].astype("Int64") - cls["speed_rank"]
+    return cls
+
+
 def rider_options(cls: pd.DataFrame) -> list[str]:
     """Display labels for rider pickers, in classification order."""
     if cls.empty:
@@ -473,6 +502,87 @@ def export_json(df: pd.DataFrame, meta: dict | None = None,
         "sector_times": _records(b["sector_times"]),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+
+
+RESULT_COLS = ["status", "position", "points", "rider_no", "rider_name",
+               "nation", "team", "motorcycle", "total_time", "total_time_s",
+               "avg_speed_kmh", "gap", "gap_s", "laps_behind"]
+
+
+def results_df(results: list[dict] | None) -> pd.DataFrame:
+    """Official classification rows (parse_session_pdf) -> tidy DataFrame in
+    the printed (= official) order."""
+    if not results:
+        return pd.DataFrame()
+    df = pd.DataFrame(results)
+    for c in RESULT_COLS:
+        if c not in df:
+            df[c] = None
+    for c in ("position", "points", "rider_no", "laps_behind"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
+    for c in ("total_time_s", "avg_speed_kmh", "gap_s"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df[RESULT_COLS]
+
+
+def export_results_csv(results: list[dict] | None) -> str:
+    """The official result table as CSV — one row per rider, official order."""
+    rdf = results_df(results)
+    return rdf.to_csv(index=False) if not rdf.empty else ""
+
+
+def lap_chart_df(lap_chart: dict | None) -> pd.DataFrame:
+    """LAP CHART -> tidy [rider_no, lap, position]; lap 0 = starting grid.
+    Riders vanish from the chart on the lap they retire."""
+    if not lap_chart or not lap_chart.get("laps"):
+        return pd.DataFrame()
+    rows = [{"rider_no": no, "lap": 0, "position": i + 1}
+            for i, no in enumerate(lap_chart.get("grid") or [])]
+    for entry in lap_chart["laps"]:
+        rows += [{"rider_no": no, "lap": entry["lap"], "position": i + 1}
+                 for i, no in enumerate(entry["order"])]
+    return pd.DataFrame(rows)
+
+
+def championship_progress(champ: dict | None):
+    """Championship table -> (standings_df, progress_df).
+
+    standings_df: [rank, rider_name, nation, points, gap] (current, official).
+    progress_df : one row per rider per HELD event — [event, event_no,
+    rider_name, rank, pts, cum_points, champ_rank] where champ_rank is the
+    rider's championship position AFTER that event (cumulative points,
+    ties broken by current official rank)."""
+    if not champ or not champ.get("riders"):
+        return pd.DataFrame(), pd.DataFrame()
+    riders = champ["riders"]
+    st_df = pd.DataFrame([{
+        "rank": r.get("rank"), "rider_name": r.get("rider_name"),
+        "nation": r.get("nation"), "points": r.get("points"),
+    } for r in riders]).sort_values("rank").reset_index(drop=True)
+    if st_df["points"].notna().any():
+        st_df["gap"] = st_df["points"].max() - st_df["points"]
+
+    # held events = calendar order, at least one rider has a value
+    held = [ev for ev in (champ.get("events") or [])
+            if any(ev in (r.get("per_event") or {}) for r in riders)]
+    rows = []
+    for r in riders:
+        cum = 0
+        for i, ev in enumerate(held):
+            pts = (r.get("per_event") or {}).get(ev)
+            cum += pts or 0
+            rows.append({"event": ev, "event_no": i + 1,
+                         "rider_name": r.get("rider_name"),
+                         "rank": r.get("rank"),
+                         "pts": pts, "cum_points": cum})
+    prog = pd.DataFrame(rows)
+    if not prog.empty:
+        # rank by cumulative points, ties broken by current official rank
+        prog = prog.sort_values(["event_no", "cum_points", "rank"],
+                                ascending=[True, False, True])
+        prog["champ_rank"] = prog.groupby("event_no").cumcount() + 1
+        prog = prog.sort_values(["rank", "event_no"]).reset_index(drop=True)
+    return st_df, prog
 
 
 def export_csv(df: pd.DataFrame) -> str:

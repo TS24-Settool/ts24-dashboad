@@ -21,7 +21,7 @@ import plotly.graph_objects as go
 from . import engine
 from . import circuit_map
 from . import fetch_official
-from .parse_analysis_pdf import parse_analysis_bytes
+from .parse_session_pdf import parse_any_bytes
 
 _DATA_DIR = Path(__file__).parent / "data"
 
@@ -86,11 +86,19 @@ def _plotly_chart(fig, *, key: str):
 
 @st.cache_data(show_spinner=False)
 def _parse_pdf_cached(data: bytes):
-    parsed = parse_analysis_bytes(data)
+    """Parse an uploaded PDF — either the plain Analysis PDF or the full
+    Session results bundle (auto-detected). Returns the per-lap df plus the
+    official-result extras (empty for plain Analysis PDFs)."""
+    parsed = parse_any_bytes(data)
     df = engine.laps_to_df(parsed)
     meta = parsed["meta"]
     slug = circuit_map.detect_slug(meta.get("event")) or circuit_map.detect_slug(meta.get("session"))
-    return df, engine.session_label(meta), slug, meta
+    extras = {"results": parsed.get("results") or [],
+              "conditions": parsed.get("conditions") or {},
+              "race_events": parsed.get("race_events") or [],
+              "lap_chart": parsed.get("lap_chart") or {},
+              "championship": parsed.get("championship") or {}}
+    return df, engine.session_label(meta), slug, meta, extras
 
 
 def _session_meta(label: str | None):
@@ -205,19 +213,29 @@ def render_motogp_page(*, is_admin: bool = False, api_key: str = ""):
     st.markdown('<p class="section-title">🏍 MotoGP Performance Analysis</p>',
                 unsafe_allow_html=True)
     st.caption("Official timing → every rider · every lap · every sector.  "
-               "·  build: **review-tools v12** (lap/sector/speed 3-rider compare · "
-               "run review v2 · top-speed · session review · image track maps)")
+               "·  build: **review-tools v13** (lap/sector/speed 3-rider compare · "
+               "run review v2 · top-speed · session review · image track maps · "
+               "Session-PDF race results)")
 
     _auto_load_once()                            # auto-download latest race
     df, label = _data_source()
+    rdf = engine.results_df(st.session_state.get("mgp_results"))
     if df is None or df.empty:
-        st.info("⬆️ Upload an **Analysis** PDF (MotoGP / Moto2 / Moto3) or tap "
+        if not rdf.empty:                        # results-only PDF (no lap data)
+            st.markdown(f"#### {label or 'Session'}")
+            _tab_race_results(rdf, label)
+            return
+        st.info("⬆️ Upload an official **Analysis** PDF or the full **Session** "
+                "results PDF (MotoGP / Moto2 / Moto3), or tap "
                 "**Open demo session** to explore.")
         return
 
     _session_overview(df, label)
 
     cls = engine.classification(df)
+    if not cls.empty and not rdf.empty:
+        # official result available -> penalty-corrected finishing order
+        cls = engine.apply_official_positions(cls, rdf)
     if cls.empty:
         st.warning("No valid laps for this session. The source may not have it "
                    "yet (very recent / not-yet-published events are often empty). "
@@ -226,30 +244,30 @@ def render_motogp_page(*, is_admin: bool = False, api_key: str = ""):
                    "Analysis PDF directly.")
         return
 
-    labels = ["📋 Session Review", "🏁 Classification", "⚔️ Head-to-Head",
-              "🗺️ Track Map", "📊 Lap Detail", "🏎️ Run Review"]
-    if is_admin:
-        labels.append("📣 Content Studio")          # admin-only marketing tool
-    tabs = st.tabs(labels)
+    panes = [("📋 Session Review", lambda: _tab_session_review(df, cls))]
+    if not rdf.empty:                            # only when a Session PDF is loaded
+        panes.append(("🏆 Race Results", lambda: _tab_race_results(rdf, label)))
+    panes += [
+        ("🏁 Classification", lambda: _tab_classification(cls)),
+        ("⚔️ Head-to-Head", lambda: _tab_head_to_head(df, cls)),
+        ("🗺️ Track Map", lambda: _tab_track_map(df, cls)),
+        ("📊 Lap Detail", lambda: _tab_lap_detail(df, cls)),
+        ("🏎️ Run Review", lambda: _tab_run_review(df, cls)),
+    ]
 
-    with tabs[0]:
-        _tab_session_review(df, cls)
-    with tabs[1]:
-        _tab_classification(cls)
-    with tabs[2]:
-        _tab_head_to_head(df, cls)
-    with tabs[3]:
-        _tab_track_map(df, cls)
-    with tabs[4]:
-        _tab_lap_detail(df, cls)
-    with tabs[5]:
-        _tab_run_review(df, cls)
+    def _content_studio():
+        # Lazy import breaks the app_page ↔ content_studio import cycle.
+        from .content_studio import render_content_studio
+        render_content_studio(df, cls, label, api_key=api_key,
+                              is_admin=is_admin)
+
     if is_admin:
-        with tabs[6]:
-            # Lazy import breaks the app_page ↔ content_studio import cycle.
-            from .content_studio import render_content_studio
-            render_content_studio(df, cls, label, api_key=api_key,
-                                  is_admin=is_admin)
+        panes.append(("📣 Content Studio", _content_studio))  # admin-only
+
+    tabs = st.tabs([t for t, _ in panes])
+    for tab, (_, render) in zip(tabs, panes):
+        with tab:
+            render()
 
 
 # ── session overview cards + export ─────────────────────────────────────────
@@ -317,27 +335,43 @@ def _export_ui(df, label):
 
 
 # ── data source (upload / demo) ─────────────────────────────────────────────
+_EXTRA_KEYS = ("mgp_results", "mgp_conditions", "mgp_race_events",
+               "mgp_lap_chart", "mgp_championship")
+
+
+def _clear_extras():
+    for k in _EXTRA_KEYS:
+        st.session_state.pop(k, None)
+
+
 def _data_source():
-    up = st.file_uploader("Analysis PDF", type=["pdf"], label_visibility="collapsed")
+    up = st.file_uploader("Analysis / Session PDF", type=["pdf"],
+                          label_visibility="collapsed")
     c1, c2 = st.columns(2)
     demo = c1.button("▶︎ Open demo session", use_container_width=True)
     if c2.button("✖︎ Clear", use_container_width=True):
         st.session_state.pop("mgp_df", None)
         st.session_state.pop("mgp_label", None)
         st.session_state.pop("mgp_meta", None)
+        _clear_extras()
         st.rerun()
 
     if up is not None:
         try:
-            df, label, slug, meta = _parse_pdf_cached(up.getvalue())
+            df, label, slug, meta, extras = _parse_pdf_cached(up.getvalue())
             st.session_state["mgp_df"] = df
             st.session_state["mgp_label"] = label
             st.session_state["mgp_circuit"] = slug
             st.session_state["mgp_meta"] = meta
+            st.session_state["mgp_results"] = extras["results"]
+            st.session_state["mgp_conditions"] = extras["conditions"]
+            st.session_state["mgp_race_events"] = extras["race_events"]
+            st.session_state["mgp_lap_chart"] = extras["lap_chart"]
+            st.session_state["mgp_championship"] = extras["championship"]
         except Exception as e:  # noqa: BLE001
             st.error(f"Could not parse this PDF: {e}")
-            st.caption("Make sure it is the **Analysis / Chronological Analysis "
-                       "of Performances** PDF (not the Classification PDF).")
+            st.caption("Make sure it is the official **Analysis** PDF or the "
+                       "full **Session** results PDF.")
 
     if demo:
         try:
@@ -345,6 +379,8 @@ def _data_source():
             st.session_state["mgp_df"] = df
             st.session_state["mgp_label"] = "DEMO · MotoGP · Qatar · Free Practice 1"
             st.session_state["mgp_circuit"] = "losail"
+            st.session_state.pop("mgp_meta", None)
+            _clear_extras()
         except Exception as e:  # noqa: BLE001
             st.error(f"Demo unavailable: {e}")
 
@@ -406,6 +442,8 @@ def _online_fetch_ui():
                     st.session_state["mgp_df"] = df
                     st.session_state["mgp_label"] = label
                     st.session_state["mgp_circuit"] = slug
+                    st.session_state.pop("mgp_meta", None)
+                    _clear_extras()
                     st.rerun()
             except Exception as e:  # noqa: BLE001
                 st.error(f"Fetch failed: {e}")
@@ -517,6 +555,247 @@ def _tab_session_review(df, cls):
         st.warning("📉 " + r["consistency_warning"])
     st.caption("Auto-picks the rider one place ahead as the comparison target. "
                "Open **Head-to-Head** or **Lap Detail** for the full breakdown.")
+
+
+# ── tab: race results (official classification from the Session PDF) ────────
+# Fixed categorical palette (Okabe-Ito subset, CVD-validated). Highlighted
+# riders get these colors; everyone else recedes to grey — a 22-line chart
+# with 22 colors is unreadable, so identity comes from selection + labels.
+_CAT_PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9"]
+_GREY = "#D1D5DB"
+
+
+def _short_name(full: str) -> str:
+    """'Fabio DI GIANNANTONIO' -> 'DI GIANNANTONIO' (the all-caps surname)."""
+    parts = [p for p in _clean_str(full).split() if p.isupper() and len(p) > 1]
+    return " ".join(parts) or _clean_str(full)
+
+
+def _tab_race_results(rdf: pd.DataFrame, label: str):
+    lcdf = engine.lap_chart_df(st.session_state.get("mgp_lap_chart"))
+    champ = st.session_state.get("mgp_championship") or {}
+
+    sub_names = ["🏁 Result"]
+    if not lcdf.empty:
+        sub_names.append("📈 Position chart")
+    if champ.get("riders"):
+        sub_names.append("🏆 Championship")
+    if len(sub_names) == 1:
+        _results_body(rdf, label)
+        return
+    subs = st.tabs(sub_names)
+    with subs[0]:
+        _results_body(rdf, label)
+    i = 1
+    if not lcdf.empty:
+        with subs[i]:
+            _race_position_chart(lcdf, rdf)
+        i += 1
+    if champ.get("riders"):
+        with subs[i]:
+            _championship_view(champ)
+
+
+def _race_position_chart(lcdf: pd.DataFrame, rdf: pd.DataFrame):
+    """Lap-by-lap running order from the official LAP CHART (lap 0 = grid)."""
+    names = {int(n): _clean_str(nm) for n, nm in
+             zip(rdf["rider_no"], rdf["rider_name"]) if pd.notna(n)}
+    # option order = official finishing order, then DNFs as they appear
+    order = [int(n) for n in rdf["rider_no"] if pd.notna(n)]
+    order += [n for n in lcdf["rider_no"].unique() if n not in order]
+    labels = {n: f"#{n} {_short_name(names.get(n, ''))}".strip() for n in order}
+
+    picked = st.multiselect(
+        "Highlight riders (max 6)", [labels[n] for n in order],
+        default=[labels[n] for n in order[:3]], max_selections=6,
+        key="poschart_riders")
+    sel = [n for n in order if labels[n] in picked]
+
+    max_lap = int(lcdf["lap"].max())
+    max_pos = int(lcdf["position"].max())
+    fig = go.Figure()
+    for n in order:                                    # grey field first
+        if n in sel:
+            continue
+        g = lcdf[lcdf["rider_no"] == n].sort_values("lap")
+        fig.add_trace(go.Scatter(
+            x=g["lap"], y=g["position"], mode="lines",
+            line=dict(color=_GREY, width=1.2), showlegend=False,
+            name=labels[n], hovertemplate=f"{labels[n]} · lap %{{x}} · P%{{y}}"
+                                          "<extra></extra>"))
+    for i, n in enumerate(sel):                        # highlighted on top
+        g = lcdf[lcdf["rider_no"] == n].sort_values("lap")
+        col = _CAT_PALETTE[i % len(_CAT_PALETTE)]
+        fig.add_trace(go.Scatter(
+            x=g["lap"], y=g["position"], mode="lines+markers",
+            line=dict(color=col, width=2.4), marker=dict(size=5),
+            name=labels[n], hovertemplate=f"{labels[n]} · lap %{{x}} · P%{{y}}"
+                                          "<extra></extra>"))
+        if not g.empty:                                # direct label at line end
+            fig.add_annotation(x=g["lap"].iloc[-1], y=g["position"].iloc[-1],
+                               text=_short_name(names.get(n, f"#{n}")),
+                               xanchor="left", xshift=6, showarrow=False,
+                               font=dict(size=11, color=col))
+    fig.update_xaxes(title="Lap", dtick=2 if max_lap > 30 else 1,
+                     range=[-0.5, max_lap + 2.5], gridcolor="#F3F4F6",
+                     tickvals=[0] + list(range(2, max_lap + 1, 2)),
+                     ticktext=["Grid"] + [str(v) for v in range(2, max_lap + 1, 2)])
+    fig.update_yaxes(title="Position", range=[max_pos + 0.7, 0.3], dtick=1,
+                     gridcolor="#F3F4F6")
+    fig.update_layout(height=max(420, 24 * max_pos), plot_bgcolor="#FFFFFF",
+                      legend=dict(orientation="h", y=-0.15),
+                      margin=dict(l=10, r=60, t=20, b=10))
+    _plotly_chart(fig, key="race_position_chart")
+    st.caption("Official LAP CHART — running order at the end of every lap "
+               "(lap 0 = starting grid). Riders leave the chart on the lap "
+               "they retire. On-track order: post-race time penalties are NOT "
+               "applied here (see the Result tab for the final classification).")
+
+
+def _championship_view(champ: dict):
+    """Championship standings + round-by-round evolution (rank or points)."""
+    st_df, prog = engine.championship_progress(champ)
+    if st_df.empty:
+        st.info("No championship table in this PDF.")
+        return
+
+    mode = st.radio("View", ["Championship position", "Cumulative points"],
+                    horizontal=True, key="champ_mode")
+    names = list(st_df["rider_name"])
+    picked = st.multiselect(
+        "Highlight riders (max 6)", names, default=names[:3],
+        max_selections=6, key="champ_riders")
+    sel = [n for n in names if n in picked]
+
+    held = list(dict.fromkeys(prog.sort_values("event_no")["event"]))
+    by_rank = mode == "Championship position"
+    ycol = "champ_rank" if by_rank else "cum_points"
+    fig = go.Figure()
+    for name in names:                                 # grey field first
+        if name in sel:
+            continue
+        g = prog[prog["rider_name"] == name].sort_values("event_no")
+        fig.add_trace(go.Scatter(
+            x=g["event"], y=g[ycol], mode="lines",
+            line=dict(color=_GREY, width=1.2), showlegend=False, name=name,
+            hovertemplate=f"{name} · %{{x}} · "
+                          + ("P%{y}" if by_rank else "%{y} pts")
+                          + "<extra></extra>"))
+    for i, name in enumerate(sel):
+        g = prog[prog["rider_name"] == name].sort_values("event_no")
+        col = _CAT_PALETTE[i % len(_CAT_PALETTE)]
+        fig.add_trace(go.Scatter(
+            x=g["event"], y=g[ycol], mode="lines+markers",
+            line=dict(color=col, width=2.4), marker=dict(size=6), name=name,
+            hovertemplate=f"{name} · %{{x}} · "
+                          + ("P%{y}" if by_rank else "%{y} pts")
+                          + "<extra></extra>"))
+        if not g.empty:
+            fig.add_annotation(x=g["event"].iloc[-1], y=g[ycol].iloc[-1],
+                               text=_short_name(name), xanchor="left",
+                               xshift=6, showarrow=False,
+                               font=dict(size=11, color=col))
+    fig.update_xaxes(title="Round", categoryorder="array",
+                     categoryarray=held, gridcolor="#F3F4F6")
+    if by_rank:
+        fig.update_yaxes(title="Championship position",
+                         range=[len(names) + 0.7, 0.3], dtick=1,
+                         gridcolor="#F3F4F6")
+    else:
+        fig.update_yaxes(title="Points", rangemode="tozero",
+                         gridcolor="#F3F4F6")
+    fig.update_layout(height=520, plot_bgcolor="#FFFFFF",
+                      legend=dict(orientation="h", y=-0.2),
+                      margin=dict(l=10, r=80, t=20, b=10))
+    _plotly_chart(fig, key="championship_chart")
+    st.caption("Riders' World Championship after this event — position/points "
+               "recomputed round by round from the per-event points in the "
+               "Session PDF (ties broken by current official rank).")
+
+    show = pd.DataFrame({
+        "Pos": st_df["rank"],
+        "Rider": st_df["rider_name"].map(_clean_str),
+        "Nation": st_df["nation"].map(_clean_str),
+        "Points": st_df["points"],
+        "Gap": st_df.get("gap", pd.Series([None] * len(st_df))),
+    })
+    st.dataframe(show, use_container_width=True, hide_index=True,
+                 height=min(40 + 35 * len(show), 700))
+
+
+def _results_body(rdf: pd.DataFrame, label: str):
+    cond = st.session_state.get("mgp_conditions") or {}
+    events = st.session_state.get("mgp_race_events") or []
+
+    # KPI row — winner / fastest lap / pole
+    top = rdf[rdf["position"] == 1]
+    c1, c2, c3 = st.columns(3)
+    if not top.empty:
+        c1.metric("Winner", _clean_str(top["rider_name"].iloc[0]))
+        c1.caption(_clean_str(top["total_time"].iloc[0]))
+    if cond.get("fastest_rider"):
+        c2.metric("Fastest lap", cond.get("fastest_time") or "—")
+        lapno = cond.get("fastest_lap_no")
+        c2.caption(cond["fastest_rider"] + (f" · Lap {lapno}" if lapno else ""))
+    if cond.get("pole_rider"):
+        c3.metric("Pole position", cond.get("pole_time") or "—")
+        c3.caption(cond["pole_rider"])
+
+    bits = []
+    if cond.get("condition"):
+        bits.append(f"Track: {cond['condition']}")
+    for k, txt in (("air_c", "Air {}°C"), ("ground_c", "Ground {}°C"),
+                   ("humidity_pct", "Humidity {}%")):
+        if cond.get(k) is not None:
+            bits.append(txt.format(cond[k]))
+    if cond.get("race_laps"):
+        bits.append(f"{cond['race_laps']} laps")
+    if cond.get("distance_km"):
+        bits.append(f"{cond['distance_km']:.3f} km")
+    if bits:
+        st.caption("  ·  ".join(bits))
+
+    show = pd.DataFrame({
+        "Pos": rdf["position"].map(lambda v: f"{int(v)}" if pd.notna(v) else "—"),
+        "Pts": rdf["points"].map(lambda v: f"{int(v)}" if pd.notna(v) else ""),
+        "No": rdf["rider_no"],
+        "Rider": rdf["rider_name"].map(_clean_str),
+        "Team": rdf["team"].map(_clean_str),
+        "Bike": rdf["motorcycle"].map(_clean_str),
+        "Total Time": rdf["total_time"].map(_clean_str),
+        "Km/h": rdf["avg_speed_kmh"].map(
+            lambda v: f"{v:.1f}" if pd.notna(v) else ""),
+        "Gap": rdf["gap"].map(_clean_str),
+        "Status": rdf["status"].map(
+            lambda s: "" if s == "Classified" else _clean_str(s)),
+    })
+
+    podium = (rdf["position"] <= 3).fillna(False).to_numpy()
+    dnf = (rdf["status"] != "Classified").to_numpy()
+
+    def _style_row(row):
+        if podium[row.name]:
+            return ["background-color:#FFF3CD;font-weight:700"] * len(row)
+        if dnf[row.name]:
+            return ["color:#9CA3AF"] * len(row)
+        return [""] * len(row)
+
+    st.dataframe(show.style.apply(_style_row, axis=1),
+                 use_container_width=True, hide_index=True,
+                 height=min(40 + 35 * len(show), 900))
+    st.caption("Official session classification from the MotoGP Session PDF "
+               "(Pos = official finishing order · greyed rows = not classified).")
+
+    st.download_button("⬇️ Result CSV",
+                       engine.export_results_csv(rdf.to_dict("records")),
+                       file_name=f"{_slug(label)}_results.csv",
+                       mime="text/csv", key="exp_results_csv")
+
+    if events:
+        with st.expander(f"🕐 Race direction log ({len(events)} events)"):
+            st.dataframe(pd.DataFrame(events).rename(
+                columns={"time": "Time", "text": "Event"}),
+                use_container_width=True, hide_index=True)
 
 
 # ── tab: classification ─────────────────────────────────────────────────────
