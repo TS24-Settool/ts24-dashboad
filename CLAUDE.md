@@ -1806,3 +1806,19 @@ rank_delta再計算）。`recommend_reference`（一つ前の順位比較）も�
 - 新規: `motogp_tool/parse_session_pdf.py`。変更: `motogp_tool/engine.py` / `motogp_tool/app_page.py`。
   `parse_analysis_pdf.py`/`fetch_official.py`/`dashboard.py` は無改修。オンラインfetchのSession PDF自動取得
   （PulseLive `files` からの取得）は将来課題。
+
+### 27e. 順位変動グラフ + チャンピオンシップ推移（2026-07-06 追加 / Tatsuki要望）
+- **パーサー拡張（parse_session_pdf.py）**: ① `_parse_lap_chart` — LAP CHARTページから Grid + 各ラップの
+  走行順（ライダー番号列）を抽出（縦書き"L a p s"軸文字は1文字トークンとして除去、リタイアはその周から消える）。
+  ② `_parse_championship` — WORLD CHAMPIONSHIP CLASSIFICATION（ライダーページのみ、Constructor/Teamページは
+  "Rider"ヘッダ無しでskip）から rank/氏名/国籍/総ポイント/**イベント別ポイント**を抽出。値はヘッダ列との
+  x座標最近傍割当（±14pt）。"-"=出走0点=0、列欠落=未開催。2行組（姓行+名[NAT]行）をペアリング。
+- **engine**: `lap_chart_df`（lap0=Grid のtidy形式）/ `championship_progress`（開催済イベントの累積ポイント→
+  ラウンド毎ランキング。同点は現公式ランクでタイブレーク）。検証: 全27名 累積==公式総ポイント・最終ランク==
+  公式ランク 完全一致。LAP CHART: Grid P1=#89(ポール)・最終周P1-3=79/25/89 が公式結果と一致。
+- **UI（Race Resultsタブ内をネストタブ化）**: [🏁 Result] [📈 Position chart] [🏆 Championship]。
+  Position chart = Grid→全周の順位トレース。Championship = ラウンド毎順位（バンプ）/累積ポイントのradio切替
+  + 現行スタンディングス表。**両チャートともハイライト最大6名選択 + 残りグレー退避**（22本フルカラーは判読
+  不能のため）。パレット=Okabe-Ito系6色（dataviz validator PASS・CVD対応）、ハイライトは線末端に直接ラベル。
+  Y軸は明示レンジ（P0目盛り防止）。
+- 注: Position chartは**オントラック順位**（ペナルティ未適用、キャプションに明記）。最終結果はResultタブが正。

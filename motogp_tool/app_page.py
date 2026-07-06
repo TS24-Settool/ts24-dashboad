@@ -95,7 +95,9 @@ def _parse_pdf_cached(data: bytes):
     slug = circuit_map.detect_slug(meta.get("event")) or circuit_map.detect_slug(meta.get("session"))
     extras = {"results": parsed.get("results") or [],
               "conditions": parsed.get("conditions") or {},
-              "race_events": parsed.get("race_events") or []}
+              "race_events": parsed.get("race_events") or [],
+              "lap_chart": parsed.get("lap_chart") or {},
+              "championship": parsed.get("championship") or {}}
     return df, engine.session_label(meta), slug, meta, extras
 
 
@@ -333,7 +335,8 @@ def _export_ui(df, label):
 
 
 # ── data source (upload / demo) ─────────────────────────────────────────────
-_EXTRA_KEYS = ("mgp_results", "mgp_conditions", "mgp_race_events")
+_EXTRA_KEYS = ("mgp_results", "mgp_conditions", "mgp_race_events",
+               "mgp_lap_chart", "mgp_championship")
 
 
 def _clear_extras():
@@ -363,6 +366,8 @@ def _data_source():
             st.session_state["mgp_results"] = extras["results"]
             st.session_state["mgp_conditions"] = extras["conditions"]
             st.session_state["mgp_race_events"] = extras["race_events"]
+            st.session_state["mgp_lap_chart"] = extras["lap_chart"]
+            st.session_state["mgp_championship"] = extras["championship"]
         except Exception as e:  # noqa: BLE001
             st.error(f"Could not parse this PDF: {e}")
             st.caption("Make sure it is the official **Analysis** PDF or the "
@@ -553,7 +558,172 @@ def _tab_session_review(df, cls):
 
 
 # ── tab: race results (official classification from the Session PDF) ────────
+# Fixed categorical palette (Okabe-Ito subset, CVD-validated). Highlighted
+# riders get these colors; everyone else recedes to grey — a 22-line chart
+# with 22 colors is unreadable, so identity comes from selection + labels.
+_CAT_PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9"]
+_GREY = "#D1D5DB"
+
+
+def _short_name(full: str) -> str:
+    """'Fabio DI GIANNANTONIO' -> 'DI GIANNANTONIO' (the all-caps surname)."""
+    parts = [p for p in _clean_str(full).split() if p.isupper() and len(p) > 1]
+    return " ".join(parts) or _clean_str(full)
+
+
 def _tab_race_results(rdf: pd.DataFrame, label: str):
+    lcdf = engine.lap_chart_df(st.session_state.get("mgp_lap_chart"))
+    champ = st.session_state.get("mgp_championship") or {}
+
+    sub_names = ["🏁 Result"]
+    if not lcdf.empty:
+        sub_names.append("📈 Position chart")
+    if champ.get("riders"):
+        sub_names.append("🏆 Championship")
+    if len(sub_names) == 1:
+        _results_body(rdf, label)
+        return
+    subs = st.tabs(sub_names)
+    with subs[0]:
+        _results_body(rdf, label)
+    i = 1
+    if not lcdf.empty:
+        with subs[i]:
+            _race_position_chart(lcdf, rdf)
+        i += 1
+    if champ.get("riders"):
+        with subs[i]:
+            _championship_view(champ)
+
+
+def _race_position_chart(lcdf: pd.DataFrame, rdf: pd.DataFrame):
+    """Lap-by-lap running order from the official LAP CHART (lap 0 = grid)."""
+    names = {int(n): _clean_str(nm) for n, nm in
+             zip(rdf["rider_no"], rdf["rider_name"]) if pd.notna(n)}
+    # option order = official finishing order, then DNFs as they appear
+    order = [int(n) for n in rdf["rider_no"] if pd.notna(n)]
+    order += [n for n in lcdf["rider_no"].unique() if n not in order]
+    labels = {n: f"#{n} {_short_name(names.get(n, ''))}".strip() for n in order}
+
+    picked = st.multiselect(
+        "Highlight riders (max 6)", [labels[n] for n in order],
+        default=[labels[n] for n in order[:3]], max_selections=6,
+        key="poschart_riders")
+    sel = [n for n in order if labels[n] in picked]
+
+    max_lap = int(lcdf["lap"].max())
+    max_pos = int(lcdf["position"].max())
+    fig = go.Figure()
+    for n in order:                                    # grey field first
+        if n in sel:
+            continue
+        g = lcdf[lcdf["rider_no"] == n].sort_values("lap")
+        fig.add_trace(go.Scatter(
+            x=g["lap"], y=g["position"], mode="lines",
+            line=dict(color=_GREY, width=1.2), showlegend=False,
+            name=labels[n], hovertemplate=f"{labels[n]} · lap %{{x}} · P%{{y}}"
+                                          "<extra></extra>"))
+    for i, n in enumerate(sel):                        # highlighted on top
+        g = lcdf[lcdf["rider_no"] == n].sort_values("lap")
+        col = _CAT_PALETTE[i % len(_CAT_PALETTE)]
+        fig.add_trace(go.Scatter(
+            x=g["lap"], y=g["position"], mode="lines+markers",
+            line=dict(color=col, width=2.4), marker=dict(size=5),
+            name=labels[n], hovertemplate=f"{labels[n]} · lap %{{x}} · P%{{y}}"
+                                          "<extra></extra>"))
+        if not g.empty:                                # direct label at line end
+            fig.add_annotation(x=g["lap"].iloc[-1], y=g["position"].iloc[-1],
+                               text=_short_name(names.get(n, f"#{n}")),
+                               xanchor="left", xshift=6, showarrow=False,
+                               font=dict(size=11, color=col))
+    fig.update_xaxes(title="Lap", dtick=2 if max_lap > 30 else 1,
+                     range=[-0.5, max_lap + 2.5], gridcolor="#F3F4F6",
+                     tickvals=[0] + list(range(2, max_lap + 1, 2)),
+                     ticktext=["Grid"] + [str(v) for v in range(2, max_lap + 1, 2)])
+    fig.update_yaxes(title="Position", range=[max_pos + 0.7, 0.3], dtick=1,
+                     gridcolor="#F3F4F6")
+    fig.update_layout(height=max(420, 24 * max_pos), plot_bgcolor="#FFFFFF",
+                      legend=dict(orientation="h", y=-0.15),
+                      margin=dict(l=10, r=60, t=20, b=10))
+    _plotly_chart(fig, key="race_position_chart")
+    st.caption("Official LAP CHART — running order at the end of every lap "
+               "(lap 0 = starting grid). Riders leave the chart on the lap "
+               "they retire. On-track order: post-race time penalties are NOT "
+               "applied here (see the Result tab for the final classification).")
+
+
+def _championship_view(champ: dict):
+    """Championship standings + round-by-round evolution (rank or points)."""
+    st_df, prog = engine.championship_progress(champ)
+    if st_df.empty:
+        st.info("No championship table in this PDF.")
+        return
+
+    mode = st.radio("View", ["Championship position", "Cumulative points"],
+                    horizontal=True, key="champ_mode")
+    names = list(st_df["rider_name"])
+    picked = st.multiselect(
+        "Highlight riders (max 6)", names, default=names[:3],
+        max_selections=6, key="champ_riders")
+    sel = [n for n in names if n in picked]
+
+    held = list(dict.fromkeys(prog.sort_values("event_no")["event"]))
+    by_rank = mode == "Championship position"
+    ycol = "champ_rank" if by_rank else "cum_points"
+    fig = go.Figure()
+    for name in names:                                 # grey field first
+        if name in sel:
+            continue
+        g = prog[prog["rider_name"] == name].sort_values("event_no")
+        fig.add_trace(go.Scatter(
+            x=g["event"], y=g[ycol], mode="lines",
+            line=dict(color=_GREY, width=1.2), showlegend=False, name=name,
+            hovertemplate=f"{name} · %{{x}} · "
+                          + ("P%{y}" if by_rank else "%{y} pts")
+                          + "<extra></extra>"))
+    for i, name in enumerate(sel):
+        g = prog[prog["rider_name"] == name].sort_values("event_no")
+        col = _CAT_PALETTE[i % len(_CAT_PALETTE)]
+        fig.add_trace(go.Scatter(
+            x=g["event"], y=g[ycol], mode="lines+markers",
+            line=dict(color=col, width=2.4), marker=dict(size=6), name=name,
+            hovertemplate=f"{name} · %{{x}} · "
+                          + ("P%{y}" if by_rank else "%{y} pts")
+                          + "<extra></extra>"))
+        if not g.empty:
+            fig.add_annotation(x=g["event"].iloc[-1], y=g[ycol].iloc[-1],
+                               text=_short_name(name), xanchor="left",
+                               xshift=6, showarrow=False,
+                               font=dict(size=11, color=col))
+    fig.update_xaxes(title="Round", categoryorder="array",
+                     categoryarray=held, gridcolor="#F3F4F6")
+    if by_rank:
+        fig.update_yaxes(title="Championship position",
+                         range=[len(names) + 0.7, 0.3], dtick=1,
+                         gridcolor="#F3F4F6")
+    else:
+        fig.update_yaxes(title="Points", rangemode="tozero",
+                         gridcolor="#F3F4F6")
+    fig.update_layout(height=520, plot_bgcolor="#FFFFFF",
+                      legend=dict(orientation="h", y=-0.2),
+                      margin=dict(l=10, r=80, t=20, b=10))
+    _plotly_chart(fig, key="championship_chart")
+    st.caption("Riders' World Championship after this event — position/points "
+               "recomputed round by round from the per-event points in the "
+               "Session PDF (ties broken by current official rank).")
+
+    show = pd.DataFrame({
+        "Pos": st_df["rank"],
+        "Rider": st_df["rider_name"].map(_clean_str),
+        "Nation": st_df["nation"].map(_clean_str),
+        "Points": st_df["points"],
+        "Gap": st_df.get("gap", pd.Series([None] * len(st_df))),
+    })
+    st.dataframe(show, use_container_width=True, hide_index=True,
+                 height=min(40 + 35 * len(show), 700))
+
+
+def _results_body(rdf: pd.DataFrame, label: str):
     cond = st.session_state.get("mgp_conditions") or {}
     events = st.session_state.get("mgp_race_events") or []
 

@@ -47,8 +47,10 @@ from .parse_analysis_pdf import (
 # ── section titles (as printed on each page) ────────────────────────────────
 _S_CLASSIFICATION = "CLASSIFICATION AFTER"
 _S_CHRONO = "CHRONOLOGICAL ANALYSIS OF PERFORMANCES"
+_S_CHAMPIONSHIP = "WORLD CHAMPIONSHIP CLASSIFICATION"
+_S_LAPCHART = "LAP CHART"
 _SECTION_TITLES = (
-    _S_CLASSIFICATION, "WORLD CHAMPIONSHIP CLASSIFICATION", "LAP CHART",
+    _S_CLASSIFICATION, _S_CHAMPIONSHIP, _S_LAPCHART,
     "FASTEST LAP OF EACH RIDER", "EVENT BEST MAXIMUM SPEED", _S_CHRONO,
     "ANALYSIS BY LAP", "ROOKIE OF THE YEAR", "RIDERS PERFORMANCE",
     "OFFICIAL STARTING GRID", "TOP SPEED & AVERAGE", "FASTEST LAPS SEQUENCE",
@@ -236,6 +238,103 @@ def _parse_race_events(doc, pages: list[int]) -> list[dict]:
     return out
 
 
+# ── lap chart (position per lap) ────────────────────────────────────────────
+def _parse_lap_chart(doc, pages: list[int]) -> dict:
+    """LAP CHART page -> {'grid': [rider_no in grid order],
+    'laps': [{'lap': n, 'order': [rider_no in running order]}, ...]}.
+    Riders who retire simply disappear from later rows."""
+    grid, laps, seen = [], [], set()
+    for p in pages:
+        for r in _cluster_rows(doc[p].get_text("words")):
+            toks = [t for _, t in _row_tokens(r)]
+            # drop the vertical 'L a p s' axis letters clustered into the rows
+            toks = [t for t in toks if not (len(t) == 1 and t.isalpha())]
+            if not toks:
+                continue
+            if toks[0] == "Grid":
+                nums = [int(t) for t in toks[1:] if t.isdigit()]
+                if len(nums) >= 4:
+                    grid = nums
+                continue
+            if not all(t.isdigit() for t in toks) or len(toks) < 5:
+                continue
+            lap_no, order = int(toks[0]), [int(t) for t in toks[1:]]
+            if lap_no in seen or lap_no > 120:      # dedupe / sanity
+                continue
+            seen.add(lap_no)
+            laps.append({"lap": lap_no, "order": order})
+    laps.sort(key=lambda d: d["lap"])
+    return {"grid": grid, "laps": laps} if laps else {}
+
+
+# ── world championship classification (points per event) ────────────────────
+def _parse_championship(doc, pages: list[int]) -> dict:
+    """Riders' championship table -> {'events': [event codes in calendar
+    order], 'riders': [{rank, rider_name, nation, points, per_event: {code:
+    pts | None}}]}. Values are x-aligned to the header columns; '-' (event
+    held, no points) -> 0; a missing column (event not yet held) -> absent.
+    Constructor / Team pages (no 'Rider' header) are skipped."""
+    events, riders, pending = [], [], None
+    for p in pages:
+        rows = _cluster_rows(doc[p].get_text("words"))
+        header = None
+        for r in rows:
+            toks = _row_tokens(r)
+            words = [t for _, t in toks]
+            if "Rider" in words and "Points" in words and "Leader" in words:
+                header = toks
+                break
+        if header is None:                     # constructors / teams page
+            continue
+        ev_cols = [(x, t) for x, t in header if re.fullmatch(r"[A-Z]{3}", t)]
+        named = {t: x for x, t in header if t in ("Points", "Leader", "Prev")}
+        if not events:
+            events = [t for _, t in ev_cols]
+        cols = [(named["Points"], "Points"), (named["Leader"], "Leader")] + \
+               ([(named["Prev"], "Prev")] if "Prev" in named else []) + ev_cols
+        points_x = named["Points"]
+
+        for r in rows:
+            toks = _row_tokens(r)
+            words = [t for _, t in toks]
+            if not toks or toks is header:
+                continue
+            # second identity line: 'Jorge [SPA] <sprint/race breakdown…>'
+            bracket = next((t for t in words if re.fullmatch(r"\[[A-Z]{3}\]", t)),
+                           None)
+            if bracket and pending is not None:
+                given = " ".join(t for x, t in toks
+                                 if x < points_x - 15 and t != bracket)
+                if given:
+                    pending["rider_name"] = f"{given} {pending['rider_name']}"
+                pending["nation"] = bracket.strip("[]")
+                riders.append(pending)
+                pending = None
+                continue
+            # first line: rank, SURNAME…, then x-aligned values
+            if not (words[0].isdigit() and toks[0][0] < 60):
+                continue
+            surname = " ".join(t for x, t in toks[1:]
+                               if x < points_x - 15 and not t.isdigit())
+            if not surname:
+                continue
+            vals = {}
+            for x, t in toks[1:]:
+                if x < points_x - 15 or not (t == "-" or t.isdigit()):
+                    continue
+                col = min(cols, key=lambda c: abs(c[0] - x))
+                if abs(col[0] - x) <= 14:
+                    vals[col[1]] = 0 if t == "-" else int(t)
+            pending = {
+                "rank": int(words[0]), "rider_name": surname, "nation": None,
+                "points": vals.get("Points"),
+                "per_event": {ev: vals[ev] for _, ev in ev_cols if ev in vals},
+            }
+    if pending is not None:                    # no identity line followed
+        riders.append(pending)
+    return {"events": events, "riders": riders} if riders else {}
+
+
 # ── meta ─────────────────────────────────────────────────────────────────────
 def _session_name(page0_text: str) -> str | None:
     """The session line printed under the event title. 2026 bundles label the
@@ -288,7 +387,7 @@ def parse_any_bytes(data: bytes) -> dict:
         return _parse_session_doc(doc)
     parsed = _parse_doc(doc)                       # closes doc
     parsed.update({"results": [], "conditions": {}, "race_events": [],
-                   "kind": "analysis"})
+                   "lap_chart": {}, "championship": {}, "kind": "analysis"})
     return parsed
 
 
@@ -300,6 +399,8 @@ def _parse_session_doc(doc) -> dict:
     results = _parse_classification_pages(doc, cls_pages) if cls_pages else []
     conditions = _parse_conditions(doc, cls_pages) if cls_pages else {}
     race_events = _parse_race_events(doc, cls_pages) if cls_pages else []
+    lap_chart = _parse_lap_chart(doc, sections.get(_S_LAPCHART, []))
+    championship = _parse_championship(doc, sections.get(_S_CHAMPIONSHIP, []))
 
     laps, meta = [], {}
     if chrono_pages:
@@ -325,6 +426,7 @@ def _parse_session_doc(doc) -> dict:
     doc.close()
     return {"meta": meta, "laps": laps, "results": results,
             "conditions": conditions, "race_events": race_events,
+            "lap_chart": lap_chart, "championship": championship,
             "kind": "session"}
 
 
@@ -344,6 +446,15 @@ if __name__ == "__main__":
               f"gap={r['gap'] or ''}  [{r['status']}]")
     print(f"race events  : {len(res['race_events'])}")
     print(f"laps parsed  : {len(res['laps'])}")
+    lc = res.get("lap_chart") or {}
+    print(f"lap chart    : grid={len(lc.get('grid') or [])} riders, "
+          f"{len(lc.get('laps') or [])} laps")
+    ch = res.get("championship") or {}
+    print(f"championship : {len(ch.get('riders') or [])} riders, "
+          f"events={ch.get('events')}")
+    for rd in (ch.get("riders") or [])[:5]:
+        print(f"   {rd['rank']:>2} {rd['rider_name']:<26} [{rd['nation']}] "
+              f"{rd['points']:>3} pts  {rd['per_event']}")
     if len(sys.argv) > 2:
         import csv
         cols = ["status", "position", "points", "rider_no", "rider_name",

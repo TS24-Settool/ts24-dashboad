@@ -531,6 +531,60 @@ def export_results_csv(results: list[dict] | None) -> str:
     return rdf.to_csv(index=False) if not rdf.empty else ""
 
 
+def lap_chart_df(lap_chart: dict | None) -> pd.DataFrame:
+    """LAP CHART -> tidy [rider_no, lap, position]; lap 0 = starting grid.
+    Riders vanish from the chart on the lap they retire."""
+    if not lap_chart or not lap_chart.get("laps"):
+        return pd.DataFrame()
+    rows = [{"rider_no": no, "lap": 0, "position": i + 1}
+            for i, no in enumerate(lap_chart.get("grid") or [])]
+    for entry in lap_chart["laps"]:
+        rows += [{"rider_no": no, "lap": entry["lap"], "position": i + 1}
+                 for i, no in enumerate(entry["order"])]
+    return pd.DataFrame(rows)
+
+
+def championship_progress(champ: dict | None):
+    """Championship table -> (standings_df, progress_df).
+
+    standings_df: [rank, rider_name, nation, points, gap] (current, official).
+    progress_df : one row per rider per HELD event — [event, event_no,
+    rider_name, rank, pts, cum_points, champ_rank] where champ_rank is the
+    rider's championship position AFTER that event (cumulative points,
+    ties broken by current official rank)."""
+    if not champ or not champ.get("riders"):
+        return pd.DataFrame(), pd.DataFrame()
+    riders = champ["riders"]
+    st_df = pd.DataFrame([{
+        "rank": r.get("rank"), "rider_name": r.get("rider_name"),
+        "nation": r.get("nation"), "points": r.get("points"),
+    } for r in riders]).sort_values("rank").reset_index(drop=True)
+    if st_df["points"].notna().any():
+        st_df["gap"] = st_df["points"].max() - st_df["points"]
+
+    # held events = calendar order, at least one rider has a value
+    held = [ev for ev in (champ.get("events") or [])
+            if any(ev in (r.get("per_event") or {}) for r in riders)]
+    rows = []
+    for r in riders:
+        cum = 0
+        for i, ev in enumerate(held):
+            pts = (r.get("per_event") or {}).get(ev)
+            cum += pts or 0
+            rows.append({"event": ev, "event_no": i + 1,
+                         "rider_name": r.get("rider_name"),
+                         "rank": r.get("rank"),
+                         "pts": pts, "cum_points": cum})
+    prog = pd.DataFrame(rows)
+    if not prog.empty:
+        # rank by cumulative points, ties broken by current official rank
+        prog = prog.sort_values(["event_no", "cum_points", "rank"],
+                                ascending=[True, False, True])
+        prog["champ_rank"] = prog.groupby("event_no").cumcount() + 1
+        prog = prog.sort_values(["rank", "event_no"]).reset_index(drop=True)
+    return st_df, prog
+
+
 def export_csv(df: pd.DataFrame) -> str:
     """Flat per-lap CSV (with lap_status) — the most useful single export."""
     g = lap_status_df(df)
