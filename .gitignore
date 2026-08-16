@@ -67,3 +67,12 @@ logs/
 
 # ── 一時比較ファイル（Streamlitが書き込む、commitしない）────────
 lap_comparison_latest.json
+
+# ── Quality Gate runtime evidence (local, may contain sensitive paths) ──
+.gate/
+
+# ── Apply/wiring backup snapshots（実行時アーティファクト・commitしない）──
+_backup_*/
+
+# ── 生成済み Report v2 出力（PPTX/PDF・大容量・派生物）────────────
+reports/pptx/
