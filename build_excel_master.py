@@ -289,6 +289,9 @@ LS_COLS = ["lap_id","run_id","round","circuit","session","rider","run_no","lap_n
   "ce_count","ce_spd_avg","ce_susF_avg","ce_susR_avg","wf_f_ce_n","wf_r_ce_n",
   "f_dive_spd","f_reb_spd","r_dive_spd","r_reb_spd","rear_light_brk",
   "brk_f_dive_spd_avg","brk_f_dive_spd_peak","ce_r_spd_avg","ce_r_spd_peak","ph12_rear0_s",
+  "brk_f_reb_spd_avg","brk_f_reb_spd_peak","brk_r_dive_spd_avg","brk_r_dive_spd_peak","brk_r_reb_spd_avg","brk_r_reb_spd_peak",
+  "apex_f_dive_spd_avg","apex_f_dive_spd_peak","apex_f_reb_spd_avg","apex_f_reb_spd_peak","apex_r_dive_spd_avg","apex_r_dive_spd_peak","apex_r_reb_spd_avg","apex_r_reb_spd_peak",
+  "ce_f_dive_spd_avg","ce_f_dive_spd_peak","ce_f_reb_spd_avg","ce_f_reb_spd_peak","ce_r_dive_spd_avg","ce_r_dive_spd_peak","ce_r_reb_spd_avg","ce_r_reb_spd_peak",
   "lap_susF_mean","lap_susF_min","lap_susF_max","lap_susR_mean"]
 # 旧の title(row1)を保持、row2=ヘッダ、row3+=データ。全LS_COLS分のヘッダを書く
 # (旧実装は ws.max_column=34 で頭打ち→ r_dive_spd 以降のヘッダが欠落していた)。

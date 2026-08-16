@@ -71,7 +71,7 @@ PHASE_SPD_NEW_COLS = [
 def circuit_canon(c):
     u = re.sub(r"[^A-Z0-9]", "", str(c or "").upper())
     t = {"PHILIPISLAND":"PHILLIPISLAND","PHILLIPISLAND":"PHILLIPISLAND","PHILLIPISISLAND":"PHILLIPISLAND",
-         "BALATON":"BALATON","BALATONPARK":"BALATON","MOTORLANDARAGON":"ARAGON","ARAGON":"ARAGON",
+         "BALATON":"BALATON","BALATONPARK":"BALATON","DONINGTONPARK":"DONINGTON","MOTORLANDARAGON":"ARAGON","ARAGON":"ARAGON",
          "WORKSHOP":"PHILLIPISLAND","AUSTRALIA":"PHILLIPISLAND","MAGNYCOURS":"MAGNYCOURS"}
     return t.get(u, u)
 
@@ -745,11 +745,19 @@ def _recompute_is_outlap(conn):
         for lid, fl in flags.items():
             conn.execute("UPDATE laps SET is_outlap=? WHERE lap_id=?", (fl, lid))
 
-def build_all(out_db=None):
+def build_all(out_db=None, only_events=None):
+    # only_events: optional set of event names to process (e.g. Round7-only scratch).
+    # Cross-event state (rcs_events/pool) is then scoped to those events. This is
+    # correct for a circuit that appears in exactly one round (e.g. MISANO=ROUND7):
+    # its per_event/pool consumption is fully local, so the produced rows are
+    # byte-identical to a full --all build (verified downstream by best_lap vs the
+    # §64 --all mapping + provisional cross-check). Default None = unchanged full build.
     import sqlite3
     db_path = Path(out_db) if out_db else OUT_DB
     orig = load_original()
     evs  = discover_events()
+    if only_events is not None:
+        evs = {k: v for k, v in evs.items() if k in only_events}
     # 各イベントの circuit と 2Dセッション
     for name,ev in evs.items():
         ev["circuit"]=event_circuit(ev)
@@ -946,7 +954,12 @@ def main():
     args=sys.argv[1:]
     if "--all" in args:
         out = args[args.index("--out")+1] if "--out" in args else None
-        build_all(out); return
+        only = None
+        if "--round" in args:            # Round-only scratch (e.g. --round ROUND7)
+            rnd = args[args.index("--round")+1]
+            only = {k for k, v in discover_events().items() if v["round"] == rnd}
+            print(f"[build_all] round filter {rnd}: {sorted(only)}")
+        build_all(out, only_events=only); return
     orig=load_original()
     evs=discover_events()
     if "--event" in args:
