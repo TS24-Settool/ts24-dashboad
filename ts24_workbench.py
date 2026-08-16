@@ -15,6 +15,7 @@ CSV不要。DBから直接Runを選択してProblemを記録できる。
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from datetime import datetime
@@ -22,13 +23,14 @@ from pathlib import Path
 
 import pandas as pd
 from PyQt6.QtCore import Qt, QFileSystemWatcher, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPalette, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette, QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout,
     QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTableWidget,
     QTableWidgetItem, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget, QLineEdit, QFrame, QScrollArea, QListWidget, QListWidgetItem,
+    QInputDialog, QPlainTextEdit,
 )
 
 # ── パス設定 ──────────────────────────────────────────────────────────
@@ -3142,6 +3144,12 @@ class PhaseRunCompareWidget(QWidget):
         self._combo_metric.addItems(self._METRICS)
         fb.addWidget(self._combo_metric)
         fb.addStretch()
+        # Report v2 生成ボタン（現在のフィルタ + 選択 Run で PPTX を出力）
+        self._btn_report = QPushButton("📄 Create Report v2")
+        self._btn_report.setToolTip(
+            "選択中の Circuit/Rider/Session/Run から Suspension Report (PowerPoint) を生成")
+        self._btn_report.clicked.connect(self._on_create_report)
+        fb.addWidget(self._btn_report)
         root.addLayout(fb)
 
         if self._pg is None:
@@ -3436,6 +3444,71 @@ class PhaseRunCompareWidget(QWidget):
                 out.append(it.data(Qt.ItemDataRole.UserRole))
         return out
 
+    # ── Report v2 生成 ─────────────────────────────────────────────
+    def _on_create_report(self):
+        """現在のフィルタ + 選択 Run から Suspension Report v2 (PPTX) を生成。
+
+        生成失敗（依存不足・データ無し・例外）でもアプリを落とさず message box で通知。
+        """
+        if self._df is None or (hasattr(self._df, "empty") and self._df.empty):
+            QMessageBox.information(self, "Report", "データが読み込まれていません。")
+            return
+        run_ids = self._checked_run_ids()
+        if not run_ids:
+            QMessageBox.warning(self, "Report", "Run を1つ以上選択してください。")
+            return
+        # provisional run 確認（Report v2 provisional モード・§59）
+        prov = [r for r in run_ids if str(r).startswith("PROV_")]
+        provisional = False
+        if prov:
+            ret = QMessageBox.question(
+                self, "Provisional Report",
+                f"選択 Run に provisional（速報・未確定）が {len(prov)} 件含まれます。\n"
+                "provisional reportとして生成しますか？\n"
+                "（cover に PROVISIONAL 表記・ファイル名に _PROVISIONAL_ が付きます）",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if ret != QMessageBox.StandardButton.Yes:
+                return
+            provisional = True
+        try:
+            import suspension_report as _sr
+        except Exception as exc:  # import 自体の失敗
+            QMessageBox.critical(
+                self, "Report 生成不可",
+                "PowerPoint 生成には python-pptx / matplotlib が必要です。\n"
+                f"詳細: {exc}")
+            return
+        df = self._base_df()
+        scope = {"circuit": self._combo_circ.currentText(),
+                 "rider": self._combo_rider.currentText(),
+                 "session": self._combo_sess.currentText()}
+        try:
+            if hasattr(self, "_btn_report"):
+                self._btn_report.setEnabled(False)
+                self._btn_report.setText("生成中…")
+            out = _sr.build_report_v2(df, run_ids=run_ids, scope=scope,
+                                      provisional=provisional)
+            msg = f"PowerPoint:\n{out}"
+            try:  # PDF は補助（プレビュー用）。失敗しても PPTX 成功は通知する
+                pdf = _sr.build_report_pdf(df, run_ids=run_ids, scope=scope,
+                                           provisional=provisional)
+                msg += f"\n\nPDF（プレビュー用・そのまま開けます）:\n{pdf}"
+            except Exception:
+                pass
+            QMessageBox.information(self, "Report 生成完了", msg)
+        except _sr.ReportUnavailableError as exc:
+            QMessageBox.critical(
+                self, "Report 生成不可",
+                "PowerPoint 生成には python-pptx / matplotlib が必要です。\n"
+                f"詳細: {exc}")
+        except Exception as exc:  # 生成中の想定外エラー
+            QMessageBox.critical(self, "Report 生成エラー", f"生成に失敗しました:\n{exc}")
+        finally:
+            if hasattr(self, "_btn_report"):
+                self._btn_report.setEnabled(True)
+                self._btn_report.setText("📄 Create Report v2")
+
     # ── データ整形ヘルパー ──────────────────────────────────────────
     def _base_df(self):
         """Circuit / Rider / Session フィルタ + lap_time レンジ適用（Run 未適用）。"""
@@ -3492,9 +3565,14 @@ class PhaseRunCompareWidget(QWidget):
         except (TypeError, ValueError):
             rn = f"R{rn}"
         if short:
-            return f"{rider} {sess}{rn}"
-        rnd = rec.get("round", "")
-        return f"{rider}  {sess}  {rn}  ({rnd})"
+            label = f"{rider} {sess}{rn}"
+        else:
+            rnd = rec.get("round", "")
+            label = f"{rider}  {sess}  {rn}  ({rnd})"
+        # provisional run（Race Weekend 速報・§54）は一目で区別できるようマーク
+        if str(rec.get("run_id", "")).startswith("PROV_"):
+            label = f"⏳ {label} (prov)"
+        return label
 
     @staticmethod
     def _linfit(xs, ys):
@@ -3872,7 +3950,31 @@ class PostureAnalysisTab(QWidget):
             _db_path = str(Path(self._db.db_path))
             with _sqlite3.connect(_db_path) as _con:
                 _con.row_factory = _sqlite3.Row
-                _rows = _con.execute("SELECT * FROM lap_suspension").fetchall()
+                _rows = None
+                try:
+                    # provisional overlay（Race Weekend 速報・§54）:
+                    # lap_suspension_provisional が存在する DB では final + provisional を
+                    # UNION ALL で重ねる。provisional 側は 75 列（先頭 69 列が final と一致 +
+                    # provenance 6 列）のため、PRAGMA で final の明示列リストを動的生成する。
+                    _has_prov = _con.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table'"
+                        " AND name='lap_suspension_provisional'").fetchone() is not None
+                    if _has_prov:
+                        _cols = ", ".join(
+                            f'"{r[1]}"' for r in _con.execute(
+                                "PRAGMA table_info(lap_suspension)"))
+                        _sql = (
+                            "SELECT *, 'final' AS data_stage, NULL AS quality_status"
+                            " FROM lap_suspension"
+                            " UNION ALL "
+                            f"SELECT {_cols}, 'provisional', quality_status"
+                            " FROM lap_suspension_provisional")
+                        _rows = _con.execute(_sql).fetchall()
+                except Exception:
+                    _rows = None  # overlay 失敗はタブを壊さず legacy SQL へ
+                if _rows is None:
+                    # 従来どおり（provisional テーブル無し / overlay エラー時 fallback）
+                    _rows = _con.execute("SELECT * FROM lap_suspension").fetchall()
             if _rows:
                 self._df = pd.DataFrame([dict(r) for r in _rows])
                 self._df.columns = [c.lower() for c in self._df.columns]
@@ -3918,6 +4020,8 @@ class PostureAnalysisTab(QWidget):
                 self._combo_circ.addItem("全サーキット")
                 self._combo_circ.addItems(circs)
                 self._combo_circ.blockSignals(False)
+            # 🔎 Run Filter（Rider/Session/Stage/Run）を現在の df から再構築
+            self._rf_repopulate(default_check=True)
             self._update_all()
             # 3フェーズ Run比較サブタブ（独自フィルタ）へ同じ DataFrame を渡す
             if hasattr(self, "_phase_cmp"):
@@ -3955,7 +4059,359 @@ class PostureAnalysisTab(QWidget):
         if "lap_time_s" in df.columns:
             df = df[df["lap_time_s"].between(
                 self._LAP_TIME_MIN, self._LAP_TIME_MAX, inclusive="both")]
+        # ── 🔎 Run Filter（Rider / Session / Data stage / 選択Run）─────────
+        # 物理・lap-time validity の「後」に適用（指示書 Implementation guidance）。
+        # APEX分析 と Damping / Phase の両ページに作用し、3フェーズRun比較は独立。
+        df = self._apply_run_filter(df)
         return df
+
+    # ════════════════════════════════════════════════════════════════
+    # 🔎 Run Filter（APEX分析 + Damping/Phase 共通・read-only）
+    # ── Circuit（上部の既存コンボ）→ Rider → Session → Data stage →
+    #    検索可能な複数Run選択。in-memory read-only フィルタのみで、DB 書込・
+    #    SQL 追加は一切なし。3フェーズ Run比較（PhaseRunCompareWidget）は
+    #    独自コントロールを保持し、本パネルの影響を受けない。
+    # ════════════════════════════════════════════════════════════════
+    def _build_run_filter_panel(self) -> QWidget:
+        """🔎 Run Filter パネルを構築して返す（APEX分析 / Damping・Phase 共通）。"""
+        self._rf_loading = False
+        panel = QGroupBox("🔎 Run Filter（APEX分析 / Damping・Phase 共通）")
+        panel.setStyleSheet(
+            "QGroupBox{font-size:10px;font-weight:bold;margin-top:4px;}"
+            "QGroupBox::title{subcontrol-origin:margin;left:8px;}")
+        pv = QVBoxLayout(panel)
+        pv.setContentsMargins(6, 4, 6, 4)
+        pv.setSpacing(3)
+
+        # 行1: 折りたたみトグル + Rider / Session / Stage + 検索 + 全選択/解除 + 状態
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        self._btn_rf_toggle = QPushButton("▾")
+        self._btn_rf_toggle.setCheckable(True)
+        self._btn_rf_toggle.setChecked(True)
+        self._btn_rf_toggle.setFixedWidth(26)
+        self._btn_rf_toggle.setToolTip("Run 選択リストの表示/非表示")
+        self._btn_rf_toggle.toggled.connect(self._rf_toggle_body)
+        row.addWidget(self._btn_rf_toggle)
+        row.addWidget(QLabel("Rider:"))
+        self._combo_rider2 = QComboBox()
+        self._combo_rider2.setMinimumWidth(74)
+        row.addWidget(self._combo_rider2)
+        row.addWidget(QLabel("Session:"))
+        self._combo_sess2 = QComboBox()
+        self._combo_sess2.setMinimumWidth(90)
+        row.addWidget(self._combo_sess2)
+        row.addWidget(QLabel("Stage:"))
+        self._combo_stage = QComboBox()
+        self._combo_stage.setMinimumWidth(96)
+        self._combo_stage.addItems(["All", "Final", "Provisional"])
+        row.addWidget(self._combo_stage)
+        row.addWidget(QLabel("検索:"))
+        self._run_search = QLineEdit()
+        self._run_search.setMinimumWidth(120)
+        self._run_search.setPlaceholderText("run で絞込 (例 RACE / R3 / prov)")
+        row.addWidget(self._run_search)
+        self._btn_rf_all = QPushButton("全選択")
+        self._btn_rf_none = QPushButton("全解除")
+        for b in (self._btn_rf_all, self._btn_rf_none):
+            b.setFixedHeight(22)
+        row.addWidget(self._btn_rf_all)
+        row.addWidget(self._btn_rf_none)
+        self._lbl_runfilter = QLabel("—")
+        self._lbl_runfilter.setStyleSheet("font-size:10px;color:#666;")
+        row.addWidget(self._lbl_runfilter, 1)
+        pv.addLayout(row)
+
+        # 行2（折りたたみ本体）: Run 複数選択リスト（checkbox）
+        self._run_list2 = QListWidget()
+        self._run_list2.setMaximumHeight(132)
+        pv.addWidget(self._run_list2)
+
+        # シグナル配線
+        self._combo_rider2.currentTextChanged.connect(self._rf_on_rider)
+        self._combo_sess2.currentTextChanged.connect(self._rf_on_session)
+        self._combo_stage.currentTextChanged.connect(self._rf_on_stage)
+        self._run_search.textChanged.connect(lambda *_: self._rf_apply_search())
+        self._run_list2.itemChanged.connect(self._rf_on_run_toggle)
+        self._btn_rf_all.clicked.connect(lambda: self._rf_check_all(True))
+        self._btn_rf_none.clicked.connect(lambda: self._rf_check_all(False))
+        return panel
+
+    @staticmethod
+    def _rf_run_label(rec):
+        """Run ラベル: rider / round / session / run番号 + provisional は ⏳(prov)。"""
+        rider = rec.get("rider", "?")
+        sess = rec.get("session", "?")
+        rn = rec.get("run_no", "?")
+        try:
+            rn = f"R{int(rn)}"
+        except (TypeError, ValueError):
+            rn = f"R{rn}"
+        rnd = rec.get("round", "")
+        label = f"{rider}  {sess}  {rn}  ({rnd})"
+        if (str(rec.get("run_id", "")).startswith("PROV_")
+                or rec.get("data_stage") == "provisional"):
+            label = f"⏳ {label} (prov)"
+        return label
+
+    @staticmethod
+    def _rf_apply_stage(df, stage):
+        """Data stage フィルタ。data_stage 列（provisional overlay 時）を優先し、
+        無い場合は run_id の PROV_ prefix で final/provisional を判定する。"""
+        if df is None or stage in ("All", "全", ""):
+            return df
+        if "data_stage" in df.columns:
+            if stage == "Final":
+                return df[df["data_stage"] == "final"]
+            if stage == "Provisional":
+                return df[df["data_stage"] == "provisional"]
+            return df
+        # legacy（overlay 無し）: run_id prefix で判定
+        if "run_id" in df.columns:
+            is_prov = df["run_id"].astype(str).str.startswith("PROV_")
+            if stage == "Final":
+                return df[~is_prov]
+            if stage == "Provisional":
+                return df[is_prov]
+        elif stage == "Provisional":
+            return df.iloc[0:0]
+        return df
+
+    def _apply_run_filter(self, df):
+        """🔎 Run Filter を in-memory の df に適用（read-only）。
+        Rider → Session → Data stage → 選択 run_id の順。選択0件は空 df を返す
+        （呼び出し側で空状態表示。決して全Runへ勝手に戻さない）。
+        UI 未構築時・run_id 無しの JSON fallback 時は run 選択を適用せず返す。
+        """
+        if df is None or not hasattr(self, "_run_list2"):
+            return df
+        r = self._combo_rider2.currentText()
+        if r and r not in ("全", "All") and "rider" in df.columns:
+            df = df[df["rider"] == r]
+        s = self._combo_sess2.currentText()
+        if s and s not in ("全", "All") and "session" in df.columns:
+            df = df[df["session"] == s]
+        df = self._rf_apply_stage(df, self._combo_stage.currentText())
+        # 選択 Run に限定（run_id を持つ DB データのみ。JSON fallback は run_id 無し→非適用）
+        if "run_id" in df.columns:
+            sel = set(self._rf_checked_run_ids())
+            df = df[df["run_id"].isin(sel)]
+        return df
+
+    def _rf_scope_df(self):
+        """Circuit + Rider + Session + Stage スコープ（Run 未適用）。Run一覧・状態表示用。"""
+        if self._df is None:
+            return None
+        df = self._df
+        circ = self._combo_circ.currentText()
+        if circ and circ != "全サーキット" and "circuit" in df.columns:
+            df = df[df["circuit"] == circ]
+        r = self._combo_rider2.currentText()
+        if r and r not in ("全", "All") and "rider" in df.columns:
+            df = df[df["rider"] == r]
+        s = self._combo_sess2.currentText()
+        if s and s not in ("全", "All") and "session" in df.columns:
+            df = df[df["session"] == s]
+        return self._rf_apply_stage(df, self._combo_stage.currentText())
+
+    def _rf_repop_rider2(self):
+        cur = self._combo_rider2.currentText()
+        self._combo_rider2.blockSignals(True)
+        self._combo_rider2.clear()
+        self._combo_rider2.addItem("全")
+        df = self._df
+        if df is not None:
+            c = self._combo_circ.currentText()
+            if c and c != "全サーキット" and "circuit" in df.columns:
+                df = df[df["circuit"] == c]
+            if "rider" in df.columns:
+                for x in sorted(df["rider"].dropna().unique().tolist()):
+                    self._combo_rider2.addItem(str(x))
+        if cur and self._combo_rider2.findText(cur) >= 0:
+            self._combo_rider2.setCurrentText(cur)
+        else:
+            self._combo_rider2.setCurrentIndex(0)
+        self._combo_rider2.blockSignals(False)
+
+    def _rf_repop_session2(self):
+        cur = self._combo_sess2.currentText()
+        self._combo_sess2.blockSignals(True)
+        self._combo_sess2.clear()
+        self._combo_sess2.addItem("全")
+        df = self._df
+        if df is not None:
+            c = self._combo_circ.currentText()
+            if c and c != "全サーキット" and "circuit" in df.columns:
+                df = df[df["circuit"] == c]
+            r = self._combo_rider2.currentText()
+            if r and r not in ("全", "All") and "rider" in df.columns:
+                df = df[df["rider"] == r]
+            if "session" in df.columns:
+                for x in sorted(df["session"].dropna().unique().tolist()):
+                    self._combo_sess2.addItem(str(x))
+        if cur and self._combo_sess2.findText(cur) >= 0:
+            self._combo_sess2.setCurrentText(cur)
+        else:
+            self._combo_sess2.setCurrentIndex(0)
+        self._combo_sess2.blockSignals(False)
+
+    def _rf_repop_runs(self, default_check=False):
+        """スコープ内の Run を checkbox リストに再構築。選択は可能な限り保持。
+        default_check=True かつ何も保持されなければスコープ内 Run を全選択。"""
+        prev = set(self._rf_checked_run_ids())
+        self._run_list2.blockSignals(True)
+        self._run_list2.clear()
+        scope = self._rf_scope_df()
+        if scope is not None and not scope.empty and "run_id" in scope.columns:
+            meta = [c for c in ("run_id", "rider", "session", "run_no", "round", "data_stage")
+                    if c in scope.columns]
+            uniq = scope[meta].drop_duplicates("run_id")
+            sort_by = [c for c in ("round", "session", "rider", "run_no") if c in uniq.columns]
+            if sort_by:
+                uniq = uniq.sort_values(sort_by)
+            for rec in uniq.to_dict("records"):
+                rid = rec.get("run_id")
+                it = QListWidgetItem(self._rf_run_label(rec))
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setData(Qt.ItemDataRole.UserRole, rid)
+                it.setCheckState(Qt.CheckState.Checked if rid in prev
+                                 else Qt.CheckState.Unchecked)
+                self._run_list2.addItem(it)
+        self._run_list2.blockSignals(False)
+        # 既定: スコープ内の有効Runを全選択（現挙動＝全lap表示を保持）
+        if default_check and not self._rf_checked_run_ids():
+            self._run_list2.blockSignals(True)
+            for i in range(self._run_list2.count()):
+                self._run_list2.item(i).setCheckState(Qt.CheckState.Checked)
+            self._run_list2.blockSignals(False)
+        self._rf_apply_search()
+
+    def _rf_repopulate(self, default_check=True):
+        """_load_data から呼ぶ: 現在の df から Rider/Session/Run を再構築。"""
+        if not hasattr(self, "_run_list2"):
+            return
+        self._rf_loading = True
+        try:
+            self._rf_repop_rider2()
+            self._rf_repop_session2()
+            self._rf_repop_runs(default_check=default_check)
+        finally:
+            self._rf_loading = False
+
+    def _rf_checked_run_ids(self):
+        out = []
+        if not hasattr(self, "_run_list2"):
+            return out
+        for i in range(self._run_list2.count()):
+            it = self._run_list2.item(i)
+            if it.checkState() == Qt.CheckState.Checked:
+                out.append(it.data(Qt.ItemDataRole.UserRole))
+        return out
+
+    def _rf_check_all(self, state):
+        """全選択 / 全解除（検索で絞込中は表示中のみ対象）。"""
+        self._rf_loading = True
+        st = Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
+        for i in range(self._run_list2.count()):
+            it = self._run_list2.item(i)
+            if not it.isHidden():
+                it.setCheckState(st)
+        self._rf_loading = False
+        self._update_all()
+
+    def _rf_apply_search(self):
+        """検索テキストで Run リストの表示/非表示を切替（選択状態は保持）。"""
+        q = self._run_search.text().strip().lower() if hasattr(self, "_run_search") else ""
+        for i in range(self._run_list2.count()):
+            it = self._run_list2.item(i)
+            it.setHidden(bool(q) and q not in it.text().lower())
+
+    def _rf_clear_plots(self):
+        """空状態: APEX + Damping の全プロットと数値テーブルをクリア。"""
+        for name in ("_pw_scatter", "_pw_phase", "_pw_radar",
+                     "_pw_pitch_plot", "_pw_heave_plot",
+                     "_pw_dp_dive", "_pw_dp_ce", "_pw_dp_ph12"):
+            pw = getattr(self, name, None)
+            if pw is not None:
+                try:
+                    pw.clear()
+                except Exception:
+                    pass
+        if hasattr(self, "_tbl_dp"):
+            self._tbl_dp.setRowCount(0)
+
+    def _rf_update_status(self, empty, n=0):
+        if not hasattr(self, "_lbl_runfilter"):
+            return
+        nsel = len(self._rf_checked_run_ids())
+        ntot = self._run_list2.count() if hasattr(self, "_run_list2") else 0
+        if empty:
+            if ntot == 0:
+                self._lbl_runfilter.setText(
+                    "該当 Run なし（Circuit / Rider / Session / Stage 条件）")
+            elif nsel == 0:
+                self._lbl_runfilter.setText(
+                    "⚠ Run 未選択 — グラフ・表は空です（全Runへは戻しません）")
+            else:
+                self._lbl_runfilter.setText(
+                    f"選択 {nsel}/{ntot} Run — 表示可能なデータなし")
+            self._lbl_runfilter.setStyleSheet("font-size:10px;color:#C0392B;")
+        else:
+            self._lbl_runfilter.setText(f"選択 {nsel}/{ntot} Run · {n} laps 表示中")
+            self._lbl_runfilter.setStyleSheet("font-size:10px;color:#2E7D32;")
+
+    # ── Run Filter ハンドラ ──────────────────────────────────────────
+    def _rf_toggle_body(self, checked):
+        if hasattr(self, "_run_list2"):
+            self._run_list2.setVisible(checked)
+        if hasattr(self, "_btn_rf_toggle"):
+            self._btn_rf_toggle.setText("▾" if checked else "▸")
+
+    def _rf_on_tab_changed(self, idx):
+        # APEX分析(0) / Damping・Phase(1) では表示、3フェーズRun比較(2) では非表示
+        if hasattr(self, "_run_filter_panel"):
+            self._run_filter_panel.setVisible(idx in (0, 1))
+
+    def _rf_on_circuit(self, *_):
+        """上部 Circuit コンボ変更 → Rider/Session/Run を再構築（全選択）→ 再描画。"""
+        if getattr(self, "_rf_loading", False) or not hasattr(self, "_run_list2"):
+            return
+        self._rf_loading = True
+        self._rf_repop_rider2()
+        self._rf_repop_session2()
+        self._rf_repop_runs(default_check=True)
+        self._rf_loading = False
+        self._update_all()
+
+    def _rf_on_rider(self, *_):
+        if getattr(self, "_rf_loading", False):
+            return
+        self._rf_loading = True
+        self._rf_repop_session2()
+        self._rf_repop_runs(default_check=True)
+        self._rf_loading = False
+        self._update_all()
+
+    def _rf_on_session(self, *_):
+        if getattr(self, "_rf_loading", False):
+            return
+        self._rf_loading = True
+        self._rf_repop_runs(default_check=True)
+        self._rf_loading = False
+        self._update_all()
+
+    def _rf_on_stage(self, *_):
+        if getattr(self, "_rf_loading", False):
+            return
+        self._rf_loading = True
+        self._rf_repop_runs(default_check=True)
+        self._rf_loading = False
+        self._update_all()
+
+    def _rf_on_run_toggle(self, _item):
+        if getattr(self, "_rf_loading", False):
+            return
+        self._update_all()
 
     # ── UI 構築 ────────────────────────────────────────────────────
 
@@ -3983,7 +4439,8 @@ class PostureAnalysisTab(QWidget):
         tb.addWidget(QLabel("Circuit:"))
         self._combo_circ = QComboBox()
         self._combo_circ.setMinimumWidth(130)
-        self._combo_circ.currentTextChanged.connect(self._update_all)
+        # Circuit 変更で Run Filter（Rider/Session/Run）を再構築してから再描画
+        self._combo_circ.currentTextChanged.connect(self._rf_on_circuit)
         tb.addWidget(self._combo_circ)
         btn_reload = QPushButton("↺ 再読込")
         btn_reload.setFixedHeight(24)
@@ -4149,12 +4606,18 @@ class PostureAnalysisTab(QWidget):
         self._pw_radar.hideAxis("bottom")
         self._pw_radar.hideAxis("left")
 
+        # ── 🔎 Run Filter パネル（APEX分析 + Damping/Phase 共通・3フェーズ比較は独立）──
+        self._run_filter_panel = self._build_run_filter_panel()
+        root.addWidget(self._run_filter_panel)
+
         # ── 内部サブタブ: 既存4パネル / Damping-Phase / 3フェーズRun比較 ──
         self._inner_tabs = QTabWidget()
         self._inner_tabs.addTab(vsplit, "📊 APEX分析（基本）")
         self._inner_tabs.addTab(self._build_damping_phase_tab(), "⚙️ Damping / Phase")
         self._phase_cmp = PhaseRunCompareWidget(self._pg)
         self._inner_tabs.addTab(self._phase_cmp, "🔧 3フェーズ Run比較")
+        # 3フェーズRun比較タブでは共通 Run Filter を隠す（当該タブは独自コントロール）
+        self._inner_tabs.currentChanged.connect(self._rf_on_tab_changed)
         root.addWidget(self._inner_tabs, stretch=1)
 
     # ════════════════════════════════════════════════════════════════
@@ -4479,19 +4942,28 @@ class PostureAnalysisTab(QWidget):
             return
         df = self._filtered_df()
         if df is None or df.empty:
+            # 空状態（選択0件 / 該当データ無し）: プロット・表をクリアし理由を明示。
+            # 決して全Runへ勝手に戻さない（指示書 Required UX 5）。
+            self._rf_clear_plots()
+            self._rf_update_status(empty=True)
             return
         self._draw_pitch_scatter(df)
         self._draw_phase_space(df)
         self._draw_radar(df)
         self._draw_trend(df)
         self._draw_damping_phase(df)
+        self._rf_update_status(empty=False, n=len(df))
 
     # ── ラップ詳細ポップアップ ────────────────────────────────────
     def _on_pt_click(self, points):
         """ScatterPlotItem クリック → ラップ詳細 + セットアップ + Observation + コメント。"""
-        if not points:
+        # numpy.ndarray が渡ると `not points` は ValueError（真偽値判定不能）になるため len 判定
+        if points is None or len(points) == 0:
             return
-        d = points[0].data()
+        try:
+            d = points[0].data()
+        except Exception:
+            return  # SpotItem 以外（配列要素等）はクリック詳細対象外
         if not isinstance(d, dict):
             return
 
@@ -6649,6 +7121,27 @@ class ImportQualityTab(QWidget):
         self._lbl.setStyleSheet("font-weight: bold;")
         bar.addWidget(self._lbl)
         bar.addStretch()
+        self._btn_scan = QPushButton("🔍 Live Event Scan")
+        self._btn_scan.setToolTip(
+            "extraction_scan.py --manifest <active manifest> を実行（live event-scoped scan）。\n"
+            "active event manifest が無いときは fail-closed で拒否します（全域 scan への\n"
+            "暗黙フォールバックなし）。管理テーブルのみ更新。\n"
+            "Scan only / no 2D extraction yet（スキャンのみ・2D抽出はまだ行いません）")
+        self._btn_scan.clicked.connect(lambda: self._run_scan(live=True))
+        bar.addWidget(self._btn_scan)
+        self._btn_import = QPushButton("⬇ Session Import (staging)")
+        self._btn_import.setToolTip(
+            "session_extract_staging.py を実行。まず dry-run で候補を確認し、\n"
+            "Apply 時も provisional テーブルのみ書込（業務テーブル不変）。")
+        self._btn_import.clicked.connect(self._run_import)
+        bar.addWidget(self._btn_import)
+        self._btn_scan_maint = QPushButton("🗄 Historical Maintenance Scan")
+        self._btn_scan_maint.setToolTip(
+            "extraction_scan.py を引数なしで実行（従来の全域 MAINTENANCE scan）。\n"
+            "全データ領域を走査し歴史的 pending を再検出します（確認ダイアログ付き・\n"
+            "管理テーブルのみ更新・2D抽出はしません）。")
+        self._btn_scan_maint.clicked.connect(lambda: self._run_scan(live=False))
+        bar.addWidget(self._btn_scan_maint)
         btn = QPushButton("↻ 再読込")
         btn.clicked.connect(self.refresh)
         bar.addWidget(btn)
@@ -6660,7 +7153,38 @@ class ImportQualityTab(QWidget):
         note.setWordWrap(True)
         lay.addWidget(note)
 
+        self._lbl_scan = QLabel("")   # Session Scan 結果の常設ステータス
+        self._lbl_scan.setStyleSheet("color:#0B5394; font-size:11px;")
+        self._lbl_scan.setWordWrap(True)
+        lay.addWidget(self._lbl_scan)
+
+        self._lbl_import = QLabel("")  # Session Import 結果の常設ステータス
+        self._lbl_import.setStyleSheet("color:#0B5394; font-size:11px;")
+        self._lbl_import.setWordWrap(True)
+        lay.addWidget(self._lbl_import)
+
         inner = QTabWidget()
+        self._inner = inner
+        # ── 🏁 Race Weekend Status（指示書§1・local disk + SQLite のみ / read-only） ──
+        status_box = QWidget()
+        sl = QVBoxLayout(status_box)
+        sbar = QHBoxLayout()
+        self._btn_audit = QPushButton("🛡 Safety Audit 生成")
+        self._btn_audit.setToolTip(
+            "read-only Safety Audit を reports/race_weekend_workbench_safety_audit_<TS>.md に生成。\n"
+            "書込はこの .md 1ファイルのみ（DB は SELECT のみ・canonical/provisional/管理テーブル無変更）。")
+        self._btn_audit.clicked.connect(self._run_safety_audit)
+        sbar.addWidget(self._btn_audit)
+        sbar.addStretch()
+        sl.addLayout(sbar)
+        self._txt_status = QPlainTextEdit()
+        self._txt_status.setReadOnly(True)
+        try:
+            self._txt_status.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        except Exception:
+            pass
+        sl.addWidget(self._txt_status)
+        inner.addTab(status_box, "🏁 Race Weekend Status")
         self._tbl_queue = QTableWidget()
         self._tbl_queue.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         inner.addTab(self._wrap(self._tbl_queue), "📋 未処理キュー")
@@ -6688,6 +7212,1416 @@ class ImportQualityTab(QWidget):
             self._load()
         except Exception as e:
             self._lbl.setText(f"⚠ {e}")
+
+    # ── Session Scan（Phase 2A scanner 実行・管理テーブルのみ / 業務テーブル不変） ──
+    def _run_scan(self, live: bool = True):
+        """extraction_scan.py を同期実行する。失敗しても Workbench は落とさない。
+
+        live=True（🔍 Live Event Scan）: active event manifest があれば
+        --manifest <source_json_path> で event-scoped live scan。manifest 不在は
+        **fail-closed で拒否**（従来の全域 scan へ暗黙フォールバックしない）。
+        live=False（🗄 Historical Maintenance Scan）: 従来の引数なし全域 scan
+        （確認ダイアログ付き・歴史的 pending を再検出）。
+
+        Scan only / no 2D extraction yet（スキャンのみ・2D抽出はまだ行いません）。
+        書き込みは管理テーブル(source_file_registry/import_queue/data_quality_log/
+        analysis_run_log)のみ（extraction_scan.py 側の assert_mgmt_only ガード）。
+        """
+        import subprocess
+        script = SCRIPT_DIR / "extraction_scan.py"
+        cmd = [sys.executable, str(script)]
+        mode_note = "maintenance/global"
+        if live:
+            m = self._active_manifest()
+            mpath = None
+            if m and m.get("source_json_path"):
+                p = Path(m["source_json_path"])
+                if not p.is_absolute():
+                    p = (SCRIPT_DIR / p).resolve()
+                if p.exists():
+                    mpath = p
+            if mpath is None:
+                QMessageBox.warning(
+                    self, "Live Event Scan — 実行不可（fail-closed）",
+                    "active manifest がありません — Historical Maintenance Scan を使うか "
+                    "manifest を activate してください。\n\n"
+                    "Live Event Scan は active event manifest（--manifest）が必須です。\n"
+                    "従来の全域 scan へは暗黙フォールバックしません（DB無変更）。\n"
+                    "（次戦の activation は round9_readiness_acceptance_20260713.md の "
+                    "checklist を参照）")
+                self._lbl_scan.setText(
+                    "⛔ Live Event Scan 拒否: active manifest なし（DB無変更・"
+                    "Maintenance Scan か manifest activate を使用）")
+                return
+            cmd += ["--manifest", str(mpath)]
+            mode_note = f"live event scan（manifest: {m['event_key']} v{m['manifest_version']}）"
+        else:
+            ans = QMessageBox.question(
+                self, "Historical Maintenance Scan 確認",
+                "従来の引数なし実行（全域 scan・歴史 pending を再検出します）。\n"
+                "DATA 2D / 01_REPORTS / 07_RESULTS の全領域を走査し、過去イベントの\n"
+                "pending も registry/queue に再検出されます（管理テーブルのみ・業務テーブル不変）。\n\n"
+                "実行しますか？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if ans != QMessageBox.StandardButton.Yes:
+                self._lbl_scan.setText("⏸ Maintenance Scan キャンセル（DB無変更）")
+                return
+        btn = self._btn_scan if live else getattr(self, "_btn_scan_maint", self._btn_scan)
+        old_text = btn.text()
+        btn.setEnabled(False)
+        btn.setText("スキャン中…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        log_path = None
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True, text=True, timeout=600,
+                cwd=str(SCRIPT_DIR),
+            )
+            # ログ保存（stdout+stderr）
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_dir = SCRIPT_DIR / "reports"
+            log_dir.mkdir(exist_ok=True)
+            log_path = log_dir / f"session_scan_{ts}.log"
+            log_path.write_text(
+                f"# extraction_scan.py exit={proc.returncode} at {ts} mode={mode_note}\n"
+                f"# cmd: {' '.join(cmd)}\n"
+                f"--- stdout ---\n{proc.stdout or ''}\n--- stderr ---\n{proc.stderr or ''}\n",
+                encoding="utf-8")
+
+            if proc.returncode != 0:
+                tail = "\n".join(((proc.stderr or "") + "\n" + (proc.stdout or "")).strip().splitlines()[-10:])
+                self._lbl_scan.setText(f"⚠ Session Scan 失敗 (exit={proc.returncode})  ログ: {log_path.name}")
+                QMessageBox.warning(
+                    self, "Session Scan 失敗",
+                    f"extraction_scan.py が exit code {proc.returncode} で終了しました。\n\n"
+                    f"{tail}\n\nログ: {log_path}")
+                return
+
+            # 成功 → 再読込 + 結果サマリー
+            self.refresh()
+            summary = self._scan_summary(proc.stdout or "")
+            note = ("Scan only / no 2D extraction yet（スキャンのみ・2D抽出はまだ行いません）"
+                    f"  |  mode: {mode_note}")
+            self._lbl_scan.setText(f"✅ Session Scan 完了: {summary}  |  {note}  |  ログ: {log_path.name}")
+            QMessageBox.information(
+                self, "Session Scan 完了",
+                f"{summary}\n\n{note}\n\nログ: {log_path}")
+        except Exception as e:
+            self._lbl_scan.setText(f"⚠ Session Scan エラー: {e}")
+            QMessageBox.warning(
+                self, "Session Scan エラー",
+                f"スキャン実行中にエラーが発生しました:\n{e}"
+                + (f"\n\nログ: {log_path}" if log_path else ""))
+        finally:
+            QApplication.restoreOverrideCursor()
+            btn.setText(old_text)
+            btn.setEnabled(True)
+
+    def _scan_summary(self, stdout: str) -> str:
+        """extraction_scan.py の stdout から検出/新規/更新/不変を抽出。
+        取れなければ管理テーブルから最新状態を集計する。"""
+        import re
+        parts = []
+        m = re.search(r"検出: (.+)", stdout)
+        if m:
+            parts.append(f"検出 {m.group(1).strip()}")
+        m = re.search(r"registry: (.+)", stdout)
+        if m:
+            parts.append(m.group(1).strip())
+        if parts:
+            return " / ".join(parts)
+        # fallback: 管理テーブルを直接集計
+        try:
+            with self._con() as c:
+                reg = c.execute(
+                    "SELECT status, COUNT(*) n FROM source_file_registry GROUP BY status").fetchall()
+                pend = c.execute(
+                    "SELECT COUNT(*) FROM import_queue WHERE status='pending'").fetchone()[0]
+                run = c.execute(
+                    "SELECT analysis_run_id, status FROM analysis_run_log "
+                    "ORDER BY started_at DESC LIMIT 1").fetchone()
+            reg_s = " ".join(f"{r['status']}={r['n']}" for r in reg) or "—"
+            run_s = f"{run['analysis_run_id']} ({run['status']})" if run else "—"
+            return f"registry: {reg_s} / queue pending={pend} / 最新run: {run_s}"
+        except Exception as e:
+            return f"(サマリー取得失敗: {e})"
+
+    # ── Session Import（staging・provisional テーブルのみ / 業務テーブル不変） ──
+    _IMPORT_NOTE = "staging import: provisional tables only / business tables unchanged"
+    # Round guard（P0・2026-07-09 §68 → 2026-07-13 §75 B-3 manifest 化）: Session Import は
+    # required_round() の round の event のみ許可。round は対象DBの **active event manifest** から
+    # 導出し、active manifest が無いときのみ下の定数へフォールバックする（後方互換・fail-closed）。
+    # 空/非該当 event は UI で拒否し、script には常に
+    # --event <key> --required-round <required_round()> を渡す（多層防御・§68 ガードは script 側に残置）。
+    REQUIRED_ROUND = "ROUND8"   # fallback（active manifest 不在時のみ使用・毎ラウンド更新は不要になる）
+
+    def _active_manifest(self):
+        """対象DBの active event manifest（無ければ None・read-only）。
+
+        event_manifest.py の get_active_manifest_or_none() を read-only 接続で呼ぶ。
+        例外（テーブル無し/複数 active/改竄検出等）はすべて None → 呼び出し側は
+        required_round() の定数フォールバック（fail-closed 側は Live Scan の拒否）。
+        """
+        try:
+            import importlib.util
+            evm = getattr(self, "_evm_mod", None)
+            if evm is None:
+                spec = importlib.util.spec_from_file_location(
+                    "event_manifest", SCRIPT_DIR / "event_manifest.py")
+                evm = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(evm)
+                self._evm_mod = evm
+            conn = sqlite3.connect(f"file:{self._db.db_path}?mode=ro", uri=True)
+            try:
+                return evm.get_active_manifest_or_none(conn)
+            finally:
+                conn.close()
+        except Exception:
+            return None   # fail-closed 側は required_round() の定数フォールバック
+
+    def required_round(self) -> str:
+        """active manifest の round（無ければ REQUIRED_ROUND 定数フォールバック）。"""
+        m = self._active_manifest()
+        return m["round"] if m else self.REQUIRED_ROUND
+
+    def _guess_event_key(self, req):
+        """event キーを得る: active manifest があれば m['event_key']（正本）、
+        無ければ従来どおり DATA 2D 直下から req(例 ROUND8) を含む event フォルダ名を推測（無ければ ""）。"""
+        m = self._active_manifest()
+        if m is not None:
+            return m["event_key"]
+        try:
+            d2d = SCRIPT_DIR.parent / "DATA 2D"
+            cands = sorted(p.name for p in d2d.iterdir()
+                           if p.is_dir() and req.upper() in p.name.upper()
+                           and re.match(r"^\d{8}-ROUND\d+-", p.name))
+            return cands[-1] if cands else ""
+        except Exception:
+            return ""
+
+    # ── 半端コピー / iCloud placeholder 検出（stat のみ・中身は読まない／§24a 原則） ──
+    def _looks_unstable(self, ev_dir) -> str:
+        """DATA 2D/<event> 配下に未DL(iCloud placeholder)・一時ファイル・コピー継続中の
+        兆候があれば説明文字列を返す（無ければ ""）。ファイル内容は開かず name/stat のみ参照し、
+        iCloud のダウンロードを誘発しない。"""
+        import time
+        signs = []
+        try:
+            now = time.time()
+            placeholder = 0
+            recent = 0
+            for outing in ev_dir.iterdir():
+                if not outing.is_dir():
+                    continue
+                for f in outing.iterdir():
+                    n = f.name
+                    if (n.endswith(".icloud") or n.startswith("._") or n.startswith(".~")
+                            or n.endswith(".partial") or n.endswith(".tmp") or n.startswith("~$")):
+                        placeholder += 1
+                    try:
+                        if now - f.stat().st_mtime < 30:
+                            recent += 1
+                    except Exception:
+                        pass
+            if placeholder:
+                signs.append(f"・iCloud placeholder/一時ファイル {placeholder} 件（未DL/コピー中の可能性）")
+            if recent:
+                signs.append(f"・mtime が 30 秒以内のファイル {recent} 件（コピー継続中の可能性）")
+        except Exception:
+            pass
+        return "\n".join(signs)
+
+    @staticmethod
+    def _session_of_stem(stem: str) -> str:
+        """outing フォルダ stem からセッション種別を得る（例 'FP-JA52-01'→'FP'、'QP-JA52-02'→'QP'）。
+
+        最初の '-' より前を大文字化して返す。取れない場合は 'UNK'（race weekend 安全レイヤー §5）。
+        """
+        try:
+            s = (stem or "").split("-")[0].strip().upper()
+            return s if s else "UNK"
+        except Exception:
+            return "UNK"
+
+    def _reconcile_event_outings(self, ev: str) -> dict:
+        """DATA 2D/<event> の期待 outing と registry/queue の 2D 行を outing 単位で突合（read-only）。
+
+        disk 検出は scanner (extraction_scan/discover_outings) と互換の nested tier
+        （event 直下の *.MES フォルダ）を name+stat のみで列挙（内容非読取・iCloud DL 非誘発）。
+        report 行（target_kind='report_import'）は 2D 抽出候補ではないため別カウント。
+        戻り値キー: disk / registry / queued / pending_2d / awaiting_gate_2d /
+        missing_from_registry / missing_from_queue / non_2d_pending。
+        race weekend 安全レイヤー拡張（追加キー・既存キー不変・後方互換）:
+        disk_by_session / registry_by_session / queue_by_session / missing_by_session
+        （各 {session: [stem,...]}）+ failed_2d / skipped_2d（queue status 計数）。
+        """
+        out = {"disk": [], "registry": [], "queued": [], "pending_2d": 0,
+               "awaiting_gate_2d": 0, "missing_from_registry": [],
+               "missing_from_queue": [], "non_2d_pending": 0,
+               "failed_2d": 0, "skipped_2d": 0}
+        ev_dir = SCRIPT_DIR.parent / "DATA 2D" / ev
+        try:
+            out["disk"] = sorted(
+                p.name[:-4] for p in ev_dir.iterdir()
+                if p.is_dir() and p.name.upper().endswith(".MES")
+                and not p.name.startswith((".", "~", "._")))
+        except Exception:
+            pass
+        like = f"%{ev}%"  # 2D outing（…/<ev>/…）と report（…/<ev>.xlsx）の両方に一致
+
+        def _stem(path):
+            for part in (path or "").split("/"):
+                if part.upper().endswith(".MES"):
+                    return part[:-4]
+            return None
+
+        try:
+            with self._con() as c:
+                reg = c.execute(
+                    "SELECT file_path FROM source_file_registry "
+                    "WHERE file_type='2d_outing' AND file_path LIKE ?", (like,)).fetchall()
+                out["registry"] = sorted({s for r in reg if (s := _stem(r["file_path"]))})
+                q = c.execute(
+                    "SELECT file_path, status, target_kind FROM import_queue "
+                    "WHERE file_path LIKE ?", (like,)).fetchall()
+                for r in q:
+                    if r["target_kind"] == "2d_extract":
+                        s = _stem(r["file_path"])
+                        if s and s not in out["queued"]:
+                            out["queued"].append(s)
+                        if r["status"] == "pending":
+                            out["pending_2d"] += 1
+                        elif r["status"] == "awaiting_gate":
+                            out["awaiting_gate_2d"] += 1
+                        elif r["status"] == "failed":
+                            out["failed_2d"] += 1
+                        elif r["status"] == "skipped":
+                            out["skipped_2d"] += 1
+                    elif r["status"] == "pending":
+                        out["non_2d_pending"] += 1
+                out["queued"].sort()
+        except Exception:
+            pass
+        out["missing_from_registry"] = [k for k in out["disk"] if k not in out["registry"]]
+        out["missing_from_queue"] = [k for k in out["disk"] if k not in out["queued"]]
+
+        # ── race weekend 安全レイヤー拡張: session 別グルーピング（read-only・既存キー不変） ──
+        def _by_session(stems):
+            g = {}
+            for s in stems:
+                g.setdefault(self._session_of_stem(s), []).append(s)
+            return g
+        out["disk_by_session"] = _by_session(out["disk"])
+        out["registry_by_session"] = _by_session(out["registry"])
+        out["queue_by_session"] = _by_session(out["queued"])
+        out["missing_by_session"] = _by_session(sorted(
+            set(out["missing_from_registry"]) | set(out["missing_from_queue"])))
+        return out
+
+    def _diagnose_zero_candidates(self, ev: str) -> tuple:
+        """dry-run が候補0（exit 1）のときの原因を切り分ける（read-only）。
+
+        戻り値 = (case, title, message, offer_scan)。
+        case ∈ {folder_missing / not_scanned / unstable / missing_outings / no_pending / unknown}。
+        offer_scan=True のとき呼び出し側は『Session Scan を実行』導線を提示する。
+        管理テーブル（source_file_registry/import_queue）を SELECT するのみで書込はしない。
+        """
+        d2d = SCRIPT_DIR.parent / "DATA 2D"
+        ev_dir = d2d / ev
+        req = self.required_round()
+
+        # 1) event フォルダが存在しない
+        if not ev_dir.is_dir():
+            near = ""
+            try:
+                cands = sorted(p.name for p in d2d.iterdir()
+                               if p.is_dir() and req.upper() in p.name.upper())
+                if cands:
+                    near = "\n\nDATA 2D 内に見つかった " + req + " 候補: " + ", ".join(cands)
+            except Exception:
+                pass
+            return ("folder_missing", "event フォルダが見つかりません",
+                    f"DATA 2D/{ev} が存在しません。event 名の入力を確認してください。"
+                    f"（Finder のコピー/同期が完了しているかも確認）{near}", False)
+
+        # registry / queue に該当 event の行があるか
+        like = f"%{ev}%"
+        reg_n = q_total = q_pending = 0
+        try:
+            with self._con() as c:
+                reg_n = c.execute(
+                    "SELECT COUNT(*) FROM source_file_registry WHERE file_path LIKE ?",
+                    (like,)).fetchone()[0]
+                q_total = c.execute(
+                    "SELECT COUNT(*) FROM import_queue WHERE file_path LIKE ?",
+                    (like,)).fetchone()[0]
+                q_pending = c.execute(
+                    "SELECT COUNT(*) FROM import_queue WHERE file_path LIKE ? AND status='pending'",
+                    (like,)).fetchone()[0]
+        except Exception:
+            pass
+
+        # 2) フォルダはあるが registry/queue に未登録 → 未Scan（＋未安定サインを併記）
+        if reg_n == 0 and q_total == 0:
+            unstable = self._looks_unstable(ev_dir)
+            if unstable:
+                return ("unstable", f"{ev} はコピー/同期が未完了の可能性",
+                        f"DATA 2D/{ev} は存在しますが registry/queue に未登録で、"
+                        f"かつ以下の未安定サインを検出しました:\n{unstable}\n\n"
+                        "Finder の雲/アップロード表示が消えるまで待ってから "
+                        "『Session Scan』を実行し、その後もう一度 Import してください。", True)
+            return ("not_scanned", f"{ev} はまだ Session Scan されていません",
+                    f"データはディスク上（DATA 2D/{ev}）に存在しますが、まだ "
+                    "Session Scan による管理テーブル（source_file_registry/import_queue）"
+                    "登録が行われていません。\n\n"
+                    "Session Import は filesystem を直接読まず import_queue を読むため、"
+                    "Scan 前は候補0になります。\n\n"
+                    "→ 先に『Session Scan』を実行し、その後もう一度 Import してください。", True)
+
+        # 3) registry にはあるが queue が無い → Scan 再実行で queue 生成
+        if reg_n > 0 and q_total == 0:
+            return ("not_scanned", f"{ev} は registry にあるが queue 未登録",
+                    f"DATA 2D/{ev} は registry に {reg_n} 行ありますが import_queue に未登録です。"
+                    "『Session Scan』を再実行して queue を作成してください。", True)
+
+        # 3b) event に既存行はあるが、新規 outing が registry/queue 未登録（例: FP 済み後の QP 保存）
+        #     event 単位 count では registry/queue>0 に見えるため、outing 単位で突合して特定する。
+        rec = self._reconcile_event_outings(ev)
+        if rec["disk"] and (rec["missing_from_registry"] or rec["missing_from_queue"]):
+            miss = sorted(set(rec["missing_from_registry"]) | set(rec["missing_from_queue"]))
+            unstable = self._looks_unstable(ev_dir)
+            extra = f"\n\n⚠ 未安定サイン検出:\n{unstable}\n" if unstable else ""
+            return ("missing_outings",
+                    f"{ev}: 新規 outing {len(miss)} 件が registry/queue 未登録",
+                    f"{' / '.join(miss)} はフォルダ上に存在しますが、\n"
+                    "registry/queue に未登録です。Session Scan を実行して管理テーブルへ"
+                    "登録してください。\n\n"
+                    f"outing 突合: disk_2d={len(rec['disk'])} / registry_2d={len(rec['registry'])} / "
+                    f"queue_2d={len(rec['queued'])}（pending={rec['pending_2d']} / "
+                    f"awaiting_gate={rec['awaiting_gate_2d']}）\n"
+                    f"missing = {', '.join(miss)}\n"
+                    f"（report 行 pending {rec['non_2d_pending']} 件は 2D 抽出候補ではありません。"
+                    "Report 紐付けは provisional 2D 抽出の前提条件ではありません）"
+                    f"{extra}\n"
+                    "→ Scan 完了後、もう一度『⬇ Session Import』を実行してください"
+                    "（apply は別確認・auto-apply しません）。", True)
+
+        # 4) Scan 済みだが pending が無い（既に取込済/awaiting_gate/skipped/failed）
+        if q_total > 0 and q_pending == 0:
+            return ("no_pending", f"{ev} に新規の pending 候補がありません",
+                    f"DATA 2D/{ev} は Scan 済みで import_queue に {q_total} 行ありますが、"
+                    "pending（未処理）候補は 0 です。既に取込済み（awaiting_gate/skipped/failed）"
+                    "の可能性があります。『⚠ 要確認』『📋 未処理キュー』タブを確認してください。", False)
+
+        return ("unknown", f"{ev} の候補が0です（要確認）",
+                f"DATA 2D/{ev} は存在し registry={reg_n} / queue={q_total}(pending={q_pending}) "
+                "ですが、session_extract_staging が候補0と判定しました。dry-run ログと"
+                "『🔎 検出チェック』タブを確認してください。", False)
+
+    # ══════════════════════════════════════════════════════════════════
+    # Race Weekend 安全レイヤー（2026-07-10 指示書 race_weekend_workbench_data_ops_hardening）
+    # すべて read-only（DB は SELECT のみ）。書込は Safety Audit の .md 1ファイルのみ。
+    # ══════════════════════════════════════════════════════════════════
+    _CANON_TABLES = ("runs", "laps", "lap_suspension", "race_results",
+                     "pdf_lap_times", "pdf_lap_times_v2_staging")
+    _SESSION_ORDER = ("FP", "FP1", "FP2", "QP", "SP", "WUP", "WUP1", "WUP2",
+                      "RACE1", "RACE2")
+
+    def _sess_sorted(self, keys):
+        """セッションキーを走行順（FP→QP→WUP→RACE）で整列する（未知は末尾・名前順）。"""
+        order = {s: i for i, s in enumerate(self._SESSION_ORDER)}
+        return sorted(keys, key=lambda k: (order.get(k, 99), k))
+
+    def _canonical_round_counts(self) -> dict:
+        """canonical の REQUIRED_ROUND 行数（SELECT のみ）。
+
+        laps テーブルには round 列が無いため run_id LIKE '%ROUND8%' で判定する
+        （runs / lap_suspension / race_results は round 列あり）。
+        """
+        req = self.required_round()
+        out = {"runs": 0, "laps": 0, "lap_suspension": 0, "race_results": 0}
+        try:
+            with self._con() as c:
+                out["runs"] = c.execute(
+                    "SELECT COUNT(*) FROM runs WHERE round=?", (req,)).fetchone()[0]
+                out["laps"] = c.execute(
+                    "SELECT COUNT(*) FROM laps WHERE run_id LIKE ?",
+                    (f"%{req}%",)).fetchone()[0]
+                out["lap_suspension"] = c.execute(
+                    "SELECT COUNT(*) FROM lap_suspension WHERE round=?", (req,)).fetchone()[0]
+                out["race_results"] = c.execute(
+                    "SELECT COUNT(*) FROM race_results WHERE round=?", (req,)).fetchone()[0]
+        except Exception:
+            pass
+        return out
+
+    def _all_counts(self) -> dict:
+        """canonical 6 + provisional 3 テーブルの件数（SELECT のみ）。未作成テーブルは 0。"""
+        out = {}
+        try:
+            with self._con() as c:
+                for t in self._CANON_TABLES + (
+                        "runs_provisional", "laps_provisional", "lap_suspension_provisional"):
+                    try:
+                        out[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                    except sqlite3.OperationalError:
+                        out[t] = 0
+        except Exception:
+            pass
+        return out
+
+    def _race_weekend_status(self, ev: str) -> dict:
+        """🏁 Race Weekend Status（指示書§1）を local disk + SQLite のみで計算する（read-only）。
+
+        ネットワーク・Supabase・DB Master には触れない。Report 完了は 2D provisional の
+        前提条件ではない（report pending は別カウント表示のみ = not a blocker）。
+        """
+        req = self.required_round()
+        rec = self._reconcile_event_outings(ev)
+        st = {"event": ev, "reconcile": rec, "disk_total": len(rec["disk"])}
+
+        prov = {}
+        report_pending = 0
+        with self._con() as c:
+            try:
+                rows = c.execute(
+                    "SELECT rp.session AS session, COUNT(DISTINCT rp.run_id) AS n_runs, "
+                    "COUNT(lp.lap_id) AS n_laps "
+                    "FROM runs_provisional rp "
+                    "LEFT JOIN laps_provisional lp ON lp.run_id = rp.run_id "
+                    "WHERE rp.provisional_event_key=? GROUP BY rp.session", (ev,)).fetchall()
+                prov = {r["session"]: (r["n_runs"], r["n_laps"]) for r in rows}
+            except sqlite3.OperationalError:
+                prov = {}   # provisional テーブル未作成
+            try:
+                report_pending = c.execute(
+                    "SELECT COUNT(*) FROM import_queue "
+                    "WHERE target_kind='report_import' AND status='pending' "
+                    "AND file_path LIKE ?", (f"%{ev}%",)).fetchone()[0]
+            except sqlite3.OperationalError:
+                report_pending = 0
+        st["provisional_by_session"] = prov
+        st["provisional_runs"] = sum(v[0] for v in prov.values())
+        st["provisional_laps"] = sum(v[1] for v in prov.values())
+        st["canonical_round8"] = self._canonical_round_counts()
+        st["report_pending"] = report_pending
+
+        # ── telemetry pending 判定（§75/§7.3・Race2 型「2D 無し + Result あり」・read-only） ──
+        #    race_results（Result PDF 由来）に当該 round の session があるのに、disk 2D outing も
+        #    provisional も無い session は `telemetry pending` と表示する（捏造/流用はしない）。
+        tel_pending = []
+        try:
+            with self._con() as c:
+                res_sessions = {str(r[0]).upper() for r in c.execute(
+                    "SELECT DISTINCT session_type FROM race_results "
+                    "WHERE round=? AND session_type IS NOT NULL", (req,))}
+                canon_sessions = {str(r[0]).upper() for r in c.execute(
+                    "SELECT DISTINCT session FROM runs "
+                    "WHERE round=? AND session IS NOT NULL", (req,))}
+            # disk stem 略称（R1/R2 等）→ canonical session 名の対応
+            alias = {"R1": "RACE1", "R2": "RACE2", "WU1": "WUP1", "WU2": "WUP2"}
+            disk_sessions = {alias.get(s, s) for s in rec["disk_by_session"]}
+            for s in self._sess_sorted(res_sessions):
+                if (s not in disk_sessions and s not in prov
+                        and s not in canon_sessions):
+                    tel_pending.append(s)
+        except Exception:
+            tel_pending = []
+        st["telemetry_pending"] = tel_pending
+
+        # ── next_action 判定（指示書§1・優先順） ──
+        miss = sorted(set(rec["missing_from_registry"]) | set(rec["missing_from_queue"]))
+        can = st["canonical_round8"]
+        can_2d = can["runs"] + can["laps"] + can["lap_suspension"]
+        if miss:
+            st["next_action"] = f"Session Scan を実行（missing: {', '.join(miss)}）"
+        elif rec["pending_2d"] > 0:
+            st["next_action"] = "Session Import dry-run → 候補確認 → Apply"
+        elif (rec["disk"] and rec["awaiting_gate_2d"] == len(rec["disk"])
+              and st["provisional_runs"] == len(rec["disk"])):
+            st["next_action"] = "safe / waiting for new raw 2D"
+        elif can_2d > 0:
+            st["next_action"] = (f"⚠ canonical に {req} 行あり — finalization 前は異常。"
+                                 "作業停止し Code へ")
+        else:
+            st["next_action"] = "検出チェックタブを確認"
+        return st
+
+    def _render_weekend_status(self, st: dict) -> str:
+        """_race_weekend_status の結果を指示書§1 のテキストフォーマットに整形する。"""
+        rec = st["reconcile"]
+
+        def fmt_by_session(by_sess, total):
+            parts = [f"{s}={len(by_sess[s])}" for s in self._sess_sorted(by_sess)]
+            return (" ".join(parts) + f" total={total}") if parts else f"total={total}"
+
+        lines = [
+            f"event: {st['event']}",
+            f"raw_2d_on_disk: {fmt_by_session(rec['disk_by_session'], len(rec['disk']))}",
+            f"registered_2d: {fmt_by_session(rec['registry_by_session'], len(rec['registry']))}",
+            (f"queue_2d: pending={rec['pending_2d']} awaiting_gate={rec['awaiting_gate_2d']} "
+             f"failed={rec['failed_2d']} skipped={rec['skipped_2d']}"),
+        ]
+        prov = st["provisional_by_session"]
+        if prov:
+            p = ", ".join(f"{s}={prov[s][0]} runs / {prov[s][1]} laps"
+                          for s in self._sess_sorted(prov))
+            lines.append(f"provisional: {p}, total={st['provisional_runs']} / "
+                         f"{st['provisional_laps']}")
+        else:
+            lines.append("provisional: total=0 / 0")
+        can = st["canonical_round8"]
+        lines.append(f"canonical_round8: runs={can['runs']} laps={can['laps']} "
+                     f"lap_suspension={can['lap_suspension']} race_results={can['race_results']}")
+        lines.append(f"report_pending_rows: {st['report_pending']} "
+                     "(not a blocker for 2D provisional)")
+        if st.get("telemetry_pending"):
+            lines.append("telemetry_pending: "
+                         + ", ".join(st["telemetry_pending"])
+                         + "（Result あり・2D telemetry 無し）")
+        miss = sorted(set(rec["missing_from_registry"]) | set(rec["missing_from_queue"]))
+        if miss:
+            lines.append(f"missing_2d_outings: {', '.join(miss)}")
+        lines.append(f"next_action: {st['next_action']}")
+        return "\n".join(lines)
+
+    def _ledger_apply_orphans(self, c) -> tuple:
+        """event_state_ledger の apply_started / apply_committed 突合（read-only）。
+        戻り値 = (started, committed, orphan)。テーブル無しは (0,0,0)。"""
+        try:
+            started = c.execute(
+                "SELECT COUNT(*) FROM event_state_ledger "
+                "WHERE state='candidate_ready' AND reason='apply_started'").fetchone()[0]
+            committed = c.execute(
+                "SELECT COUNT(*) FROM event_state_ledger "
+                "WHERE state='staged' AND reason='apply_committed'").fetchone()[0]
+            return started, committed, max(0, started - committed)
+        except sqlite3.OperationalError:
+            return 0, 0, 0
+
+    def _manifest_status_lines(self) -> list:
+        """🏁 Status タブ先頭の Event Control Plane 表示（§7.3・read-only SELECT のみ）。
+
+        active manifest（event_key/version/hash/status/allowed_sessions）、登録済み manifest、
+        event_state_ledger 最新10行、apply_started/apply_committed 突合（orphan=中断残骸 ⚠）、
+        queue counts の event scope 版を返す。manifest 不在は明示的な "no active manifest"。
+        """
+        lines = ["── Event Control Plane ──"]
+        m = self._active_manifest()
+        if m is None:
+            lines.append(
+                "active_manifest: （なし）no active manifest — fallback = "
+                f"REQUIRED_ROUND 定数 '{self.REQUIRED_ROUND}'。"
+                "Live Event Scan は拒否（fail-closed）。次戦 activation は "
+                "round9_readiness_acceptance_20260713.md の checklist 参照。")
+        else:
+            lines.append(f"active_manifest: {m['event_key']} v{m['manifest_version']} "
+                         f"status={m['status']} hash={m['content_hash'][:12]}…")
+            lines.append(f"  round={m['round']} circuit={m['circuit']} "
+                         f"riders={','.join(m['riders'])} "
+                         f"allowed_sessions={','.join(m['allowed_sessions'])}")
+        try:
+            with self._con() as c:
+                have = {r[0] for r in c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name IN ('event_manifest','event_state_ledger')")}
+                if "event_manifest" in have:
+                    regs = c.execute(
+                        "SELECT event_key, manifest_version, status FROM event_manifest "
+                        "ORDER BY manifest_id").fetchall()
+                    lines.append("registered_manifests: " + (", ".join(
+                        f"{r['event_key']} v{r['manifest_version']}({r['status']})"
+                        for r in regs) or "—"))
+                else:
+                    lines.append("registered_manifests: （event_manifest テーブル未作成）")
+                if "event_state_ledger" in have:
+                    started, committed, orphan = self._ledger_apply_orphans(c)
+                    lines.append(
+                        f"ledger_receipts: apply_started={started} apply_committed={committed}"
+                        + (f"  ⚠ orphan apply_started={orphan}（中断残骸の疑い — 要確認）"
+                           if orphan else "  (orphan=0)"))
+                    led = c.execute(
+                        "SELECT entry_id, event_key, scope, state, reason, created_at "
+                        "FROM event_state_ledger ORDER BY entry_id DESC LIMIT 10").fetchall()
+                    if led:
+                        last = led[0]
+                        lines.append(f"last_receipt: #{last['entry_id']} {last['created_at']} "
+                                     f"{last['event_key']} [{last['scope']}] {last['state']} — "
+                                     f"{(last['reason'] or '')[:60]}")
+                        lines.append("ledger（最新10行）:")
+                        for r in led:
+                            lines.append(f"  #{r['entry_id']} {r['created_at']} "
+                                         f"{r['event_key']} [{r['scope']}] {r['state']} — "
+                                         f"{(r['reason'] or '')[:60]}")
+                    else:
+                        lines.append("last_receipt: （ledger 空）")
+                else:
+                    lines.append("ledger: （event_state_ledger テーブル未作成）")
+                # queue counts（event scope 版・active manifest があるときのみ）
+                if m is not None:
+                    q = c.execute(
+                        "SELECT status, COUNT(*) n FROM import_queue "
+                        "WHERE file_path LIKE '%'||?||'%' GROUP BY status",
+                        (m["event_key"],)).fetchall()
+                    lines.append("queue_event_scope: " + (" ".join(
+                        f"{r['status']}={r['n']}" for r in q) or "0 rows"))
+        except Exception as e:
+            lines.append(f"(event control plane 読取エラー: {e})")
+        return lines
+
+    def _refresh_weekend_status(self):
+        """🏁 Race Weekend Status タブを再計算・再描画する（read-only）。
+        先頭に Event Control Plane（active manifest / ledger / receipt）表示を付加する（§7.3）。"""
+        head = "\n".join(self._manifest_status_lines())
+        ev = self._guess_event_key(self.required_round())
+        if not ev:
+            self._txt_status.setPlainText(
+                head + "\n\n"
+                f"DATA 2D に {self.required_round()} の event フォルダ"
+                "（YYYYMMDD-ROUNDx-RIDER）が見つかりません。")
+            return
+        st = self._race_weekend_status(ev)
+        self._txt_status.setPlainText(head + "\n\n" + self._render_weekend_status(st))
+
+    # ── fail-closed pre-apply gate（指示書§2・すべて read-only） ──────────────
+    _CAND_RE = re.compile(
+        r"gate\s+(\S+?):\s+(PASS|WARNING)\s+\(run_id=([A-Za-z0-9_]+),\s*laps=(\d+)")
+
+    def _preapply_gate(self, ev: str, dry_stdout: str) -> tuple:
+        """--apply 前の fail-closed チェック（read-only）。戻り値 = (ok, failures, info)。
+
+        dry-run stdout の候補行 `gate <outing>: PASS|WARNING (run_id=PROV_..., laps=N...)`
+        から取込候補を抽出し（= 2D run_id のみ・report pending は構造的に含まれない）、
+        REQUIRED_ROUND 整合 / event date+round 整合 / disk 突合 / canonical ROUND8=0 を検査。
+        1つでも FAIL なら Apply へ進んではならない（呼び出し側で全列挙して中止）。
+        """
+        req = self.required_round()
+        failures = []
+        info = {"sessions": {}, "candidates": [], "non_2d_pending": 0,
+                "expected_delta": (0, 0, 0)}
+
+        # 1) event に REQUIRED_ROUND を含む（再確認・多層防御）
+        if req.upper() not in (ev or "").upper():
+            failures.append(f"event '{ev}' が {req} を含みません")
+
+        # 2) 候補 run_id 抽出（PASS/WARNING = insert 候補のみ。FAIL 隔離分は対象外）
+        cands = self._CAND_RE.findall(dry_stdout or "")
+        if not cands:
+            failures.append("dry-run stdout から取込候補 run_id を抽出できませんでした"
+                            "（stdout 形式変更の可能性・要確認）")
+        bad_round = [rid for _b, _g, rid, _l in cands
+                     if req.upper() not in rid.upper() or not rid.startswith("PROV_")]
+        if bad_round:
+            failures.append(f"{req} 以外 / 非 PROV_ の候補 run_id が混入: "
+                            + ", ".join(bad_round))
+
+        # 3) 候補の date/round が ev（YYYYMMDD-ROUNDx-RIDER）と整合するか
+        #    → historical pending（過去イベント行）の混入を検出する
+        ev_parts = (ev or "").split("-")
+        ev_date = ev_parts[0] if ev_parts else ""
+        ev_round = ev_parts[1].upper() if len(ev_parts) > 1 else ""
+        mism = []
+        for base, gate, rid, laps in cands:
+            toks = rid.split("_")
+            # run_id = PROV_{YYYYMMDD}_{ROUND}_{CIRCUIT}_{SESSION}_{RIDER}_R{n}
+            if len(toks) >= 7 and toks[0] == "PROV":
+                if toks[1] != ev_date or toks[2].upper() != ev_round:
+                    mism.append(rid)
+                sess = toks[4].upper()
+            else:
+                mism.append(rid)
+                sess = "UNK"
+            # 4) 候補 session 一覧（info['sessions'] = {session: outings/laps}）
+            d = info["sessions"].setdefault(sess, {"outings": 0, "laps": 0})
+            d["outings"] += 1
+            d["laps"] += int(laps)
+            info["candidates"].append(rid)
+        if mism:
+            failures.append("event と date/round が一致しない候補 run_id（historical pending "
+                            "混入の疑い）: " + ", ".join(mism))
+
+        # 5) disk / registry / queue 突合（missing があれば先に Session Scan）
+        rec = self._reconcile_event_outings(ev)
+        info["reconcile"] = rec
+        miss = sorted(set(rec["missing_from_registry"]) | set(rec["missing_from_queue"]))
+        if miss:
+            failures.append("disk 上の outing が registry/queue 未登録: "
+                            + ", ".join(miss) + " → 先に Session Scan を実行してください")
+        if rec["disk"] and len(cands) > len(rec["disk"]):
+            failures.append(f"候補 outing 数 {len(cands)} が disk outing 数 "
+                            f"{len(rec['disk'])} を超えています（歴史的 pending 混入の疑い）")
+
+        # 6) report pending は候補に含まれない（候補は regex で 2D run_id のみ = 構造的保証）
+        info["non_2d_pending"] = rec["non_2d_pending"]
+
+        # 7) canonical ROUND8 = 0（>0 は live intake 中は異常。finalization 開始は別 GO）
+        can = self._canonical_round_counts()
+        info["canonical_round"] = can
+        bad_can = [f"{t}={can[t]}" for t in ("runs", "laps", "lap_suspension") if can[t] > 0]
+        if bad_can:
+            failures.append(f"canonical に {req} 行が存在します（{', '.join(bad_can)}）。"
+                            "finalization 前は 0 であるべきです（finalization 開始は別 GO）。"
+                            "作業停止し Code へ連絡してください。")
+
+        # 8) expected provisional delta（insert候補 N outing / M laps → +N/+M/+M）
+        n_out = len(cands)
+        n_laps = sum(int(l) for *_x, l in cands)
+        info["expected_delta"] = (n_out, n_laps, n_laps)
+        return (not failures), failures, info
+
+    # ── post-apply invariant check（指示書§3・read-only） ─────────────────────
+    def _post_apply_check(self, ev: str, pre: dict, info: dict,
+                          apply_stdout: str = "", apply_log=None) -> None:
+        """--apply 成功直後の read-only invariant check。
+
+        pre = apply 直前の _all_counts()（canonical 6 + provisional 3）。
+        canonical 不変 / provisional delta = expected / ROUND8 only / PROV 汚染 /
+        DONINGTONPARK 汚染 を検査し、全 PASS なら information、FAIL なら critical
+        （ログ・backup パス・変化テーブル・do not continue）を表示する。
+        """
+        req = self.required_round()
+        results = []   # (name, ok, detail)
+        try:
+            after = self._all_counts()
+            changed = {t: (pre.get(t, 0), after.get(t, 0)) for t in self._CANON_TABLES
+                       if pre.get(t, 0) != after.get(t, 0)}
+            results.append(("canonical unchanged", not changed,
+                            "PASS" if not changed else
+                            " / ".join(f"{t}: {b}→{a}（{a - b:+d}行）"
+                                       for t, (b, a) in changed.items())))
+
+            exp = tuple(info.get("expected_delta", (0, 0, 0)))
+            act = (after.get("runs_provisional", 0) - pre.get("runs_provisional", 0),
+                   after.get("laps_provisional", 0) - pre.get("laps_provisional", 0),
+                   after.get("lap_suspension_provisional", 0)
+                   - pre.get("lap_suspension_provisional", 0))
+            ok_delta = (act == exp) and (act[1] == act[2])
+            results.append(("provisional delta", ok_delta,
+                            f"+{act[0]} runs / +{act[1]} laps / +{act[2]} lap_suspension"
+                            + ("" if ok_delta else
+                               f"（expected +{exp[0]} / +{exp[1]} / +{exp[2]}・"
+                               "laps と lap_suspension は同数であるべき）")))
+
+            with self._con() as c:
+                try:
+                    rounds = {r[0] for r in c.execute(
+                        "SELECT DISTINCT round FROM runs_provisional")}
+                except sqlite3.OperationalError:
+                    rounds = set()
+                ok_round = rounds <= {req}
+                results.append((f"{req} only", ok_round,
+                                "PASS" if ok_round else
+                                f"provisional rounds={sorted(rounds)}（{req} 以外を含む）"))
+                n_prov = c.execute(
+                    "SELECT COUNT(*) FROM runs WHERE run_id LIKE 'PROV_%'").fetchone()[0]
+                results.append(("PROV contamination in canonical", n_prov == 0,
+                                "PASS" if n_prov == 0 else
+                                f"canonical runs に PROV_ run_id が {n_prov} 行"))
+                n_don = (c.execute("SELECT COUNT(*) FROM runs "
+                                   "WHERE circuit='DONINGTONPARK'").fetchone()[0]
+                         + c.execute("SELECT COUNT(*) FROM lap_suspension "
+                                     "WHERE circuit='DONINGTONPARK'").fetchone()[0])
+                results.append(("DONINGTONPARK canonical contamination", n_don == 0,
+                                "PASS" if n_don == 0 else
+                                f"canonical に circuit='DONINGTONPARK' が {n_don} 行"))
+            results.append(("report prerequisite not required", True,
+                            "PASS（Report 完了は 2D provisional の前提条件ではありません）"))
+        except Exception as e:
+            results.append(("post-apply check 実行", False, f"チェック自体が失敗: {e}"))
+
+        body = "\n".join(f"{name}: {det}" for name, _ok, det in results)
+        if all(ok for _n, ok, _d in results):
+            cur = self._lbl_import.text()
+            self._lbl_import.setText(
+                (cur + "  |  " if cur else "") + "post-apply invariant: 全PASS")
+            QMessageBox.information(
+                self, "Post-apply invariant check — 全PASS", body)
+            return
+
+        # FAIL → backup パスを stdout から grep（無ければ 02_DATABASE の最新 glob）
+        m = re.search(r"(\S*_backup_session_staging_\S+)", apply_stdout or "")
+        backup = m.group(1).rstrip("/") if m else ""
+        if not backup:
+            try:
+                cands = sorted((SCRIPT_DIR.parent / "02_DATABASE").glob(
+                    "_backup_session_staging_*"))
+                backup = str(cands[-1]) if cands else "（見つかりません）"
+            except Exception:
+                backup = "（取得失敗）"
+        self._lbl_import.setText(
+            "⛔ post-apply invariant FAIL — 作業停止・Code へ連絡（do not continue）")
+        QMessageBox.critical(
+            self, "⛔ Post-apply invariant FAIL — 作業停止",
+            f"{body}\n\n"
+            f"apply ログ: {apply_log}\n"
+            f"バックアップ: {backup}\n\n"
+            "これ以上操作せず Code に連絡してください（do not continue）。")
+
+    # ── Safety Audit（指示書§6・書込は .md 1ファイルのみ / DB は SELECT のみ） ──
+    def _run_safety_audit(self):
+        """🛡 Safety Audit を reports/race_weekend_workbench_safety_audit_<TS>.md に生成する。"""
+        try:
+            path = self._write_safety_audit()
+            QMessageBox.information(
+                self, "Safety Audit 生成完了",
+                f"read-only 監査レポートを生成しました:\n{path}\n\n"
+                "（書込はこの .md のみ・DB は SELECT のみ / canonical・provisional 無変更）")
+            return path
+        except Exception as e:
+            QMessageBox.warning(self, "Safety Audit 失敗",
+                                f"監査レポート生成中にエラーが発生しました:\n{e}")
+            return None
+
+    def _write_safety_audit(self):
+        """Safety Audit 本体（read-only 集計 → Markdown 出力）。戻り値 = 生成パス。"""
+        req = self.required_round()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ev = self._guess_event_key(req)
+        st = self._race_weekend_status(ev) if ev else None
+        rec = st["reconcile"] if st else None
+        counts = self._all_counts()
+        can = self._canonical_round_counts()
+
+        # registry / queue の status 別（対象 event）
+        reg_status, q_status, prov_quality = [], [], []
+        like = f"%{ev}%"
+        try:
+            with self._con() as c:
+                if ev:
+                    reg_status = c.execute(
+                        "SELECT status, COUNT(*) n FROM source_file_registry "
+                        "WHERE file_path LIKE ? GROUP BY status", (like,)).fetchall()
+                    q_status = c.execute(
+                        "SELECT target_kind, status, COUNT(*) n FROM import_queue "
+                        "WHERE file_path LIKE ? GROUP BY target_kind, status", (like,)).fetchall()
+                    try:
+                        prov_quality = c.execute(
+                            "SELECT session, quality_status, COUNT(*) n FROM runs_provisional "
+                            "WHERE provisional_event_key=? GROUP BY session, quality_status",
+                            (ev,)).fetchall()
+                    except sqlite3.OperationalError:
+                        prov_quality = []
+        except Exception:
+            pass
+
+        n_prov_canon = n_don = 0
+        try:
+            with self._con() as c:
+                n_prov_canon = c.execute(
+                    "SELECT COUNT(*) FROM runs WHERE run_id LIKE 'PROV_%'").fetchone()[0]
+                n_don = (c.execute("SELECT COUNT(*) FROM runs "
+                                   "WHERE circuit='DONINGTONPARK'").fetchone()[0]
+                         + c.execute("SELECT COUNT(*) FROM lap_suspension "
+                                     "WHERE circuit='DONINGTONPARK'").fetchone()[0])
+        except Exception:
+            pass
+
+        # 最新ログ（reports/ glob 各3件）
+        rep_dir = SCRIPT_DIR / "reports"
+        def latest3(pat):
+            try:
+                return [p.name for p in sorted(rep_dir.glob(pat))[-3:]]
+            except Exception:
+                return []
+        logs = {
+            "session_scan": latest3("session_scan_*.log"),
+            "session_import_dryrun": latest3("session_import_dryrun_*.log"),
+            "session_import_apply": latest3("session_import_apply_*.log"),
+        }
+
+        # ── Event Control Plane 検査（§7.5・SELECT のみ） ──
+        m_active = self._active_manifest()
+        prov_rounds = set()
+        started = committed = orphan = 0
+        ledger_exists = False
+        try:
+            with self._con() as c:
+                try:
+                    prov_rounds = {r[0] for r in c.execute(
+                        "SELECT DISTINCT round FROM runs_provisional") if r[0]}
+                except sqlite3.OperationalError:
+                    prov_rounds = set()
+                ledger_exists = bool(c.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+                    "AND name='event_state_ledger'").fetchone()[0])
+                if ledger_exists:
+                    started, committed, orphan = self._ledger_apply_orphans(c)
+        except Exception:
+            pass
+        if m_active is not None:
+            manifest_res = "PASS"
+            manifest_det = (f"{m_active['event_key']} v{m_active['manifest_version']} "
+                            f"hash={m_active['content_hash'][:12]}…")
+            round_scope = {m_active["round"]}
+        else:
+            manifest_res = "INFO"
+            manifest_det = (f"active=0（no active manifest・fallback={self.REQUIRED_ROUND} 定数・"
+                            "Live Event Scan は拒否）")
+            round_scope = {req}
+        prov_in_scope = prov_rounds <= round_scope
+
+        can_2d = can["runs"] + can["laps"] + can["lap_suspension"]
+        miss = (sorted(set(rec["missing_from_registry"]) | set(rec["missing_from_queue"]))
+                if rec else [])
+        summary = [
+            ("active manifest 状態", manifest_res, manifest_det),
+            ("provisional rounds ⊆ active round", "PASS" if prov_in_scope else "FAIL",
+             f"provisional rounds={sorted(prov_rounds) or '—'} / scope={sorted(round_scope)}"),
+            ("orphan apply_started = 0", "PASS" if orphan == 0 else "FAIL",
+             (f"apply_started={started} apply_committed={committed} orphan={orphan}"
+              if ledger_exists else "（event_state_ledger 未作成）")),
+            ("raw disk outing の registry/queue 登録", "PASS" if not miss else "FAIL",
+             "—" if not miss else "missing: " + ", ".join(miss)),
+            (f"canonical {req} = 0（runs/laps/lap_suspension）",
+             "PASS" if can_2d == 0 else "FAIL",
+             f"runs={can['runs']} laps={can['laps']} lap_suspension={can['lap_suspension']}"),
+            ("canonical PROV_ 汚染 = 0", "PASS" if n_prov_canon == 0 else "FAIL",
+             f"runs PROV_={n_prov_canon}"),
+            ("canonical DONINGTONPARK 汚染 = 0", "PASS" if n_don == 0 else "FAIL",
+             f"runs+lap_suspension DONINGTONPARK={n_don}"),
+            ("report prerequisite not required（2D provisional の前提でない）", "PASS",
+             f"report pending={st['report_pending'] if st else '—'}（not a blocker）"),
+        ]
+
+        L = [f"# Race Weekend Workbench Safety Audit — {ts}", ""]
+        L.append(f"- event: `{ev or '（DATA 2D に ' + req + ' event フォルダなし）'}`")
+        L.append(f"- generated: {datetime.now().isoformat(timespec='seconds')} / "
+                 "ImportQualityTab 🛡 Safety Audit（read-only・DB は SELECT のみ）")
+        L.append("- 書込は本 .md 1ファイルのみ（canonical / provisional / 管理テーブル無変更）")
+        L.append("")
+
+        L.append("## 1. raw disk outing（session 別）")
+        if rec and rec["disk"]:
+            for s in self._sess_sorted(rec["disk_by_session"]):
+                stems = rec["disk_by_session"][s]
+                L.append(f"- {s} ({len(stems)}): {', '.join(stems)}")
+            L.append(f"- total: {len(rec['disk'])} outing")
+        else:
+            L.append("- （disk outing なし / event フォルダ未検出）")
+        L.append("")
+
+        L.append(f"## 2. registry / queue 状態（{req}・status 別）")
+        L.append("| layer | kind | status | count |")
+        L.append("|---|---|---|---:|")
+        for r in reg_status:
+            L.append(f"| registry | — | {r['status']} | {r['n']} |")
+        for r in q_status:
+            L.append(f"| queue | {r['target_kind']} | {r['status']} | {r['n']} |")
+        if not reg_status and not q_status:
+            L.append("| — | — | — | 0 |")
+        if rec:
+            L.append("")
+            L.append(f"- queue_2d: pending={rec['pending_2d']} "
+                     f"awaiting_gate={rec['awaiting_gate_2d']} failed={rec['failed_2d']} "
+                     f"skipped={rec['skipped_2d']} / report pending={rec['non_2d_pending']}"
+                     "（2D 候補外・not a blocker）")
+        L.append("")
+
+        L.append("## 3. provisional 状態（session 別）")
+        L.append("| session | runs | laps | quality_status |")
+        L.append("|---|---:|---:|---|")
+        prov = st["provisional_by_session"] if st else {}
+        qmap = {}
+        for r in prov_quality:
+            qmap.setdefault(r["session"], []).append(f"{r['quality_status']}×{r['n']}")
+        for s in self._sess_sorted(prov):
+            L.append(f"| {s} | {prov[s][0]} | {prov[s][1]} | {', '.join(qmap.get(s, [])) or '—'} |")
+        if not prov:
+            L.append("| — | 0 | 0 | — |")
+        if st:
+            L.append("")
+            L.append(f"- total: {st['provisional_runs']} runs / {st['provisional_laps']} laps")
+        L.append("")
+
+        L.append("## 4. canonical invariants")
+        L.append("| table | count |")
+        L.append("|---|---:|")
+        for t in self._CANON_TABLES:
+            L.append(f"| {t} | {counts.get(t, 0)} |")
+        L.append("")
+        L.append(f"- {req} rows: runs={can['runs']} / laps(run_id LIKE)={can['laps']} / "
+                 f"lap_suspension={can['lap_suspension']} / race_results={can['race_results']}"
+                 f" → **{'PASS' if can_2d == 0 else 'FAIL'}**"
+                 "（2D 系 3 テーブルは finalization 前は 0 であるべき）")
+        L.append(f"- canonical runs の PROV_ 汚染 = {n_prov_canon} → "
+                 f"**{'PASS' if n_prov_canon == 0 else 'FAIL'}**")
+        L.append(f"- canonical DONINGTONPARK 汚染 = {n_don} → "
+                 f"**{'PASS' if n_don == 0 else 'FAIL'}**")
+        L.append("")
+
+        L.append("## 4b. Event Control Plane（§7.5・read-only）")
+        L.append(f"- active manifest: {manifest_det}")
+        L.append(f"- provisional rounds ⊆ active round: "
+                 f"**{'PASS' if prov_in_scope else 'FAIL'}** "
+                 f"(provisional={sorted(prov_rounds) or '—'} / scope={sorted(round_scope)})")
+        if ledger_exists:
+            L.append(f"- ledger receipts: apply_started={started} apply_committed={committed} "
+                     f"→ orphan={orphan} **{'PASS' if orphan == 0 else 'FAIL（中断残骸の疑い）'}**")
+        else:
+            L.append("- ledger: event_state_ledger 未作成（従来運用・受入 receipt なし）")
+        L.append("")
+
+        L.append("## 5. 最新の scan / import ログ（reports/ 各最新3件）")
+        for k, names in logs.items():
+            L.append(f"- {k}: {', '.join(names) if names else '（なし）'}")
+        L.append("")
+
+        L.append("## 6. recommended next action")
+        L.append(f"- {st['next_action'] if st else 'DATA 2D の event フォルダを確認'}")
+        L.append("")
+
+        L.append("## 7. PASS/FAIL summary")
+        L.append("| check | result | detail |")
+        L.append("|---|---|---|")
+        for name, res, det in summary:
+            L.append(f"| {name} | {res} | {det} |")
+        L.append("")
+
+        rep_dir.mkdir(exist_ok=True)
+        path = rep_dir / f"race_weekend_workbench_safety_audit_{ts}.md"
+        path.write_text("\n".join(L), encoding="utf-8")
+        return path
+
+    def _run_import(self):
+        """session_extract_staging.py を dry-run → 確認ダイアログ（既定 Cancel）→ --apply。
+
+        apply も書込は provisional 3テーブル + 管理テーブルのみ（業務6テーブルは
+        script 側の in-transaction assert で不変保証）。失敗しても Workbench は落とさない。
+        """
+        import subprocess
+        old_text = self._btn_import.text()
+        self._btn_import.setEnabled(False)
+        log_dir = SCRIPT_DIR / "reports"
+        log_dir.mkdir(exist_ok=True)
+        script = SCRIPT_DIR / "session_extract_staging.py"
+        dry_log = None
+        apply_log = None
+        try:
+            # ── Round8 guard: 明示 event（REQUIRED_ROUND を含む）を要求。空/非該当は拒否・DB無変更 ──
+            req = self.required_round()
+            default_ev = self._guess_event_key(req)
+            ev, ok = QInputDialog.getText(
+                self, f"Session Import — {req} event 指定",
+                f"取り込む {req} の event フォルダ名を入力してください（例 20260710-{req}-JA52）。\n"
+                f"空欄や {req} を含まない event は拒否されます（{req} 以外の provisional 取込防止）。",
+                QLineEdit.EchoMode.Normal, default_ev)
+            if not ok:
+                self._lbl_import.setText("⏸ Session Import キャンセル（event 未指定・DB無変更）")
+                return
+            ev = (ev or "").strip()
+            if not ev:
+                QMessageBox.warning(self, "Session Import 中止",
+                                    "event フォルダ名が空です。Round8 の event を指定してください。")
+                self._lbl_import.setText("⚠ Session Import 中止: event 未指定（DB無変更）")
+                return
+            if req.upper() not in ev.upper():
+                QMessageBox.warning(self, "Session Import 中止",
+                                    f"指定 event '{ev}' は {req} を含みません。\n"
+                                    f"{req} 以外の provisional 取込はこのボタンからは行えません（DB無変更）。")
+                self._lbl_import.setText(f"⚠ Session Import 中止: {ev} は {req} 以外（DB無変更）")
+                return
+            guard_args = ["--event", ev, "--required-round", req]
+
+            # ── a. dry-run（read-only / mode=ro）。--report で staging report .md も取得
+            #    （§7.4: candidates + stop reasons の表示ソース） ──
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dry_md = log_dir / f"session_import_dryrun_{ts}.md"
+            self._btn_import.setText("取込候補を確認中…")
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            QApplication.processEvents()
+            try:
+                proc = subprocess.run(
+                    [sys.executable, str(script)] + guard_args + ["--report", str(dry_md)],
+                    capture_output=True, text=True, timeout=600,
+                    cwd=str(SCRIPT_DIR),
+                )
+            finally:
+                QApplication.restoreOverrideCursor()
+            dry_log = log_dir / f"session_import_dryrun_{ts}.log"
+            dry_log.write_text(
+                f"# session_extract_staging.py (dry-run) exit={proc.returncode} at {ts}\n"
+                f"--- stdout ---\n{proc.stdout or ''}\n--- stderr ---\n{proc.stderr or ''}\n",
+                encoding="utf-8")
+
+            # ── c. 候補 0 件（exit 1）→ 原因を切り分け、未Scan なら安全な復旧導線を提示 ──
+            if proc.returncode == 1:
+                case, title, msg, offer_scan = self._diagnose_zero_candidates(ev)
+                self._lbl_import.setText(
+                    f"ℹ {title}  |  {self._IMPORT_NOTE}  |  ログ: {dry_log.name}")
+                if offer_scan:
+                    box = QMessageBox(self)
+                    box.setIcon(QMessageBox.Icon.Information)
+                    box.setWindowTitle("Session Import — 候補なし（復旧手順）")
+                    box.setText(f"{msg}\n\ndry-run ログ: {dry_log}")
+                    btn_scan = box.addButton("Session Scan を実行", QMessageBox.ButtonRole.AcceptRole)
+                    box.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
+                    box.setDefaultButton(btn_scan)
+                    box.exec()
+                    if box.clickedButton() is btn_scan:
+                        # 安全導線: 既存 _run_scan（extraction_scan.py・管理テーブルのみ）を実行。
+                        # 業務テーブルは不変。Scan 後は Import を再実行するよう案内。
+                        self._run_scan()
+                        self._lbl_import.setText(
+                            f"↻ Scan 実行後、もう一度『⬇ Session Import』を押して {ev} を"
+                            f"取り込んでください（provisional のみ・業務テーブル不変）。")
+                else:
+                    QMessageBox.information(self, title, f"{msg}\n\nログ: {dry_log}")
+                return
+            if proc.returncode not in (0, 2):
+                tail = "\n".join(((proc.stderr or "") + "\n" + (proc.stdout or "")).strip().splitlines()[-10:])
+                self._lbl_import.setText(
+                    f"⚠ Session Import dry-run 失敗 (exit={proc.returncode})  ログ: {dry_log.name}")
+                QMessageBox.warning(
+                    self, "Session Import dry-run 失敗",
+                    f"session_extract_staging.py (dry-run) が exit code {proc.returncode} で終了しました。\n\n"
+                    f"{tail}\n\nログ: {dry_log}")
+                return
+
+            # ── b. サマリー → 確認ダイアログ（Apply|Cancel・既定 Cancel） ──
+            summary = self._import_summary(proc.stdout or "")
+
+            # ── b2. fail-closed pre-apply gate（指示書§2・すべて read-only） ──
+            #    1つでも FAIL なら失敗理由を全列挙して Apply へ進まない（DB無変更）。
+            gate_ok, gate_fails, gate_info = self._preapply_gate(ev, proc.stdout or "")
+            if not gate_ok:
+                self._lbl_import.setText(
+                    f"⛔ pre-apply gate FAIL（{len(gate_fails)}件）— Apply 中止（DB無変更）"
+                    f"  |  ログ: {dry_log.name}")
+                QMessageBox.critical(
+                    self, "Session Import — pre-apply gate FAIL（Apply 中止）",
+                    "fail-closed pre-apply gate で以下のチェックに失敗しました。\n"
+                    "Apply は実行しません（DB無変更）。\n\n"
+                    + "\n".join(f"✗ {f}" for f in gate_fails)
+                    + f"\n\ndry-run ログ: {dry_log}")
+                return
+            sess_lines = "\n".join(
+                f"  {s}: {d['outings']} outing / {d['laps']} laps"
+                for s in self._sess_sorted(gate_info["sessions"])
+                for d in (gate_info["sessions"][s],))
+            exp = gate_info["expected_delta"]
+            gate_txt = (
+                f"候補 session 別一覧:\n{sess_lines}\n"
+                f"expected provisional delta: +{exp[0]} runs / +{exp[1]} laps / "
+                f"+{exp[2]} lap_suspension\n"
+                f"pre-apply gate: 全チェック PASS"
+                f"（report pending {gate_info['non_2d_pending']} 件は 2D 候補に"
+                "含まれていません = not a blocker）")
+
+            # §7.4: staging report .md から candidates（stem/fingerprint/run_id/laps）+
+            # stop reasons を取得して確認ダイアログへ（読めなければ従来表示のみ）
+            cand_txt = self._candidate_report_text(dry_md)
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle("Session Import (staging) 確認")
+            box.setText(
+                f"対象 event: {ev}（{req} のみ・他イベントは適用されません）\n\n"
+                f"dry-run 結果（取込候補）:\n{summary}\n\n"
+                + (f"{cand_txt}\n\n" if cand_txt else "")
+                + f"{gate_txt}\n\n"
+                f"Apply の書込先は provisional テーブル（runs/laps/lap_suspension_provisional）"
+                f"と管理テーブルのみです。業務テーブル（runs/laps/lap_suspension/race_results 等）"
+                f"は変更されません。\n\nApply を実行しますか？（この event {ev} のみ・{req} 限定）\n\n"
+                f"dry-run ログ: {dry_log}\nstaging report: {dry_md}")
+            btn_apply = box.addButton("Apply", QMessageBox.ButtonRole.AcceptRole)
+            btn_cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(btn_cancel)
+            box.exec()
+            if box.clickedButton() is not btn_apply:
+                self._lbl_import.setText(
+                    f"⏸ Session Import キャンセル（dry-runのみ・DB無変更）: {summary}"
+                    f"  |  {self._IMPORT_NOTE}  |  ログ: {dry_log.name}")
+                return
+
+            # ── b3. 複数 session 一括 Apply の追加明示確認（指示書§4・既定 No） ──
+            sessions = self._sess_sorted(gate_info["sessions"])
+            if len(sessions) > 1:
+                ans = QMessageBox.question(
+                    self, "複数 session の一括 Apply 確認",
+                    f"複数 session ({', '.join(sessions)}) が含まれます。"
+                    "本当に一括 Apply しますか?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No)
+                if ans != QMessageBox.StandardButton.Yes:
+                    self._lbl_import.setText(
+                        "⏸ Session Import キャンセル（複数 session 一括 Apply を回避・DB無変更）")
+                    return
+
+            # ── d. apply（provisional のみ書込） ──
+            # post-apply invariant check（指示書§3）用に apply 直前の件数を取得
+            # （canonical 6 + provisional 3・SELECT のみ）
+            pre_counts = self._all_counts()
+            prov_before = self._prov_counts()
+            self._btn_import.setText("staging 取込中…")
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            QApplication.processEvents()
+            try:
+                proc2 = subprocess.run(
+                    [sys.executable, str(script), "--apply"] + guard_args,
+                    capture_output=True, text=True, timeout=600,
+                    cwd=str(SCRIPT_DIR),
+                )
+            finally:
+                QApplication.restoreOverrideCursor()
+            ts2 = datetime.now().strftime("%Y%m%d_%H%M%S")
+            apply_log = log_dir / f"session_import_apply_{ts2}.log"
+            apply_log.write_text(
+                f"# session_extract_staging.py --apply exit={proc2.returncode} at {ts2}\n"
+                f"--- stdout ---\n{proc2.stdout or ''}\n--- stderr ---\n{proc2.stderr or ''}\n",
+                encoding="utf-8")
+
+            if proc2.returncode not in (0, 2):
+                tail = "\n".join(((proc2.stderr or "") + "\n" + (proc2.stdout or "")).strip().splitlines()[-10:])
+                self._lbl_import.setText(
+                    f"⚠ Session Import apply 失敗 (exit={proc2.returncode})  ログ: {apply_log.name}")
+                QMessageBox.warning(
+                    self, "Session Import apply 失敗",
+                    f"session_extract_staging.py --apply が exit code {proc2.returncode} で終了しました。\n"
+                    f"（3=業務テーブル assert 違反→rollback 済）\n\n{tail}\n\nログ: {apply_log}")
+                return
+
+            # 成功（0=全PASS / 2=FAIL隔離ありだがPASS分はinsert済）→ 再読込 + 結果表示
+            self.refresh()
+            prov_after = self._prov_counts()
+            delta = "  ".join(
+                f"{k.replace('_provisional','')}: {prov_before.get(k, 0)}→{prov_after.get(k, 0)}"
+                for k in sorted(set(prov_before) | set(prov_after))) or "—"
+            m = re.search(r"バックアップ[:：]?\s*(\S+)", proc2.stdout or "")
+            backup_s = f"\nバックアップ: {m.group(1)}" if m else ""
+            fail_note = "\n⚠ gate FAIL の outing あり（隔離・INSERT せず / exit 2）" \
+                if proc2.returncode == 2 else ""
+            summary2 = self._import_summary(proc2.stdout or "")
+            self._lbl_import.setText(
+                f"✅ Session Import 完了: {summary2}  |  provisional {delta}"
+                f"  |  {self._IMPORT_NOTE}  |  ログ: {apply_log.name}")
+            QMessageBox.information(
+                self, "Session Import 完了",
+                f"{summary2}\n\nprovisional 件数: {delta}\n"
+                f"queue: pending → awaiting_gate/failed/skipped へ遷移{fail_note}\n\n"
+                f"{self._IMPORT_NOTE}{backup_s}\n\nログ: {apply_log}")
+
+            # ── e. post-apply invariant check（指示書§3・read-only） ──
+            self._post_apply_check(ev, pre_counts, gate_info,
+                                   apply_stdout=proc2.stdout or "", apply_log=apply_log)
+        except Exception as e:
+            self._lbl_import.setText(f"⚠ Session Import エラー: {e}")
+            QMessageBox.warning(
+                self, "Session Import エラー",
+                f"Session Import 実行中にエラーが発生しました:\n{e}"
+                + (f"\n\ndry-run ログ: {dry_log}" if dry_log else "")
+                + (f"\napply ログ: {apply_log}" if apply_log else ""))
+        finally:
+            try:
+                QApplication.restoreOverrideCursor()
+            except Exception:
+                pass
+            self._btn_import.setText(old_text)
+            self._btn_import.setEnabled(True)
+
+    def _parse_staging_report(self, md_path) -> list:
+        """session_extract_staging の report .md から候補テーブル行を抽出する（§7.4・read-only）。
+
+        行 = {base, session, run_id, laps, best, gate, checks}。checks 列に FAIL の
+        stop reasons（stage_run_identity / stage_run_id_conflict / stage_canonical_conflict /
+        stage_session_allowed 等）が入る。読めなければ []（呼び出し側は stdout 要約のみ表示）。
+        """
+        rows = []
+        try:
+            txt = Path(md_path).read_text(encoding="utf-8")
+        except Exception:
+            return rows
+        for line in txt.splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) < 7 or cells[0] in ("base",) or set(cells[0]) <= {"-", ":"}:
+                continue
+            rows.append(dict(base=cells[0], session=cells[1], run_id=cells[2],
+                             laps=cells[3], best=cells[4], gate=cells[5],
+                             checks=cells[6]))
+        return rows
+
+    def _registry_fingerprint(self, stem: str) -> str:
+        """outing stem の registry fingerprint（sha256 先頭12桁・read-only）。無ければ '—'。"""
+        try:
+            with self._con() as c:
+                r = c.execute(
+                    "SELECT sha256 FROM source_file_registry "
+                    "WHERE file_type='2d_outing' AND file_path LIKE ? "
+                    "ORDER BY file_id DESC LIMIT 1", (f"%{stem}.MES%",)).fetchone()
+            return (r[0] or "")[:12] if r and r[0] else "—"
+        except Exception:
+            return "—"
+
+    def _candidate_report_text(self, dry_md) -> str:
+        """§7.4: dry-run report .md から candidates（stem / fingerprint12 / run_id / laps）と
+        stop reasons を確認ダイアログ用テキストに整形する（read-only）。"""
+        rows = self._parse_staging_report(dry_md)
+        if not rows:
+            return ""
+        cand_lines, stop_lines = [], []
+        for r in rows:
+            if r["gate"] in ("PASS", "WARNING") and r["run_id"] not in ("—", ""):
+                fp = self._registry_fingerprint(r["base"])
+                cand_lines.append(
+                    f"  {r['base']} / fp={fp} / {r['run_id']} / laps={r['laps']}")
+            if r["gate"] in ("FAIL", "SKIP") or (r["checks"] and r["checks"] != "all PASS"):
+                stop_lines.append(f"  {r['base']} [{r['gate']}]: {r['checks'][:120]}")
+        out = []
+        if cand_lines:
+            out.append("candidates (outing / fingerprint12 / run_id / predicted laps):")
+            out += cand_lines[:20]
+            if len(cand_lines) > 20:
+                out.append(f"  … 他 {len(cand_lines) - 20} 件（report .md 参照）")
+        if stop_lines:
+            out.append("stop reasons（FAIL隔離/警告 — INSERT されません）:")
+            out += stop_lines[:10]
+            if len(stop_lines) > 10:
+                out.append(f"  … 他 {len(stop_lines) - 10} 件（report .md 参照）")
+        return "\n".join(out)
+
+    def _prov_counts(self) -> dict:
+        """provisional 3テーブルの件数（mode=ro 相当・読み取りのみ）。未作成は 0。"""
+        out = {}
+        try:
+            with self._con() as c:
+                for t in ("runs_provisional", "laps_provisional", "lap_suspension_provisional"):
+                    try:
+                        out[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                    except sqlite3.OperationalError:
+                        out[t] = 0
+        except Exception:
+            pass
+        return out
+
+    def _import_summary(self, stdout: str) -> str:
+        """session_extract_staging.py の stdout から候補/gate/skip を要約。
+        取れなければ queue/provisional 件数へフォールバック。"""
+        gates = re.findall(r"gate .*?: (PASS|WARNING|FAIL)", stdout)
+        if gates:
+            n_pass = gates.count("PASS")
+            n_warn = gates.count("WARNING")
+            n_fail = gates.count("FAIL")
+            n_fail += len(re.findall(r"no valid laps → FAIL 隔離", stdout))
+            n_skip = len(re.findall(r"→ skip 記録", stdout))
+            ins = re.findall(r"gate .*?: (?:PASS|WARNING) \(run_id=\S+, laps=(\d+)", stdout)
+            n_ins = len(ins)
+            n_laps = sum(int(x) for x in ins)
+            return (f"insert候補 {n_ins} outing / {n_laps} laps"
+                    f"（PASS {n_pass} / WARNING {n_warn} / FAIL {n_fail}・skip {n_skip}）")
+        # fallback: 管理/provisional テーブルを直接集計
+        try:
+            with self._con() as c:
+                pend = c.execute(
+                    "SELECT COUNT(*) FROM import_queue WHERE status='pending'").fetchone()[0]
+            prov = self._prov_counts()
+            prov_s = " ".join(f"{k.replace('_provisional','')}={v}" for k, v in sorted(prov.items()))
+            return f"queue pending={pend} / provisional {prov_s or '—'}"
+        except Exception as e:
+            return f"(サマリー取得失敗: {e})"
 
     def _load(self):
         with self._con() as c:
@@ -6723,10 +8657,42 @@ class ImportQualityTab(QWidget):
                 (arid, arid),
             ).fetchall()
 
+        # REQUIRED_ROUND event の outing 単位 2D 突合行を検出チェックへ追加（read-only・
+        # report pending 行があっても missing 2D outing を可視化する）
+        check_rows = list(check_rows)
+        try:
+            ev = self._guess_event_key(self.required_round())
+            if ev:
+                rec = self._reconcile_event_outings(ev)
+                miss = sorted(set(rec["missing_from_registry"]) | set(rec["missing_from_queue"]))
+                check_rows.insert(0, {
+                    "check_name": "detect_outing_reconcile_2d",
+                    "result": "FAIL" if miss else "PASS",
+                    "severity": "P1" if miss else "info",
+                    "scope_id": ev,
+                    "detail": (f"disk_2d={len(rec['disk'])} registry_2d={len(rec['registry'])} "
+                               f"queue_2d={len(rec['queued'])} pending_2d={rec['pending_2d']} "
+                               f"awaiting_gate_2d={rec['awaiting_gate_2d']} "
+                               f"missing={', '.join(miss) if miss else '—'} "
+                               f"next_action={'Session Scan' if miss else '—'}"
+                               f"（report pending {rec['non_2d_pending']} 件は 2D 候補外）"),
+                })
+        except Exception:
+            pass
+
         self._lbl.setText(f"registry: {reg_s}   |   queue: {q_s}   |   要確認 {len(doubt_rows)} / 検出チェック {len(check_rows)}")
         self._fill_queue(queue_rows)
         self._fill_doubt(doubt_rows)
         self._fill_checks(check_rows)
+
+        # 🏁 Race Weekend Status タブ refresh（try/except 保護・失敗しても他タブは維持）
+        try:
+            self._refresh_weekend_status()
+        except Exception as e:
+            try:
+                self._txt_status.setPlainText(f"⚠ Race Weekend Status 取得失敗: {e}")
+            except Exception:
+                pass
 
     def _fill_queue(self, rows):
         cols = ["queue_id", "status", "種別", "type", "Round", "Rider", "Circuit", "Session", "enqueued", "file"]
