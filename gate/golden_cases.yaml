@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "timeout_sec": 180,
+    "workdir": "."
+  },
+  "baseline": [
+    {
+      "id": "BASE-01",
+      "name": "Quality Gate runner self-tests",
+      "cmd": ["python3", "-m", "unittest", "gate.tests.test_run_gate", "-v"],
+      "enabled": true
+    },
+    {
+      "id": "BASE-02",
+      "name": "Existing lap-analysis regression tests",
+      "cmd": ["python3", "-m", "unittest", "tests.test_lap_analysis", "-v"],
+      "enabled": true
+    },
+    {
+      "id": "BASE-03",
+      "name": "Critical runtime modules compile",
+      "cmd": [
+        "python3",
+        "gate/check_syntax.py",
+        "ts24_workbench.py",
+        "extraction_scan.py",
+        "session_extract_staging.py",
+        "event_manifest.py"
+      ],
+      "enabled": true
+    }
+  ],
+  "golden_cases": [
+    {
+      "id": "GE-TS24-001",
+      "incident": "Session Import showed zero candidates when new outings existed on disk but were absent from registry/queue",
+      "invariant": "A zero-candidate result must distinguish no new data from unregistered disk outings and must not report successful completion",
+      "severity": "critical",
+      "origin": "TS24 Workbench / ROUND8 QP / 2026-07-10",
+      "cmd": ["python3", "-m", "unittest", "gate.tests.test_golden_ts24.TestGE001ZeroCandidateDiagnosis", "-v"],
+      "enabled": false
+    },
+    {
+      "id": "GE-TS24-002",
+      "incident": "Batch-relative run numbering could collide when an additional outing for the same session arrived later",
+      "invariant": "Run identity is deterministic across batches; same content is a no-op and conflicting content fails before write",
+      "severity": "critical",
+      "origin": "TS24 Event Control Plane readiness / 2026-07-11",
+      "cmd": ["python3", "-m", "unittest", "gate.tests.test_golden_ts24.TestGE002DeterministicRunIdentity", "-v"],
+      "enabled": false
+    },
+    {
+      "id": "GE-TS24-003",
+      "incident": "DONINGTONPARK and DONINGTON created a circuit-normalization split during ROUND8 provisional intake",
+      "invariant": "All supported Donington aliases normalize to DONINGTON in provisional and final extraction paths",
+      "severity": "high",
+      "origin": "TS24 ROUND8 circuit normalization / 2026-07-10",
+      "cmd": ["python3", "-m", "unittest", "gate.tests.test_golden_ts24.TestGE003DoningtonNormalization", "-v"],
+      "enabled": false
+    }
+  ],
+  "backup": {
+    "snapshot_paths": [
+      "../02_DATABASE/ts24_unified.db",
+      "../04_REFERENCE/Data_Base_TS24_ORIGINAL.xlsx"
+    ]
+  },
+  "policy": {
+    "block_on_baseline_fail": true,
+    "block_on_any_golden_fail": true,
+    "require_enabled_golden": true,
+    "max_human_items": 3,
+    "reviewer_can_override_l0": false
+  }
+}
