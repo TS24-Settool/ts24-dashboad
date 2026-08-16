@@ -1,0 +1,300 @@
+# Session Extraction Staging — dryrun — 2026-07-07 10:29
+
+- DB: `/Users/ts24/Desktop/Data TS24 Claude/02_DATABASE/ts24_unified.db` / event=ALL / session=ALL / rider=ALL / limit=-
+- mode: **dryrun** / exit=2 / analysis_run_id=`2026-07-07T10:29:29_session_extract_staging`
+
+## 候補: 272 outing (insert対象 160 / FAIL隔離 110 / skip 2 / queue未マッチ 0)
+
+| base | session | run_id | laps | best(valid) | gate | checks |
+|---|---|---|---:|---:|:--:|---|
+| F1-#77-01 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_DA77_R1 | 3 | 94.575 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-01 | FP | PROV_20260326_ROUND2_PORTIMAO_FP_DA77_R1 | 8 | 105.723 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-01 | FP | PROV_20260425_ROUND3_ASSEN_FP_DA77_R1 | 11 | 98.788 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-01 | FP | PROV_20260501_ROUND4_BALATON_FP_DA77_R1 | 12 | 105.704 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-01 | FP | PROV_20260515_ROUND5_MOST_FP_DA77_R1 | 8 | 97.405 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-01 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| F1-#77-02 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_DA77_R2 | 10 | 93.617 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-02 | FP | PROV_20260326_ROUND2_PORTIMAO_FP_DA77_R2 | 7 | 105.709 | WARNING | stage_phase22_fill=WARNING |
+| F1-#77-02 | FP | PROV_20260425_ROUND3_ASSEN_FP_DA77_R2 | 3 | 98.91 | WARNING | stage_phase22_fill=WARNING |
+| F1-#77-02 | FP | PROV_20260501_ROUND4_BALATON_FP_DA77_R2 | 5 | 106.531 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-02 | FP | PROV_20260515_ROUND5_MOST_FP_DA77_R2 | 3 | 97.121 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-02 | FP | PROV_20260529_ROUND6_ARAGON_FP_DA77_R1 | 11 | 115.325 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-03 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_DA77_R3 | 5 | 93.542 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-03 | FP | PROV_20260425_ROUND3_ASSEN_FP_DA77_R3 | 2 | 98.36 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-03 | FP | PROV_20260515_ROUND5_MOST_FP_DA77_R3 | 5 | 96.193 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-03 | FP | PROV_20260529_ROUND6_ARAGON_FP_DA77_R2 | 5 | 114.595 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| F1-#77-04 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| FP-JA52-01 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_JA52_R1 | 3 | 93.525 | PASS | all PASS |
+| FP-JA52-01 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_JA52_R2 | 3 | 93.525 | PASS | all PASS |
+| FP-JA52-01 | FP | PROV_20260326_ROUND2_PORTIMAO_FP_JA52_R1 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| FP-JA52-01 | FP | PROV_20260425_ROUND3_ASSEN_FP_JA52_R1 | 8 | 98.378 | PASS | all PASS |
+| FP-JA52-01 | FP | PROV_20260501_ROUND4_BALATON_FP_JA52_R1 | 12 | 103.546 | PASS | all PASS |
+| FP-JA52-01 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| FP-JA52-01 | FP | PROV_20260529_ROUND6_ARAGON_FP_JA52_R1 | 11 | 114.515 | PASS | all PASS |
+| FP-JA52-02 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_JA52_R3 | 9 | 93.009 | PASS | all PASS |
+| FP-JA52-02 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_JA52_R4 | 9 | 93.009 | PASS | all PASS |
+| FP-JA52-02 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| FP-JA52-02 | FP | PROV_20260425_ROUND3_ASSEN_FP_JA52_R2 | 2 | 98.692 | PASS | all PASS |
+| FP-JA52-02 | FP | PROV_20260501_ROUND4_BALATON_FP_JA52_R2 | 5 | 103.322 | PASS | all PASS |
+| FP-JA52-02 | FP | PROV_20260515_ROUND5_MOST_FP_JA52_R1 | 8 | 96.806 | PASS | all PASS |
+| FP-JA52-02 | FP | PROV_20260529_ROUND6_ARAGON_FP_JA52_R2 | 5 | 114.103 | PASS | all PASS |
+| FP-JA52-03 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_JA52_R5 | 5 | 93.629 | PASS | all PASS |
+| FP-JA52-03 | FP | PROV_20260220_ROUND1_PHILLIPISLAND_FP_JA52_R6 | 5 | 93.629 | PASS | all PASS |
+| FP-JA52-03 | FP | PROV_20260326_ROUND2_PORTIMAO_FP_JA52_R2 | 6 | 104.748 | PASS | all PASS |
+| FP-JA52-03 | FP | PROV_20260425_ROUND3_ASSEN_FP_JA52_R3 | 4 | 97.427 | PASS | all PASS |
+| FP-JA52-03 | FP | PROV_20260515_ROUND5_MOST_FP_JA52_R2 | 6 | 96.235 | PASS | all PASS |
+| FP-JA52-04 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| FP-JA52-04 | FP | PROV_20260515_ROUND5_MOST_FP_JA52_R3 | 4 | 95.286 | PASS | all PASS |
+| FP-JA52-05 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| FP-JA52-WUP01 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| FP-JA52-WUP201 | FP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| INLAPR1-#77-01 | INLAPR1 | PROV_20260326_ROUND2_PORTIMAO_INLAPR1_DA77_R1 | 1 | — | FAIL | stage_inference=FAIL; stage_lap_time_range=FAIL; stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| INLAPR2-#77-01 | INLAPR2 | PROV_20260326_ROUND2_PORTIMAO_INLAPR2_DA77_R1 | 1 | — | FAIL | stage_inference=FAIL; stage_lap_time_range=FAIL; stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| QP-JA2-03 | QP | PROV_20250926_ROUND10_ARAGON_QP_JA52_R1 | 5 | 112.65 | PASS | all PASS |
+| QP-JA52-01 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-01 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-01 | QP | PROV_20260326_ROUND2_PORTIMAO_QP_JA52_R1 | 6 | 104.633 | PASS | all PASS |
+| QP-JA52-01 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-01 | QP | PROV_20260501_ROUND4_BALATON_QP_JA52_R1 | 6 | 103.021 | PASS | all PASS |
+| QP-JA52-01 | QP | PROV_20260515_ROUND5_MOST_QP_JA52_R1 | 5 | 94.931 | PASS | all PASS |
+| QP-JA52-01 | QP | PROV_20260529_ROUND6_ARAGON_QP_JA52_R1 | 5 | 115.014 | PASS | all PASS |
+| QP-JA52-02 | QP | PROV_20260220_ROUND1_PHILLIPISLAND_QP_JA52_R1 | 6 | 93.19 | PASS | all PASS |
+| QP-JA52-02 | QP | PROV_20260220_ROUND1_PHILLIPISLAND_QP_JA52_R2 | 6 | 93.19 | PASS | all PASS |
+| QP-JA52-02 | QP | PROV_20260326_ROUND2_PORTIMAO_QP_JA52_R2 | 3 | 104.371 | PASS | all PASS |
+| QP-JA52-02 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-02 | QP | PROV_20260501_ROUND4_BALATON_QP_JA52_R2 | 3 | 103.442 | PASS | all PASS |
+| QP-JA52-02 | QP | PROV_20260515_ROUND5_MOST_QP_JA52_R2 | 3 | 94.777 | PASS | all PASS |
+| QP-JA52-02 | QP | PROV_20260529_ROUND6_ARAGON_QP_JA52_R2 | 2 | 122.957 | PASS | all PASS |
+| QP-JA52-03 | QP | PROV_20260220_ROUND1_PHILLIPISLAND_QP_JA52_R3 | 3 | 93.708 | WARNING | stage_phase22_fill=WARNING |
+| QP-JA52-03 | QP | PROV_20260220_ROUND1_PHILLIPISLAND_QP_JA52_R4 | 3 | 93.708 | WARNING | stage_phase22_fill=WARNING |
+| QP-JA52-03 | QP | PROV_20260326_ROUND2_PORTIMAO_QP_JA52_R3 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| QP-JA52-03 | QP | PROV_20260425_ROUND3_ASSEN_QP_JA52_R1 | 2 | 98.745 | PASS | all PASS |
+| QP-JA52-03 | QP | PROV_20260501_ROUND4_BALATON_QP_JA52_R3 | 5 | 102.616 | PASS | all PASS |
+| QP-JA52-03 | QP | PROV_20260515_ROUND5_MOST_QP_JA52_R3 | 6 | 94.333 | PASS | all PASS |
+| QP-JA52-03 | QP | PROV_20260529_ROUND6_ARAGON_QP_JA52_R3 | 4 | 114.608 | PASS | all PASS |
+| QP-JA52-04 | QP | PROV_20260220_ROUND1_PHILLIPISLAND_QP_JA52_R5 | 6 | 93.142 | PASS | all PASS |
+| QP-JA52-04 | QP | PROV_20260220_ROUND1_PHILLIPISLAND_QP_JA52_R6 | 6 | 93.142 | PASS | all PASS |
+| QP-JA52-04 | QP | PROV_20260326_ROUND2_PORTIMAO_QP_JA52_R4 | 3 | 103.675 | PASS | all PASS |
+| QP-JA52-04 | QP | PROV_20260425_ROUND3_ASSEN_QP_JA52_R2 | 6 | 97.727 | PASS | all PASS |
+| QP-JA52-04 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-05 | QP | PROV_20260425_ROUND3_ASSEN_QP_JA52_R3 | 7 | 97.367 | WARNING | stage_phase22_fill=WARNING |
+| QP-JA52-05 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-06 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-07 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| QP-JA52-08 | QP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R1-#77-01 | RACE1 | PROV_20260220_ROUND1_PHILLIPISLAND_RACE1_DA77_R1 | 18 | 93.218 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| R1-#77-01 | RACE1 | PROV_20260326_ROUND2_PORTIMAO_RACE1_DA77_R1 | 18 | 104.685 | WARNING | stage_phase22_fill=WARNING |
+| R1-#77-01 | RACE1 | PROV_20260425_ROUND3_ASSEN_RACE1_DA77_R1 | 19 | 97.348 | WARNING | stage_phase22_fill=WARNING |
+| R1-#77-01 | RACE1 | PROV_20260501_ROUND4_BALATON_RACE1_DA77_R1 | 19 | 104.029 | WARNING | stage_phase22_fill=WARNING |
+| R1-#77-01 | RACE1 | PROV_20260515_ROUND5_MOST_RACE1_DA77_R1 | 20 | 95.39 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| R1-#77-01 | RACE1 | PROV_20260529_ROUND6_ARAGON_RACE1_DA77_R1 | 16 | 114.158 | WARNING | stage_phase22_fill=WARNING |
+| R1-#77-02 | RACE1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R1-#77-02 | RACE1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R1-JA2-01 | RACE1 | PROV_20250926_ROUND10_ARAGON_RACE1_JA52_R1 | 16 | 113.772 | WARNING | stage_phase22_fill=WARNING |
+| R1-JA52-01 | RACE1 | PROV_20260220_ROUND1_PHILLIPISLAND_RACE1_JA52_R1 | 19 | 93.12 | WARNING | stage_phase22_fill=WARNING |
+| R1-JA52-01 | RACE1 | PROV_20260220_ROUND1_PHILLIPISLAND_RACE1_JA52_R2 | 19 | 93.12 | WARNING | stage_phase22_fill=WARNING |
+| R1-JA52-01 | RACE1 | PROV_20260501_ROUND4_BALATON_RACE1_JA52_R1 | 19 | 102.765 | WARNING | stage_phase22_fill=WARNING |
+| R1-JA52-01 | RACE1 | PROV_20260515_ROUND5_MOST_RACE1_JA52_R1 | 20 | 95.128 | WARNING | stage_phase22_fill=WARNING |
+| R1-JA52-01 | RACE1 | PROV_20260529_ROUND6_ARAGON_RACE1_JA52_R1 | 16 | 113.99 | WARNING | stage_phase22_fill=WARNING |
+| R1-JA52-GRID01 | RACE1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R1-JA52-GRID02 | RACE1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R1-JA52-GRID03 | RACE1 | PROV_20260326_ROUND2_PORTIMAO_RACE1_JA52_R1 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| R1-JA52-GRID05 | RACE1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R1-JA52-Race01 | RACE1 | PROV_20260326_ROUND2_PORTIMAO_RACE1_JA52_R2 | 18 | 104.329 | PASS | all PASS |
+| R2-#77-01 | RACE2 | PROV_20260220_ROUND1_PHILLIPISLAND_RACE2_DA77_R1 | 17 | 94.312 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| R2-#77-01 | RACE2 | PROV_20260326_ROUND2_PORTIMAO_RACE2_DA77_R1 | 18 | 103.993 | WARNING | stage_phase22_fill=WARNING |
+| R2-#77-01 | RACE2 | PROV_20260515_ROUND5_MOST_RACE2_DA77_R1 | 20 | 94.953 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| R2-#77-01 | RACE2 | PROV_20260529_ROUND6_ARAGON_RACE2_DA77_R1 | 16 | 114.096 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA2-01 | RACE2 | PROV_20250926_ROUND10_ARAGON_RACE2_JA52_R1 | 10 | 114.228 | PASS | all PASS |
+| R2-JA3-01 | RACE2 | PROV_20250221_ROUND1_PHILLIPISLAND_RACE2_JA52_R1 | 18 | 93.025 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| R2-JA3-01 | RACE2 | PROV_20260515_ROUND5_MOST_RACE2_JA52_R1 | 20 | 95.248 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-01 | RACE2 | PROV_20260220_ROUND1_PHILLIPISLAND_RACE2_JA52_R1 | 17 | 93.441 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-01 | RACE2 | PROV_20260220_ROUND1_PHILLIPISLAND_RACE2_JA52_R2 | 17 | 93.441 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-01 | RACE2 | PROV_20260326_ROUND2_PORTIMAO_RACE2_JA52_R1 | 18 | 104.019 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-01 | RACE2 | PROV_20260326_ROUND2_PORTIMAO_RACE2_JA52_R2 | 18 | 104.019 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-01 | RACE2 | PROV_20260515_ROUND5_MOST_RACE2_JA52_R2 | 21 | 94.519 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-01 | RACE2 | PROV_20260529_ROUND6_ARAGON_RACE2_JA52_R1 | 16 | 113.807 | WARNING | stage_phase22_fill=WARNING |
+| R2-JA52-02 | RACE2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R2-JA52-02 | RACE2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R2-JA52-02 | RACE2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R2-JA52-ENGINEWU01 | RACE2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| R2-JA52-GRID01 | RACE2 | PROV_20260326_ROUND2_PORTIMAO_RACE2_JA52_R3 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| SP-#77-01 | SP | PROV_20260220_ROUND1_PHILLIPISLAND_SP_DA77_R1 | 7 | 93.717 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-01 | SP | PROV_20260326_ROUND2_PORTIMAO_SP_DA77_R1 | 6 | 104.691 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-01 | SP | PROV_20260425_ROUND3_ASSEN_SP_DA77_R1 | 3 | 98.413 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-01 | SP | PROV_20260501_ROUND4_BALATON_SP_DA77_R1 | 7 | 104.498 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-01 | SP | PROV_20260515_ROUND5_MOST_SP_DA77_R1 | 5 | 96.016 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-01 | SP | PROV_20260529_ROUND6_ARAGON_SP_DA77_R1 | 7 | 114.584 | WARNING | stage_phase22_fill=WARNING |
+| SP-#77-02 | SP | PROV_20260220_ROUND1_PHILLIPISLAND_SP_DA77_R2 | 2 | 94.412 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-02 | SP | PROV_20260326_ROUND2_PORTIMAO_SP_DA77_R2 | 3 | 105.443 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-02 | SP | PROV_20260425_ROUND3_ASSEN_SP_DA77_R2 | 8 | 97.901 | WARNING | stage_phase22_fill=WARNING |
+| SP-#77-02 | SP | PROV_20260501_ROUND4_BALATON_SP_DA77_R2 | 4 | 103.533 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-02 | SP | PROV_20260515_ROUND5_MOST_SP_DA77_R2 | 9 | 95.374 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-02 | SP | PROV_20260529_ROUND6_ARAGON_SP_DA77_R2 | 2 | 115.144 | WARNING | stage_phase22_fill=WARNING |
+| SP-#77-03 | SP | PROV_20260220_ROUND1_PHILLIPISLAND_SP_DA77_R3 | 6 | 93.409 | WARNING | stage_phase22_fill=WARNING |
+| SP-#77-03 | SP | PROV_20260326_ROUND2_PORTIMAO_SP_DA77_R3 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| SP-#77-03 | SP | PROV_20260425_ROUND3_ASSEN_SP_DA77_R3 | 7 | 97.039 | WARNING | stage_phase22_fill=WARNING |
+| SP-#77-03 | SP | PROV_20260501_ROUND4_BALATON_SP_DA77_R3 | 5 | 103.333 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-03 | SP | PROV_20260515_ROUND5_MOST_SP_DA77_R3 | 5 | 94.911 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-03 | SP | PROV_20260529_ROUND6_ARAGON_SP_DA77_R3 | 4 | 115.948 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-04 | SP | PROV_20260326_ROUND2_PORTIMAO_SP_DA77_R4 | 3 | 105.111 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| SP-#77-04 | SP | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| SP-JA3-01 | SP | PROV_20250221_ROUND1_PHILLIPISLAND_SP_JA52_R1 | 6 | 94.205 | WARNING | stage_phase22_fill=WARNING |
+| L1-#77-01 | TEST1_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| L1-#77-02 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R1 | 12 | 105.033 | WARNING | stage_phase22_fill=WARNING |
+| L1-#77-03 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R2 | 5 | 105.279 | PASS | all PASS |
+| L1-#77-04 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R3 | 12 | 104.133 | PASS | all PASS |
+| L1-#77-05 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R4 | 12 | 104.404 | PASS | all PASS |
+| L1-#77-06 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R5 | 11 | 103.739 | PASS | all PASS |
+| L1-#77-07 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R6 | 6 | 104.657 | PASS | all PASS |
+| L1-#77-08 | TEST1_DAY1 | PROV_20251203_TEST1_JEREZ_TEST1_DAY1_DA77_R7 | 8 | 104.99 | PASS | all PASS |
+| D2-#77-01 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_DA77_R1 | 7 | 104.487 | PASS | all PASS |
+| D2-#77-02 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_DA77_R2 | 3 | 104.139 | PASS | all PASS |
+| D2-#77-09 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_DA77_R3 | 3 | 104.604 | PASS | all PASS |
+| D2-#77-49 | TEST1_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-01 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R1 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| D2-JA52-02 | TEST1_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-03 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R2 | 7 | 102.435 | PASS | all PASS |
+| D2-JA52-04 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R3 | 4 | 103.17 | WARNING | stage_phase22_fill=WARNING |
+| D2-JA52-05 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R4 | 4 | 102.552 | PASS | all PASS |
+| D2-JA52-06 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R5 | 5 | 102.905 | PASS | all PASS |
+| D2-JA52-07 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R6 | 1 | 124.455 | PASS | all PASS |
+| D2-JA52-08 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R7 | 6 | 102.71 | PASS | all PASS |
+| D2-JA52-09 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R8 | 4 | 103.438 | PASS | all PASS |
+| D2-JA52-10 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R9 | 3 | 102.162 | PASS | all PASS |
+| D2-JA52-11 | TEST1_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-12 | TEST1_DAY2 | PROV_20251203_TEST1_JEREZ_TEST1_DAY2_JA52_R10 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| D1-#77-01 | TEST2_DAY1 | PROV_20260121_TEST2_JEREZ_TEST2_DAY1_DA77_R1 | 8 | 119.981 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-#77-02 | TEST2_DAY1 | PROV_20260121_TEST2_JEREZ_TEST2_DAY1_DA77_R2 | 7 | 122.347 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-F1-JA2-02 | TEST2_DAY1 | PROV_20260121_TEST2_JEREZ_TEST2_DAY1_JA52_R1 | 7 | 117.206 | PASS | all PASS |
+| D1-JA2-01 | TEST2_DAY1 | PROV_20260121_TEST2_JEREZ_TEST2_DAY1_JA52_R2 | 1 | 127.146 | PASS | all PASS |
+| D2-#77-02 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_DA77_R1 | 8 | 104.775 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D2-#77-03 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_DA77_R2 | 8 | 104.497 | WARNING | stage_phase22_fill=WARNING |
+| D2-#77-05 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_DA77_R3 | 4 | 104.936 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D2-#77-06 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_DA77_R4 | 8 | 104.708 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D2-F1-JA2-01 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_JA52_R1 | 6 | 105.922 | PASS | all PASS |
+| D2-F2-JA2-01 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_JA52_R2 | 9 | 104.053 | PASS | all PASS |
+| D2-JA2-01 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_JA52_R3 | 6 | 104.249 | PASS | all PASS |
+| D2-JA2-02 | TEST2_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA2-03 | TEST2_DAY2 | PROV_20260121_TEST2_JEREZ_TEST2_DAY2_JA52_R4 | 7 | 103.495 | PASS | all PASS |
+| D1-#77-01 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-02 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-04 | TEST3_DAY1 | PROV_20260126_TEST3_PORTIMAO_TEST3_DAY1_DA77_R1 | 8 | 132.911 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-#77-05 | TEST3_DAY1 | PROV_20260126_TEST3_PORTIMAO_TEST3_DAY1_DA77_R2 | 12 | 123.495 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-#77-06 | TEST3_DAY1 | PROV_20260126_TEST3_PORTIMAO_TEST3_DAY1_DA77_R3 | 4 | 133.845 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-#77-07 | TEST3_DAY1 | PROV_20260126_TEST3_PORTIMAO_TEST3_DAY1_DA77_R4 | 6 | 132.269 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-JA2-02 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA2-03 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA2-04 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA2-06 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA2-08 | TEST3_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-01 | TEST4_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-02 | TEST4_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-03 | TEST4_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-04 | TEST4_DAY1 | PROV_20260216_TEST4_PHILLIPISLAND_TEST4_DAY1_DA77_R1 | 1 | — | FAIL | stage_lap_time_range=FAIL; stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| D1-FP1-JA52-02 | TEST4_DAY1 | PROV_20260216_TEST4_PHILLIPISLAND_TEST4_DAY1_JA52_R1 | 2 | 96.399 | PASS | all PASS |
+| D1-FP1-JA52-03 | TEST4_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-FP1-JA52-05 | TEST4_DAY1 | PROV_20260216_TEST4_PHILLIPISLAND_TEST4_DAY1_JA52_R2 | 9 | 93.992 | PASS | all PASS |
+| D1-#77-01 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-01 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-02 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-02 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-03 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-03 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-04 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-04 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-05 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-05 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-06 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-06 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-07 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-07 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-08 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-08 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-09 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-#77-09 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-01 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-01 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-02 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-02 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-03 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-03 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-04 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-04 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-05 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-05 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-06 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-06 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-07 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-07 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-08 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-08 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-09 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-09 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-10 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D1-JA52-10 | TEST5_DAY1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-#77-01 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-#77-02 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-#77-03 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-#77-04 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-#77-05 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-ACC-JA52-01 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-01 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-02 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-03 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| D2-JA52-04 | TEST5_DAY2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU-#77-01 | WUP1 | PROV_20260220_ROUND1_PHILLIPISLAND_WUP1_DA77_R1 | 7 | 92.989 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU1-#77-01 | WUP1 | PROV_20260326_ROUND2_PORTIMAO_WUP1_DA77_R1 | 6 | 105.127 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU1-#77-01 | WUP1 | PROV_20260425_ROUND3_ASSEN_WUP1_DA77_R1 | 6 | 98.324 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU1-#77-01 | WUP1 | PROV_20260501_ROUND4_BALATON_WUP1_DA77_R1 | 6 | 104.485 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU1-#77-01 | WUP1 | PROV_20260515_ROUND5_MOST_WUP1_DA77_R1 | 6 | 98.2 | WARNING | stage_phase22_fill=WARNING |
+| WU1-#77-01 | WUP1 | PROV_20260529_ROUND6_ARAGON_WUP1_DA77_R1 | 6 | 114.979 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU1-#77-02 | WUP1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU1-#77-03 | WUP1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU1-JA52-01 | WUP1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU1-JA52-01 | WUP1 | PROV_20260501_ROUND4_BALATON_WUP1_JA52_R1 | 6 | 103.685 | PASS | all PASS |
+| WU1-JA52-02 | WUP1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU1-JA52-03 | WUP1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU1-JA52-04 | WUP1 | PROV_20260326_ROUND2_PORTIMAO_WUP1_JA52_R1 | 6 | 103.866 | WARNING | stage_phase22_fill=WARNING |
+| WUP-JA52-01 | WUP1 | PROV_20260220_ROUND1_PHILLIPISLAND_WUP1_JA52_R1 | 7 | 92.853 | WARNING | stage_phase22_fill=WARNING |
+| WUP-JA52-01 | WUP1 | PROV_20260220_ROUND1_PHILLIPISLAND_WUP1_JA52_R2 | 7 | 92.853 | WARNING | stage_phase22_fill=WARNING |
+| WUP1-JA52-01 | WUP1 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WUP1-JA52-01 | WUP1 | PROV_20260515_ROUND5_MOST_WUP1_JA52_R1 | 6 | 96.19 | PASS | all PASS |
+| WUP1-JA52-01 | WUP1 | PROV_20260529_ROUND6_ARAGON_WUP1_JA52_R1 | 6 | 114.216 | PASS | all PASS |
+| WUP1-JA52-02 | WUP1 | PROV_20260425_ROUND3_ASSEN_WUP1_JA52_R1 | 6 | 97.467 | PASS | all PASS |
+| WU2-#77-01 | WUP2 | PROV_20260220_ROUND1_PHILLIPISLAND_WUP2_DA77_R1 | 6 | 95.571 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU2-#77-01 | WUP2 | PROV_20260326_ROUND2_PORTIMAO_WUP2_DA77_R1 | 6 | 105.334 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU2-#77-01 | WUP2 | PROV_20260425_ROUND3_ASSEN_WUP2_DA77_R1 | 6 | 98.002 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU2-#77-01 | WUP2 | PROV_20260501_ROUND4_BALATON_WUP2_DA77_R1 | 5 | 103.89 | WARNING | stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU2-#77-01 | WUP2 | PROV_20260515_ROUND5_MOST_WUP2_DA77_R1 | 1 | — | FAIL | stage_lap_time_range=FAIL; stage_area_rates=WARNING; stage_phase22_fill=WARNING |
+| WU2-#77-01 | WUP2 | PROV_20260529_ROUND6_ARAGON_WUP2_DA77_R1 | 6 | 114.17 | WARNING | stage_phase22_fill=WARNING |
+| WU2-#77-02 | WUP2 | PROV_20260515_ROUND5_MOST_WUP2_DA77_R2 | 5 | 95.13 | WARNING | stage_phase22_fill=WARNING |
+| WU2-#77-03 | WUP2 | — | 0 | — | FAIL | stage_lap_count=FAIL |
+| WU2-JA52-01 | WUP2 | PROV_20260326_ROUND2_PORTIMAO_WUP2_JA52_R1 | 6 | 105.115 | PASS | all PASS |
+| WUP2-JA52-01 | WUP2 | PROV_20260220_ROUND1_PHILLIPISLAND_WUP2_JA52_R1 | 6 | 93.582 | PASS | all PASS |
+| WUP2-JA52-01 | WUP2 | PROV_20260220_ROUND1_PHILLIPISLAND_WUP2_JA52_R2 | 6 | 93.582 | PASS | all PASS |
+| WUP2-JA52-01 | WUP2 | PROV_20260425_ROUND3_ASSEN_WUP2_JA52_R1 | 6 | 98.014 | PASS | all PASS |
+| WUP2-JA52-01 | WUP2 | PROV_20260515_ROUND5_MOST_WUP2_JA52_R1 | 1 | — | FAIL | stage_lap_time_range=FAIL |
+| WUP2-JA52-02 | WUP2 | PROV_20260515_ROUND5_MOST_WUP2_JA52_R2 | 5 | 94.82 | PASS | all PASS |
+| WUP2-JA52-10 | WUP2 | PROV_20260529_ROUND6_ARAGON_WUP2_JA52_R1 | 6 | 113.821 | PASS | all PASS |
+| WU2-JA52-ENGINEWARMUP01 | WUP2 | — | 0 | — | SKIP | EngineWarmup no valid laps |
+| WU2-JA52-ENGINEWARMUP02 | WUP2 | — | 0 | — | SKIP | EngineWarmup no valid laps |
+
+## 予定/実施 行数: runs_provisional=160 / laps_provisional=1249 / lap_suspension_provisional=1249
+
+## 業務6テーブル（before / after）
+
+| table | before | after | 不変 |
+|---|---:|---:|:--:|
+| runs | 275 | 275 | ✅ |
+| laps | 1202 | 1202 | ✅ |
+| lap_suspension | 1202 | 1202 | ✅ |
+| race_results | 866 | 866 | ✅ |
+| pdf_lap_times | 7613 | 7613 | ✅ |
+| pdf_lap_times_v2_staging | 7710 | 7710 | ✅ |
+
+## provisional 3テーブル（before → after）
+
+- runs_provisional: 12 → 12
+- laps_provisional: 79 → 79
+- lap_suspension_provisional: 79 → 79

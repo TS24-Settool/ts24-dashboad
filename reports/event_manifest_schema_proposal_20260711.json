@@ -1,0 +1,128 @@
+{
+  "_status": "UNEXECUTED DESIGN PROPOSAL — 2026-07-11 Phase A read-only readiness. This file is a design artifact only. It is NOT wired into any code, NOT read by extraction_scan.py / session_extract_staging.py / ts24_workbench.py, and NO database table has been created from it. Implementation requires the explicit gate: 'Event control plane implementation GO'.",
+  "_source": "05_SCRIPTS/reports/race_weekend_event_control_plane_readiness_20260711.md",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "ts24://event_manifest/v1",
+    "title": "TS24 Event Manifest (v1)",
+    "description": "Human-authored, operator-approved definition of a single race-weekend event at rider-folder granularity. Canonical storage: 02_DATABASE/event_manifests/<event_key>.json (Phase B), mirrored into DB table event_manifest for enforcement. status transitions: draft -> approved -> active -> locked -> closed; at most ONE manifest may be 'active' at a time. After the first provisional apply, content_hash is recorded in the apply receipt; any later content change must be a new manifest_version (rewrite of the same version is rejected once locked).",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "manifest_version",
+      "event_key",
+      "weekend_key",
+      "date",
+      "round",
+      "circuit",
+      "riders",
+      "raw_2d_root",
+      "allowed_sessions",
+      "status"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "integer",
+        "const": 1,
+        "description": "Version of this manifest schema itself."
+      },
+      "manifest_version": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Incremented on any content change. Once status is 'locked', edits are only allowed as a new manifest_version."
+      },
+      "event_key": {
+        "type": "string",
+        "pattern": "^\\d{8}-ROUND\\d+-[A-Z]{2}\\d{2}$",
+        "description": "YYYYMMDD-ROUNDx-RIDER. Rider-folder granularity (matches provisional_event_key granularity, which includes the rider)."
+      },
+      "weekend_key": {
+        "type": "string",
+        "pattern": "^\\d{8}-ROUND\\d+$",
+        "description": "Derived weekend-level key (YYYYMMDD-ROUNDx). Distinguishes the weekend layer from the rider-folder layer."
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "description": "First day of the event (ISO 8601)."
+      },
+      "round": {
+        "type": "string",
+        "pattern": "^ROUND\\d+$"
+      },
+      "circuit": {
+        "type": "string",
+        "description": "Canonical circuit name. MUST match a TRACK_M key exactly."
+      },
+      "riders": {
+        "type": "array",
+        "items": { "type": "string", "pattern": "^[A-Z]{2}\\d{2}$" },
+        "minItems": 1,
+        "uniqueItems": true
+      },
+      "raw_2d_root": {
+        "type": "string",
+        "description": "Relative path from the data root. The ONLY directory a live scan may walk."
+      },
+      "allowed_sessions": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 1,
+        "uniqueItems": true,
+        "description": "Whitelist of session codes acceptable for this event (e.g. FP, QP, WUP1, WUP2, RACE1, RACE2)."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["draft", "approved", "active", "locked", "closed"],
+        "description": "Lifecycle state. CHECK-constrained in the DB mirror. Invariant: at most one 'active' manifest at any time."
+      },
+      "fingerprint_policy": {
+        "type": "string",
+        "enum": ["stat", "content"],
+        "default": "content",
+        "description": "Fingerprint tier for source files. 'content' (full sha256) is recommended for live intake to close adversarial scenario 1 (same-name same-size replacement, invisible to stat-based fingerprints)."
+      },
+      "expected_outings": {
+        "type": ["array", "null"],
+        "items": { "type": "string" },
+        "description": "Optional declared outing-stem set. When declared, any outing outside this set is gated (adversarial scenario 2 / P1-3)."
+      },
+      "content_hash": {
+        "type": ["string", "null"],
+        "pattern": "^[0-9a-f]{64}$",
+        "description": "sha256 of the canonical JSON (computed at approval, excluding this field). Stored in the first provisional-apply receipt; any later mismatch is detected as tampering and fails closed."
+      },
+      "approved_by": {
+        "type": ["string", "null"],
+        "description": "Operator who approved the manifest (Tatsuki)."
+      },
+      "approved_at": { "type": ["string", "null"], "format": "date-time" },
+      "activated_at": { "type": ["string", "null"], "format": "date-time" }
+    }
+  },
+  "round8_example": {
+    "schema_version": 1,
+    "manifest_version": 1,
+    "event_key": "20260710-ROUND8-JA52",
+    "weekend_key": "20260710-ROUND8",
+    "date": "2026-07-10",
+    "round": "ROUND8",
+    "circuit": "DONINGTON",
+    "riders": ["JA52"],
+    "raw_2d_root": "DATA 2D/20260710-ROUND8-JA52",
+    "allowed_sessions": ["FP", "QP", "WUP1", "WUP2", "RACE1", "RACE2"],
+    "status": "active",
+    "fingerprint_policy": "content",
+    "expected_outings": null,
+    "content_hash": null,
+    "approved_by": "tatsuki",
+    "approved_at": null,
+    "activated_at": null
+  },
+  "db_mirror_notes": {
+    "event_manifest_table": "Phase B-1: new table only (idempotent CREATE TABLE IF NOT EXISTS via create_quality_tables.py pattern). Columns mirror the JSON fields + raw_json + imported_at. CHECK constraint on status enum. No ALTER of any existing table.",
+    "event_state_ledger_table": "Phase B-1: append-only ledger (never UPDATE). entry_id PK / event_key / scope CHECK(event|session|outing) / scope_id / state CHECK(discovered|registered|candidate_ready|staged|verified|reportable|finalized|failed|warning_accepted|skipped|superseded|quarantined) / prev_state / reason / actor / analysis_run_id / receipt_json / created_at.",
+    "rollback": "DROP the two new tables + delete manifest JSON files + code revert. Existing guards (§68/§69/§72/§73) remain untouched throughout Phase B, so rollback is safe."
+  }
+}

@@ -1,4 +1,4 @@
-# ROUND7 race_results 反映 dry-run — 2026-06-29 14:15
+# ROUND7 race_results 反映 dry-run — 2026-06-29 14:42
 
 **dry-run（正本DB `mode=ro`・無変更）**。`apply_round7_race_results.py`（`--apply` 無し）。
 非RACE 候補ポリシー: TS24 チーム(#77/#52)のみ（既存慣行）。

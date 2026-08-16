@@ -2459,3 +2459,988 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-01 実行ゲート）。**Tatsu
 - rollback: DB=バックアップ復元 / Code=revert（Workbench は col-guard で新列無くても起動可）。
 - 未実施（別承認）: Supabase cleanup/sync・DB Master 再生成・origin push・新2D取込・大規模UI改修。
 - 変更: `build_master_db.py`/`ts24_workbench.py`/`create_quality_tables.py`。新規: `apply_phase_susp_speed.py`/`reports/phase_susp_speed_apply_20260701.md`。正本DB: lap_suspension +22列・metric_version_log +22行。
+
+---
+
+## 45. Workbench Create Suspension Report PPTX MVP — 依存不足で readiness 停止（write なし）— 2026-07-02 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-02）の指示で、Workbench に `Create Report` を追加し
+サスペンションデータを PowerPoint `.pptx` で出力する MVP を実装する予定だった。**依存確認の結果、必須の
+`python-pptx` と `matplotlib` が両方とも未インストール**のため、タスク規定（依存不足時はネットワーク install せず停止）に従い
+**実装せず readiness report を作成して停止**。**正本DB・コード・Excel は無変更**（Obsidian/CLAUDE 記録のみ）。
+レポート = `reports/workbench_suspension_report_readiness_20260702.md`。
+
+### 45a. 依存確認（システム Python・venv 無し）
+- ❌ `python-pptx`（未）/ ❌ `matplotlib`（未）/ ✅ `numpy 2.0.2` / ✅ `pandas 2.3.3` / ✅ `PyQt6 6.10.2` / ✅ `pyqtgraph 0.13.7`。
+- `requirements_workbench.txt` にも両者は未記載。**2つの必須依存欠落 → 停止条件に合致**。ネットワーク install は承認境界（§27d-2）。
+
+### 45b. read-only で確認した設計根拠（正本DB無変更）
+- `lap_suspension` 1202行/**69列**・タスク §6 指定18列（brk/apex/ce の position + §44 の 22速度列）**全て実在**。
+- **`lap_suspension` は per-lap 非正規化で `run_id/lap_id/rider/circuit/session/round/run_no/lap_no/lap_time_s/fullbrk_count/ce_count` を自己内包**
+  → MVP は `SELECT * FROM lap_suspension` のみで完結し **`laps`/`runs` JOIN は不要**（race_lap_detail も不要）。
+- Workbench `PhaseRunCompareWidget`（🔧 3フェーズ Run比較・L3059）は `Create Report` から再利用できる状態を保持:
+  `_base_df()`（フィルタ済 DataFrame）/ `_checked_run_ids()`（選択 Run）/ `_PHASE_POS`・`_PHASE_SPD`・`_PHASE_COLORS`。
+- `05_SCRIPTS/reports/pptx/` は未作成（実装時に生成）。既存 report helper / pptx 生成コードは無し。
+
+### 45c. 最小設計（承認 + install 後の実装青写真・report に詳細）
+- 新規 `suspension_report.py`（純関数群 + `build_pptx`/`make_chart_png` に分離・**pptx/matplotlib は import guard**で
+  未導入時 `ReportUnavailableError`→Workbench で message box・アプリを落とさない）。DB は `mode=ro` read-only。
+- Workbench: `PhaseRunCompareWidget` フィルタバーに `📄 Create Report` ボタン1個追加、`_base_df()`+`_checked_run_ids()` を使用。
+  Run 未選択は message box、生成失敗は例外捕捉→message box。既存タブ無回帰の最小差分。
+- スライド10枚（Title/Session Summary/Braking・Apex・Exit の Position/Speed ×3/Run Compare Table/Data Quality）。
+  matplotlib `Agg`・Braking/Apex/Exit 色一貫・avg 主線/p95 補助線・**relative damping-speed index 注記・車速 km/h 非混同・NULL と not available を区別**。
+  出力 = `reports/pptx/suspension_report_<circuit>_<rider>_<session>_<TS>.pptx`（timestamp・上書きなし）。
+
+### 45d. 必要 dependency / 次ゲート
+- 承認後 install: `python-pptx>=0.6.23` / `matplotlib>=3.7.0`（`requirements_workbench.txt` へ追記案あり）。
+- 代替（非推奨）: チャートは `pyqtgraph.ImageExporter` で matplotlib 無しでも可だが、pptx 本体は python-pptx 必須（手組み OOXML は過剰）。
+- **次ゲート（Tatsuki 承認）**: 「python-pptx / matplotlib を install してよい」の明示承認 → §45c 設計で実装 →
+  `reports/workbench_suspension_report_mvp_20260702.md` 作成。
+- rollback: コード・正本DB 無変更のため不要。
+- スコープ外（禁止遵守）: ネットワーク install / Workbench 改修 / helper 追加 / pptx 生成 / DB schema 変更 / 正本DB 書込 /
+  Supabase / DB Master 再生成 / origin push / 新2D取込。
+- 新規: `reports/workbench_suspension_report_readiness_20260702.md`。変更: `CLAUDE.md` §45。
+
+---
+
+## 46. Local DB Master / Online DB 同期差分確認（Phase A・read-only audit）— 2026-07-02 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-02）の指示で、正本DB / DB Master / Supabase の **read-only 差分確認（Phase A・GO不要）** を実施。
+監査エージェント2並列（①正本DB+Excel ②Supabase）。**結果=差分あり → Phase B の `DB full sync GO` 確認へ**。書込は audit レポートのみ。
+レポート = `reports/db_master_online_sync_audit_20260702.md`（+ `supabase_audit_20260702.md` / `cleanup_proposal_20260702.sql` 自動生成）。
+
+### 46a. 監査結果（実測）
+- **正本DB は健全**: runs275/laps1202/lap_suspension1202(**69列・22新列 22/22**)/race_results866(**ROUND7=74**)/pdf_lap_times7613/
+  v2_staging7710/race_lap_detail(VIEW)12763/metric_version_log32 — §38/§40/§44 記録と完全一致。
+- **Supabase 差分（exit 2）**: `race_results` **missing=74（全て ROUND7/MISANO＝§37d apply 後 sync 未実行が原因・削除不要 upsert で解消）**。
+  remote_extra=**24（2026-06-22 と同一残骸**・sessions_2d 13 + lap_times_2d 11・cleanup 提案のみ再生成）。lap_times/他は一致。
+- **DB Master.xlsx は stale**: mtime 2026-06-22・LAP_SUSPENSION **46列＝22新列 0/22**・RACE_RESULTS 相当シート無し・ROUND7 行無し。
+
+### 46b. ★構造的制約（再確認・確定）
+- `build_excel_master.py` は race_results/pdf_lap_times/v2_staging/race_lap_detail を**読まない**（§41a 同）→ 再生成しても ROUND7/v2 系は載らない（新シート設計=別タスク）。
+- `LAP_SUSPENSION` シートは固定 `LS_COLS`（46列）→ **再生成だけでは22新列は載らない**。`LS_COLS` 22列拡張（§19d 34→46 の前例と同型・追加のみ）が必要。
+- **Supabase 同期対象は4テーブルのみ**（race_results/lap_times/sessions_2d/lap_times_2d）。`lap_suspension`/`pdf_lap_times_v2_staging`/`race_lap_detail` は設計上同期対象外（欠陥ではない・online 化は新テーブル+自然キー UNIQUE の別タスク）。
+
+### 46c. GO 後の同期計画（report §5）
+① backup → ② `sync_to_supabase.py`（upsert・missing74 解消・DELETE なし）→ ③ `supabase_audit.py` 再実行（missing=0 確認）→
+④（**別判断・GO に cleanup 明示時のみ**）remote_extra 24 DELETE（`cleanup_proposal_20260702.sql`・Tatsuki SELECT 確認後）→
+⑤ `LS_COLS` 22列拡張 + `refresh_db_master_safe.py` 再生成 → ⑥ 検証（正本DB不変・Workbench smoke）。
+GO 文言=**`DB full sync GO`**。origin push / 新2D / ORIGINAL.xlsx 上書き / DB Master 新シート設計は別承認。
+
+### 46d. スコープ / 運用メモ
+- Phase A で正本DB・Excel・Supabase とも無変更（remote は GET のみ）。
+- 運用: Tatsuki 指示（2026-07-02）により、Codex 経由タスクは**サブエージェント並列委任**で実施（Token 節約・難所のみメインモデル対応）。承認境界は不変。
+- 新規: `reports/db_master_online_sync_audit_20260702.md` / `reports/supabase_audit_20260702.md` / `reports/cleanup_proposal_20260702.sql`。変更: `CLAUDE.md` §46。
+
+### 46e. ★Phase C 実行（2026-07-02・Tatsuki `DB full sync GO` 受領・cleanup は含まない選択）
+- **GO**: Tatsuki が本セッションで `DB full sync GO` を明示（AskUserQuestion 回答。「GO + cleanup も含む」ではない方）。同時に PPTX MVP は「今回は見送り」＝GO未受領で未実行。
+- **Supabase sync**（`sync_to_supabase.py` exit 0）: race_results 866/lap_times 7613/sessions_2d 246/lap_times_2d 1202 を upsert（DELETE なし）。
+  再audit: **race_results missing 74→0（ROUND7 反映）**・全テーブル missing=0・remote_extra=24 は保留のまま（cleanup 未実行・`cleanup_proposal_20260702.sql` 提案維持）。
+- **正本DB完全不変を実証**: before==after を件数+size+mtime+**sha256 一致**で確認。照合用 `02_DATABASE/_backup_db_sync_20260702/`。
+- **DB Master 再生成**: `build_excel_master.py` `LS_COLS` 46→**68**（§44 の22方向別サス速度列を挿入のみ・py_compile PASS・全68列 PRAGMA 照合0欠落）→
+  `refresh_db_master_safe.py` exit 0。検証: **LAP_SUSPENSION 68列/1204行・22新列 22/22**・12シート不変・RUN_LOG278/LAP_TIMES1204/DYNAMICS160 同等・
+  バックアップ `backups/TS24_DB_Master.pre_refresh_20260702-121635.xlsx`・xlsx 580,125→710,672 bytes。
+  race_results/ROUND7/v2 系シートは設計どおり未反映（新シート設計=別タスク）。
+- **Workbench 無回帰**: py_compile PASS・offscreen `MainWindow(db)` 構築 OK・7タブ維持（Workbench は Excel 非参照）。
+- rollback: Excel=pre_refresh 差戻し / LS_COLS=3行 revert / Supabase=追加方向のみ。レポート = `reports/db_master_online_sync_apply_20260702.md`。
+- **残課題（別承認）**: remote_extra 24 cleanup（SQL 固定済み・Tatsuki SELECT 確認後）/ race_results 由来 DB Master 新シート設計 / origin push（`build_excel_master.py` 変更未コミット含む）/ PPTX MVP（GO 待ち）。
+- 変更: `build_excel_master.py`（LS_COLS 挿入のみ）。Supabase: race_results +74。正本DB: 不変。
+
+---
+
+## 47. Workbench Create Report v2 設計（Phase A・read-only・GO待ち）— 2026-07-02 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-02）+ ノート [[2026-07-02　Report Create System]] の Tatsuki 改善指摘6点を受け、
+Report v2 の**設計のみ**（Phase A・GO不要）を実施。**依存 `python-pptx`/`matplotlib` は依然未インストール → 実装せず設計書を作成し Phase B で停止**。
+正本DB・コード・Excel 無変更（`build_excel_master.py` の未コミット LS_COLS 拡張＝§46e には**一切触れない**）。
+設計書 = `reports/workbench_report_v2_design_20260702.md`。
+
+### 47a. Tatsuki 指摘6点（Report Create System）
+①グラフ内ラベルがプロットに被る ②Lap time が `MM:SS,00` 形式でない ③表が分かりにくい（ヘッダ説明不足・エリア色分け無し）
+④`0%` の意味不明（null/coverage/missing 区別なし）⑤Run 総合比較に寄り **Lap by lap 分析が不足** ⑥視覚訴求が弱い。
+
+### 47b. サンプル v1 分析（inspect.ndjson）
+`sample_suspension_report_JEREZ_DA77_TEST1_DAY1_20260702.pptx` = 10スライド・**ネイティブ PPTX チャート**（bar/line 7）+ テーブル2
+（S9 Run Compare 8×8 / S10 Data Quality「Null rate 0%」7×3）。
+
+### 47c. v2 設計の中核
+- **★チャートエンジンを matplotlib `Agg` 画像へ移行**（ネイティブ chart から）: ラベル/凡例の座標精密制御・small multiples・`M:SS,CC` 軸フォーマッタ・
+  エリア色帯を自在化し指摘①⑤⑥を根本解決。表はネイティブ table（セル塗りで色分け）。
+- **Lap time フォーマッタ** `format_lap_time`（`M:SS,CC` 欧州式カンマ・センチ秒・繰上ガード。例 103.739→`1:43,74`）。既存 `_fmt_lap` とは別関数（上書きしない）。
+- **ラベル衝突回避**: data label をプロット内に置かず表/コールアウトへ・凡例 `bbox_to_anchor` で外・最大6run/グラフ（超過は注記・silent切り捨て禁止）。
+- **テーブル改善**: ヘッダ2行化（グループ＋単位）・Braking薄赤/Apex薄青/Exit薄緑のセル塗り・上部に `idx=relative damping-speed index` 等の説明行。
+- **`0%` 明確化**: Missing/Null・Coverage・Structural n/a を分離明示（`Missing 0% (all N laps populated)`・Exit希薄は `n/a (structural: sparse CORNER_EXIT)`）。
+- **カラー**: Braking `#C0392B`/Apex `#0078D4`/Exit `#2E9E4F`（`_PHASE_COLORS` と一致・全所で統一）。
+
+### 47d. スライド構成 v2（~15枚・ページ増可）
+Title/Scope → **Data Quality & Coverage** → Run Overview → Run Comparison Summary → Braking/Apex/Exit Phase Summary ×3 →
+**Lap-by-lap: lap time progression / phase position progression / phase suspension speed progression** → **Run detail pages（選択 run 毎 small multiples）** →
+Run Compare Table（color-coded）→ Data limits。
+- Lap by lap: X=`lap_no`・series（lap time/best差/phase F/R pos/方向別 speed）・best=run内 valid(60–300s) 最小（`laps.is_outlap` JOIN で強化可）・
+  **138/158 run が3周以上**（最大35周）で成立・n/a と NULL と 0 を区別。
+
+### 47e. 接続/モジュール/検証/rollback（Phase C・GO後）
+- `PhaseRunCompareWidget` に `📄 Create Report v2` ボタン（`_base_df()`/`_checked_run_ids()` 再利用・非クラッシュ）。
+- 新規 `suspension_report.py`（純関数 + matplotlib/python-pptx import guard・DB `mode=ro`・`lap_suspension` 主ソース・schema 変更禁止）。
+- 出力 `reports/pptx/suspension_report_v2_<circuit>_<rider>_<session>_<TS>.pptx`。検証: py_compile/slide数≥12/PPTX→PNG目視5点/offscreen smoke。
+- rollback: 新規ファイル削除・ボタン revert・deps uninstall。正本DB/Excel/Supabase 無変更。
+
+### 47f. Phase B ゲート / スコープ外
+- 次アクション: Tatsuki へ **`Report v2 implementation GO`** を確認 → GO時のみ Phase C（install→実装→サンプル→検証→`reports/workbench_report_v2_apply_20260702.md`）。
+- スコープ外（禁止遵守）: GO前の install/Workbench 編集/PPTX 正式生成 / 正本DB schema・行更新 / Supabase / DB Master 再生成 / origin push / 新2D / remote_extra 24 cleanup / 未コミット `build_excel_master.py` への干渉。
+- 新規: `reports/workbench_report_v2_design_20260702.md`。変更: `CLAUDE.md` §47。
+
+---
+
+## 48. ★Workbench Create Report v2 実装（Tatsuki `Report v2 implementation GO` 受領）— 2026-07-02 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-02 実装ゲート）。**Tatsuki が本セッションで `Report v2 implementation GO` を明示** → §47 設計を実装。
+**依存導入（初のネットワーク install・GO承認済）→ `suspension_report.py` 実装 → Workbench ボタン → サンプル18スライド生成 → 検証 PASS**。
+**正本DB read-only・schema/行 変更なし。** レポート = `reports/workbench_report_v2_apply_20260702.md`。
+
+### 48a. 依存 / モジュール
+- install: **python-pptx 1.0.2 / matplotlib 3.9.4**（`requirements_workbench.txt` に2行追記）。Agg/pptx 疎通 OK・既存 numpy/pandas と非競合。
+- 新規 `suspension_report.py`: DB `mode=ro`（`lap_suspension` 主ソース + `laps.is_outlap` JOIN）・matplotlib Agg・python-pptx・**import guard**（`ReportUnavailableError`）。
+  純関数（`format_lap_time`/`session_summary`/`phase_run_stats`/`lap_series`/`data_quality` 等）+ チャート5種 + `build_report_v2` + CLI。
+
+### 48b. Tatsuki 指摘6点への対応（検証済み）
+①ラベル被り→**matplotlib Agg・凡例プロット外・値は棒外/表** ②Lap time→`format_lap_time`（`M:SS,CC`・103.739→`1:43,74`・軸/表/ラベル）
+③表→**ヘッダ2行+単位+Braking薄赤/Apex薄青/Exit薄緑セル塗り+説明行** ④0%→Data Quality を **`N/N populated · Missing 0%`+Structural(Exit sparse)** 明示・`0≠missing`
+⑤**Lap by lap 専用3ページ（time/position/speed progression）+ Run detail 6ページ** ⑥Braking赤/Apex青/Exit緑 統一・small multiples・★=run best。
+
+### 48c. Workbench（`ts24_workbench.py` 最小差分）
+- `PhaseRunCompareWidget` フィルタバーに **`📄 Create Report v2`** ボタン + `_on_create_report()`（`_base_df()`+`_checked_run_ids()` 再利用）。
+- Run 未選択→warning、import 失敗/`ReportUnavailableError`/例外→critical message box（**アプリを落とさない**）。生成中はボタン無効化。既存タブ無回帰。
+
+### 48d. 検証
+- py_compile（両ファイル）PASS。`format_lap_time` unit（繰上/None 含む）PASS。
+- サンプル `reports/pptx/suspension_report_v2_JEREZ_DA77_TEST1_DAY1_20260702_v2demo.pptx`（**1.60MB / 18スライド / 16:9**・7 run）。
+- チャート4種を Read 目視（ラベル被りなし・M:SS,CC 軸・色分け・★best・凡例外側）+ 表抽出（Missing 0% 明示・単位付き2行ヘッダ）PASS。
+- offscreen smoke: MainWindow **7タブ**・`_btn_report` 存在・`_on_create_report` callable・既存無回帰 PASS。**GUI 目視は Tatsuki ローカル**。
+- データ整合: Braking R≈0.9mm は rear-light（§18/§19）の実データ＝列マッピング正。
+
+### 48e. old(v1) vs new(v2) / rollback / スコープ外
+- v1（Codex サンプル10スライド・ネイティブ chart・生秒・1行ヘッダ・「Null rate 0%」曖昧・lap-by-lap 無）→ v2（18スライド・matplotlib・M:SS,CC・色分け表・Missing 明示・lap-by-lap 充実）。
+- rollback: 新規ファイル削除 / ボタン revert / requirements 2行 revert / `pip uninstall`。正本DB/Excel/Supabase 無変更。
+- **未実施（別承認）**: 正本DB write / Supabase / DB Master 再生成 / **origin push（`suspension_report.py`/`ts24_workbench.py`/`requirements_workbench.txt` 未コミット）** / 新2D / remote_extra 24 cleanup。
+- 新規: `suspension_report.py` / `reports/workbench_report_v2_apply_20260702.md` / サンプル pptx。変更: `ts24_workbench.py` / `requirements_workbench.txt` / `CLAUDE.md` §48。
+
+### 48f. 提出サンプル + PDF エクスポート追加（2026-07-02）
+- **提出物**: `reports/pptx/suspension_report_v2_JEREZ_DA77_TEST1_DAY1_20260702_sample.pptx`（18スライド）+ **単一 PDF**（`..._sample.pdf`・17ページ・1.86MB）。
+- **`suspension_report.py` に PDF 出力を追加**（`build_report_pdf()` / CLI `--pdf` / `_text_page`・`_table_page`・`_quality_page`・`_compare_page`・`_png_uniform`）:
+  全スライドを画像化し **PIL で1 PDF に統合**（macOS Preview で開ける）。Data Quality/Run Compare テーブルも matplotlib 描画（フェーズ色・単位・Run は R1.. 短縮でクリップ回避）。LibreOffice 不要。
+- 「`sample_preview_20260702` が開けない」= それは**フォルダ**（PNG 群）。1ファイルは **`..._sample.pdf`** を使う。テーブル2枚を Read 目視で確認（`66/66 populated · Missing 0%`・フェーズ列色）。py_compile PASS。
+- **Workbench ボタンも PPTX + PDF 両方を出力するよう改善**（`_on_create_report` が `build_report_v2` 後に `build_report_pdf` も呼ぶ・PDF 失敗は PPTX 成功を妨げない）。offscreen smoke で 7タブ・ボタン・両関数 callable を再確認 PASS。
+- Compare テーブルの Run 列は **`R1..` 短縮**でクリップ回避（PDF/matplotlib 版）・フェーズ列ヘッダに色（`_table_page` に `header_fills`/`col_widths` 追加）。
+
+---
+
+## 49. Report v2 polish — Cover 英語化 + チーム提出用デザイン（2026-07-02 Claude Code）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-02「Report v2 polish」）。**GO 不要の bugfix/polish**（install/schema/write なし）。
+Tatsuki 実機テストで **cover に日本語 `全` 混入**（`ARAGON | 全 / RACE2`）+ cover 簡素の指摘 → 修正。**`suspension_report.py` のみ変更**（Workbench UI 日本語は維持）。
+レポート = `reports/workbench_report_v2_polish_20260702.md`。
+
+### 49a. 原因 / 修正
+- 原因: PhaseRunCompareWidget の combo sentinel `"全"` を scope として PPTX に verbatim 流入（cover + filename）。
+- **scope 英語正規化**: `ALL_SENTINELS` + `_resolve_scope(scope, df)`（all→`All riders`/`All circuits`/`All sessions`・1値なら実値・2-3値は `All riders (DA77, JA52)` 列挙）。出力は英語のみ。
+- **Cover 刷新**: `chart_cover()`（matplotlib 画像1枚を PPTX/PDF 共用）= navy アクセント + Title `TS24 Suspension Performance Report` + Subtitle + **KPI 4カード**（Runs/Laps/Best/Median・`M:SS,CC`）+ **Scope カード**（Circuit/Session/Rider/Generated 人間可読）+ **Phase legend**（Braking赤/Apex青/Exit緑）。PPTX は全面画像（`_add_cover_slide`）。
+- **ファイル名 ASCII 化**: `_ascii_token()`（英数 + `_ -`・CJK 除去）。`全`→`ALL`（例 `..._ARAGON_ALL_RACE2_...`）・`TEST1_DAY1` は `_` 保持。`_save` に `tight=False`（cover 全面）追加。
+
+### 49b. 検証
+- py_compile（suspension_report / ts24_workbench）PASS。
+- 再生成: `reports/pptx/suspension_report_v2_ARAGON_ALL_RACE2_20260702_polish.pptx/.pdf`（All riders (DA77, JA52)/RACE2）+ JEREZ sample を新 cover で再生成（filename 維持）。
+- **CJK チェック全スライド**: ARAGON=14スライド **0** / JEREZ=18スライド **0**・cover=スライド1 画像（native text 0）。Cover 目視（Read）で英語・KPI/Scope/legend・`全` 無しを確認。単一 rider(JEREZ/DA77)は cover Rider=`DA77`。
+- offscreen smoke 7タブ・ボタン・`chart_cover`/`_resolve_scope` callable PASS。既存ページ無回帰。
+- 旧 `..._ARAGON_全_RACE2_20260702_153934.*`（Tatsuki テスト出力）は superseded（未削除）。
+- 変更: `suspension_report.py`。新規: `reports/workbench_report_v2_polish_20260702.md` / サンプル pptx+pdf。未実施（別承認）: DB write/Supabase/DB Master/origin push/新2D/remote_extra cleanup。
+
+---
+
+## 50. Race Weekend Live Workflow 設計（2026-07-06 Claude Code・Phase A・read-only）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-06）+ Tatsuki ノート [[2026-07-06 TS24 New Workflow]]（`04_SYSTEM_DESIGN/` へ移動済み）+
+手書きスケッチ `IMG_1057 1.heic`（sips で PNG 変換し転記）。**GO 不要の設計タスク**（正本DB/コード/Excel 無変更）。
+レポート = `reports/race_weekend_live_workflow_design_20260706.md` / Obsidian 要約 = `04_SYSTEM_DESIGN/2026-07-06_TS24_Race_Weekend_Live_Workflow.md`。
+
+### 50a. 要件と設計骨子
+- 要件: 各セッション後に 2D data のみ先に抽出し Workbench/Report v2 を Race Weekend 中に使えるようにする（SpecSheet/Original/Result PDF はイベント後に統合）。
+- 骨子（5ステージ）: ①Session Intake（📥 タブ新ボタン → 既存 `extraction_scan.py`・管理テーブルのみ）
+  ②Session Extraction（新 `session_extract_staging.py`・dry-run 既定・`extract_outing` 等本番関数再利用・
+  **provisional 3テーブル** `runs/laps/lap_suspension_provisional`・`PROV_` run_id・setup 空欄・業務テーブル before==after assert）
+  ③Workbench overlay（`PostureAnalysisTab._load_data` L3930 の 1 SQL を final+provisional UNION へ・⏳ prov マーク・FileWatcher 自動 refresh）
+  ④Report v2 `provisional` モード（cover リボン + filename トークン）
+  ⑤Post-event final 化（従来 full rebuild + 決定論ゲートに provisional 突合を追加 → cutover → provisional クリア）。
+- 方式比較: A 現行 batch / **B 手動ボタン式 session-first（推奨・採用候補）** / C folder watch（将来）。B の根拠 = 安全性（iCloud 部分同期・HED 誤配置の実績リスクを人間確認で遮断）+ 既存パターン最整合。
+
+### 50b. 設計中の発見
+- タスク文の `scan_phase2a_sources.py` は存在せず、Phase 2A スキャナ実体は **`extraction_scan.py`**。
+- **ts24-report-import スキル Step 3（`build_unified_db.py`・Excel→DB 逆方向）が現行正本方向（§18/§20a）と矛盾** → Task 7 で改訂/廃止予定。
+- import_queue 358 行全 pending（2B consumer 未実装）。session-first import を最小 2B consumer として位置付け（§20c/§22 整合）。
+- 実装タスク分割 = Task 2-8（レポート §5）。**次ゲート = `Race weekend workflow implementation GO`**。
+  未実施（GO 後も各別承認）: 新2D本取込 / schema 変更 / Supabase / DB Master / origin push / Original 上書き。
+
+---
+
+## 51. Race Weekend workflow Phase B-1 — Workbench Session Scan 基盤（2026-07-06 Claude Code・GO受領・apply済）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-06 Phase B-1）。**`Race weekend workflow implementation GO` を同セッションで受領**。
+設計 = §50 Task 2。レポート = `reports/race_weekend_session_scan_apply_20260706.md`。**変更 = `ts24_workbench.py` のみ**（`extraction_scan.py` 無変更・二重実装なし）。
+
+### 51a. 実装 / 検証
+- `ImportQualityTab` に **`🔍 Session Scan` ボタン**（`_run_scan()`）: `sys.executable extraction_scan.py` を subprocess 同期実行
+  （timeout 600s・WaitCursor・非クラッシュガード）。stdout/stderr → `reports/session_scan_<TS>.log`。exit≠0 は warning ダイアログ（末尾10行+ログパス）。
+  成功時 `refresh()` + `_scan_summary()`（stdout 解析 → 管理テーブル フォールバック）を常設ラベル+ダイアログ表示。
+  表示に **「Scan only / no 2D extraction yet（スキャンのみ・2D抽出はまだ行いません）」** を必ず含む。
+- 検証: py_compile PASS / offscreen smoke（7タブ無回帰・ボタン/handler 存在）PASS /
+  **実 scan 1回で業務6テーブル before==after 完全一致**（runs275/laps1202/lap_suspension1202/race_results866/pdf_lap_times7613/v2_staging7710）。
+- 管理テーブル更新（許可範囲）: registry 366→372（新規6・更新26）/ queue 358→364（全pending）/ quality_log 72→440 /
+  analysis_run_log +1（`20260706T135020_extraction_scan` success）。scanner 自前バックアップ `_backup_extraction_scan_20260706_135020/`。
+- rollback = UI 追加ブロック除去のみ（DB 不要）。**GUI 最終目視は Tatsuki ローカル**。
+- 未実施（別承認）: Task 3 `session_extract_staging.py`+provisional 3テーブル / 3フェーズ overlay / Report v2 provisional /
+  Supabase / DB Master / origin push / 新2D本取込。
+
+---
+
+## 52. Race Weekend workflow Phase B-2 — Session Extraction Staging readiness（2026-07-06 Claude Code・Phase A・read-only・GO待ち）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-06 Phase B-2）。**GO 不要の readiness**（正本DB/コード/Excel 無変更・DDL は未実行のレビュー用SQL）。
+レポート = `reports/race_weekend_session_staging_readiness_20260706.md` / DDL = `reports/race_weekend_session_staging_ddl_20260706.sql`。
+
+### 52a. 確定事項
+- **本番関数再利用を固定**: `discover_outings`/`gated_outings`/`extract_outing`/`session_canon_2d` を import 再利用・2D parser 二重実装禁止。
+  唯一の薄い再実装 = `_recompute_is_outlap`（laps/runs テーブル名ハードコードのため）。①②③は per-session 動作可・④circuit P10 guard は
+  MISANO 正本 0 laps のため本番同様に無参照 degrade。
+- **provisional 3テーブル DDL 固定**（正本 PRAGMA 実測ミラー + provenance 6列 `data_stage/intake_ts/source_manifest_hash/source_file_path/provisional_event_key/quality_status`・UNIQUE run_id/lap_id・CREATE IF NOT EXISTS 冪等）:
+  runs_provisional 49+6 / laps_provisional 16+6 / lap_suspension_provisional 69+6。名前衝突なし（実測確認済）。
+- **provisional で NULL のままの列 = 7列のみ**: WheelForce 6列（`wf_f/r_{apex,brk,ce}_n`・Original のバネレート必要）+ `lap_susF_min`（本番でも NULL）。
+  他62列は `extract_outing()` + フォルダ名メタデータで全て成立。runs 側は setup 33列 + comment が NULL。
+- **PROV_ run_id は本番挙動と整合**: Original 不在時は本番も 2D_ONLY path（全 outing 採用・時系列 R1..）のため、
+  `PROV_{date}_{round}_{circuit}_{session}_{rider}_R{n}` 時系列連番は同挙動。final 化で run_no が変わり得る旨を明記。
+- **Round7 JA52 実テスト対象確認**: nested 33 outing（FP5/QP7/RACE1 8/RACE2 4/WUP1 4/WUP2 5・D0- NOISE除外）・
+  registry 34行（33 2d_outing + 1 report・全 queued・sha256 manifest あり）・queue 33 pending 2d_extract。
+  circuit fallback = `Misano.line`/EVENT.INI → MISANO（TRACK_M 登録済）。正本 ROUND7 runs=0（重複投入リスクなし）。
+  ※Report `20260612-ROUND7-JA52.xlsx` は実在（§35・イベント後保存）だが、Report 非依存テストが目的のため `.line` fallback を主経路とする。
+- registry に `manifest_hash` 列は無く、manifest は `sha256` 列（name|size・§24a）→ provenance へのマップを明記。
+
+### 52b. 次ゲート
+**`Session staging implementation GO`** 受領時のみ Phase C: `session_extract_staging.py` 実装（dry-run 既定・CLI `--db/--event/--rider/--session/--source-file/--apply/--limit/--report`）→
+backup → DDL 実行 → **最初の dry-run/apply は Round7 JA52 の 1 session 限定（例 FP 5 outing・全33一括禁止）** → 業務6テーブル before==after assert →
+report/Obsidian 記録。Workbench overlay / Report v2 provisional / Supabase / DB Master / origin push / final化 は別承認のまま。
+
+---
+
+## 53. Race Weekend workflow Phase B-2 — Session Extraction Staging 実装 + FP限定 apply（2026-07-06 Claude Code・GO受領・apply済）
+
+**`Session staging implementation GO` を同セッションで受領**。readiness = §52。レポート = `reports/race_weekend_session_staging_apply_20260706.md`
+（実行ログ: `session_staging_dryrun_all/dryrun_fp/apply_fp/apply_fp_rerun_20260706.md`）。**新規 = `session_extract_staging.py` のみ**（既存ファイル無変更・commit なし）。
+
+### 53a. 実装
+- `session_extract_staging.py`（~530行・dry-run 既定・`mode=ro`）: importlib で `build_master_db.py` の
+  `gated_outings`/`extract_outing`/`session_canon_2d`/circuit fallback を再利用（2D parser 二重実装ゼロ）。
+  薄い再実装は per-session is_outlap（①②③・④は正本 MISANO laps=0 のため本番同様 degrade）のみ。
+  CLI `--db/--event/--rider/--session/--source-file/--apply/--limit/--report` + `--include-awaiting`（冪等再実行用・readiness からの唯一の追加）。
+  quality gate 8チェック `stage_*`・exit 0/1/2/3。apply = backup → §52 DDL verbatim → INSERT OR REPLACE →
+  queue pending→awaiting_gate → data_quality_log/analysis_run_log → **1トランザクション内 業務6テーブル before==after assert**。
+
+### 53b. 実行結果
+- 全33 dry-run（read-only・exit 2）: insert 12（PASS 8/WARNING 4=`stage_phase22_fill` 構造的 Exit NULL・情報扱い）+
+  **FAIL 7 隔離**（全て `stage_lap_count`: QP-05・R1-02..05・GRID×2 有効lap 0）+ EngineWarmup skip 14。circuit=MISANO（Report/.line 両経路一致）。
+- FP dry-run（exit 0）: 5 outing → 3 PASS（4/7/4 laps・best 99.429/98.791/98.364）+ 2 skip。
+- **FP apply（exit 0）**: provisional 0→**3 runs/15 laps/15 lap_suspension**・重複0・quality_status 全 PASS・
+  setup 33列+comment NULL・WF 6列+lap_susF_min NULL（違反0）・is_outlap 12 valid/3 outlap。
+  **業務6テーブル count 一致 + backup 比較 full-row sha256 6/6 IDENTICAL**。
+  backup `02_DATABASE/_backup_session_staging_20260706_142625/`。queue: 3→awaiting_gate・2→skipped。
+- 冪等再実行: 3/15/15 不変・`stage_hash_idempotent` が既存 manifest hash を検出。
+- Workbench offscreen smoke 7タブ PASS（`ts24_workbench.py` 無変更＝既存 §48/§51 未コミット diff のみ）。
+- リーダー独立検証: mode=ro で業務6テーブル件数・provisional 3/15/15・PROV_ run_id/PASS を再確認済み。
+
+### 53c. rollback / 残作業
+- rollback: `DROP TABLE` provisional×3 or `DELETE ... WHERE provisional_event_key='20260612-ROUND7-JA52'` + queue status 戻し（レポートに SQL 固定）。
+- 未実施（各別承認）: **残り session apply（QP/RACE1/RACE2/WUP1/WUP2 = insertable 9 outing/64 laps）**/
+  Task 5 Workbench overlay（⏳ prov 表示）/ Task 6 Report v2 provisional / Supabase / DB Master / origin push / final化・provisional クリア。
+
+---
+
+## 54. Race Weekend workflow Phase B-3 — Workbench provisional overlay readiness（2026-07-06 Claude Code・Phase A・read-only・GO待ち）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-06 Phase B-3）。**GO 不要の readiness**（コード/DB 無変更・overlay SQL は mode=ro で実DB検証のみ）。
+レポート = `reports/workbench_provisional_overlay_readiness_20260706.md`。
+
+### 54a. 確定事項
+- **列互換リスクなし**: `_load_data`（L3922-3985・SQL L3930）以降の全消費側（PhaseRunCompareWidget/APEX分析/Damping/suspension_report）は
+  列名参照 + `col in df.columns` ガード・固定列リスト表示のため、`data_stage`/`quality_status` 追加（71列化）は無害。
+  pitch/heave 導出も provisional 行で成立（実値確認済み）。
+- **overlay SQL 固定（実DB検証済み）**: provisional 側は 75列（先頭69列が final と名前・順序一致）のため **PRAGMA 生成の明示列リスト**で
+  `SELECT *, 'final', NULL FROM lap_suspension UNION ALL SELECT <69列>, 'provisional', quality_status FROM lap_suspension_provisional`。
+  `sqlite_master` 存在チェックで legacy SQL fallback。検証: **1217行/71列/lap_id 重複0/provisional 15行（MISANO/FP/JA52・全PASS）**・
+  filter combo へ MISANO/FP 自動出現（filter コード変更不要）。
+- **UI 案**: Run ラベル = `⏳ ... (prov)`（`run_id.startswith("PROV_")` 分岐）。`Data stage` filter は**初回実装では見送り**（最小差分優先）。
+  APEX分析/Damping への provisional 流入は v1 では注記のみで許容（MISANO は新規サーキットで既存表示に影響なし・PASS-only）。
+- **Report v2 暫定ガード判断 = 警告ダイアログ + opt-in 続行（既定 Cancel）**。hard block にしない理由: race weekend 価値の維持・データは PASS。
+  現状 PROV run の report は cover/filename に provisional 表記ゼロ → 警告文で明示 + チーム提出禁止を明記。Task 6 で provisional モードへ自動切替予定。
+- rollback = UI diff 3箇所の revert のみ（DB 無変更の read-only 機能）。
+- Phase C 検証計画: py_compile / offscreen 7タブ / MISANO-JA52-FP で PROV_ R1..R3 表示 / final-only 無回帰 /
+  **fallback 実測**（provisional 3テーブルを DROP した一時コピーDBで offscreen 起動 → legacy 1202行）/ Report v2 ガード動作。
+
+### 54b. 次ゲート
+**`Workbench provisional overlay GO`** 受領時のみ Phase C: `ts24_workbench.py` 最小差分実装（`_load_data` overlay + fallback / Run ラベル prov 分岐 /
+Report v2 警告ガード）→ 検証 → `reports/workbench_provisional_overlay_apply_20260706.md`。
+DB 書込なし。残 session apply / Task 6 / Supabase / DB Master / origin push / final化 は別承認のまま。
+
+---
+
+## 55. Race Weekend workflow Phase B-3 — Workbench provisional overlay 実装（2026-07-06 Claude Code・GO受領・apply済）
+
+**`Workbench provisional overlay GO` を同セッションで受領**。readiness = §54。レポート = `reports/workbench_provisional_overlay_apply_20260706.md`。
+**変更 = `ts24_workbench.py` のみ・3箇所・DB read-only**（書込/queue変更/追加投入なし・commit なし）。
+
+### 55a. 実装（最小差分3箇所）
+- `PostureAnalysisTab._load_data`（L3946-3973）: `sqlite_master` 存在チェック → PRAGMA 実行時生成の69列リストで
+  `SELECT *, 'final', NULL FROM lap_suspension UNION ALL SELECT <69列>, 'provisional', quality_status FROM lap_suspension_provisional`。
+  try/except 保護・不存在/例外時は legacy SQL fallback（タブを壊さない）。
+- `PhaseRunCompareWidget._run_label`（L3556-3570）: `PROV_` prefix で `⏳ {label} (prov)`（short 形式も同一分岐）。
+- `_on_create_report`（L3458-3470）: PROV run 混在時 warning（§54 文面・Yes|Cancel・**既定 Cancel**・提出禁止明記・opt-in 続行）。
+
+### 55b. 検証（8/8 PASS）
+- py_compile / offscreen 7タブ / overlay `_df`=1217行（final 1202+prov 15）・MISANO/FP combo 出現 /
+  MISANO-JA52-FP で Run リスト**ちょうど3件** `PROV_...R1..R3`・ラベル `⏳ JA52 FP R1 (ROUND7) (prov)` /
+  final 無回帰（JEREZ/DA77/TEST1_DAY1 = 7 run・prov なし・base_df 66行 = §48 一致）/
+  **fallback 実測**（scratch コピーで provisional 3テーブル DROP → legacy 1202行・例外なし）/
+  Report ガード実測（warning 1回・既定 Cancel・Cancel で生成ゼロ）/ 正本DB 業務6+provisional 3 全件数 before==after。
+- rollback = 3箇所の diff revert のみ。**GUI 最終目視は Tatsuki ローカル**（🦾 → 🔧 3フェーズ Run比較 → MISANO/JA52/FP）。
+- 未実施（各別承認）: 残 session apply（QP/RACE1/RACE2/WUP1/WUP2 = 9 outing/64 laps）/ Task 6 Report v2 provisional 本対応 /
+  Supabase / DB Master / origin push / final化。
+
+---
+
+## 56. Race Weekend workflow Phase B-4 — Round7 JA52 残session apply readiness（2026-07-06 Claude Code・Phase A・read-only・GO待ち）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-06 Phase B-4）。**GO 不要の readiness**（dry-run のみ・DB 無変更を実測確認）。
+レポート = `reports/round7_ja52_remaining_session_apply_readiness_20260706.md`。
+
+### 56a. 確定事項
+- 現DB実測: 業務6 = 275/1202/1202/866/7613/7710・provisional 3/15/15（FP 全PASS・重複0）・
+  Round7 queue = awaiting_gate 3 / skipped 2 / pending 28。
+- **session別 dry-run 再実行 = B-2 ベースラインと完全一致（drift なし）**: 全event insert 9 outing/64 laps・FAIL 7・EW skip 12。
+  QP 4/14（exit 2）・WUP1 1/6（exit 0）・WUP2 2/6（exit 0）・RACE2 1/19（exit 2）・RACE1 1/19（exit 2）。
+  FP は awaiting_gate のため候補に出ない（`--include-awaiting` 挙動もコード確認済）。
+- **投入順固定: QP → WUP1 → WUP2 → RACE2 → RACE1**（QP で全パターンを先に検証・FAIL 5 を含む RACE1 は最後・session単位で停止/切り戻し可能）。
+- 全成功時の期待値: provisional **12 runs / 79 laps / 79 lap_suspension**・queue pending 28→0（awaiting_gate +9 / failed +7 / skipped +12）。
+  ※apply は FAIL→failed / EW→skipped も queue に記録するため rollback SQL は3ステータスを戻す。
+- backup = `do_apply()` が各 apply 前に全DBコピーを自動作成（コード確認済）。session単位 rollback SQL をレポートに固定。
+
+### 56b. 次ゲート
+**`Round7 remaining session provisional apply GO`** 受領時のみ Phase C: session毎に dry-run → apply → 業務6不変 → 増分/dup 0/quality 確認、
+予期しない差分でそのsession停止。FAIL 7 救済 / Report v2 provisional / Session Import ボタン / Supabase / DB Master / push / final化 / provisional clear は別承認。
+
+---
+
+## 57. Race Weekend workflow Phase B-4 — Round7 JA52 残session 段階apply（2026-07-06 Claude Code・GO受領・apply済）
+
+**`Round7 remaining session provisional apply GO` を同セッションで受領**。readiness = §56。レポート = `reports/round7_ja52_remaining_session_apply_20260706.md`。
+**コード編集・commit なし**（既存 `session_extract_staging.py` のみ使用）。
+
+### 57a. 実行結果（QP→WUP1→WUP2→RACE2→RACE1・全5session成功・停止なし）
+- 各session: 直前dry-run（readiness §2.2 完全一致）→ 自動backup → apply → 業務6不変 assert + mode=ro 再測定（5回全て 275/1202/1202/866/7613/7710）。
+- delta: QP +4/+14・WUP1 +1/+6・WUP2 +2/+6・RACE2 +1/+19・RACE1 +1/+19。FAIL 隔離 計7・EW skip 計12。
+  WARNING は全て `stage_phase22_fill`（構造的 Exit NULL・仕様どおり insert 対象）。
+- **最終: provisional 12 runs / 79 laps / 79 lap_suspension**（quality PASS 8/WARNING 4・重複全0）。
+  session別ベスト: FP 98.364 / QP 97.636 / RACE1 98.055 / RACE2 97.778 / WUP1 98.109 / WUP2 98.045。
+- queue Round7 最終: pending 0 / awaiting_gate 12 / failed 7 / skipped 14（readiness 期待一致）。
+- 冪等: WUP2 再apply → 候補0・不変。backups: `_backup_session_staging_20260706_{153702,155221,164033,170019,170212}/`。
+- Workbench offscreen: 7タブ・DataFrame **1281行**（1202+79）・MISANO/JA52 Run リスト 12件（全6session ⏳prov）・
+  JEREZ final-only 無回帰・Report v2 PROV guard 存置。リーダー独立 mode=ro 検証一致。
+- rollback = readiness §rollback の session単位 DELETE + queue reset（レポート再掲）。
+
+### 57b. 残作業（各別承認）
+FAIL 7 outing 救済/再解析 / Task 6 Report v2 provisional 本対応 / Workbench Session Import ボタン（Task 4）/
+Supabase / DB Master / origin push / final化・provisional clear。**GUI 最終目視は Tatsuki ローカル**（MISANO/JA52 で 12 prov runs）。
+
+---
+
+## 58. Workbench scatter click ValueError hotfix（2026-07-07 Claude Code・GO不要・DB無変更）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-07）。レポート = `reports/workbench_scatter_click_hotfix_20260707.md`。
+**変更 = `ts24_workbench.py` `PostureAnalysisTab._on_pt_click` のみ**（メイン直接対応・エージェント不使用＝Token効率）。
+- 原因: PyQtGraph `sigClicked` が numpy.ndarray を渡すと `if not points:` が ValueError。
+- 修正: `points is None or len(points)==0` 判定 + `points[0].data()` を try/except ガード（SpotItem 以外は return）。connect 側無変更。
+- 検証: py_compile / 再現5ケース（[]・None・ndarray(3)・ndarray(0)・SpotItem相当）ValueError ゼロ /
+  offscreen 7タブ・overlay 1281行・MISANO 12 prov runs。実機クリック確認は Tatsuki。rollback = 2ブロック revert。
+
+---
+
+## 59. Race Weekend workflow Phase B-5 — Report v2 provisional mode readiness（2026-07-07 Claude Code・Phase A・read-only・GO待ち）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-06 B-5）。**GO 不要の readiness**（コード/DB 無変更・PPTX/PDF 生成なし）。
+レポート = `reports/report_v2_provisional_mode_readiness_20260706.md`。
+
+- **seam 固定**: `build_report_v2`/`build_report_pdf` に `provisional=False` kwarg + `chart_cover(provisional, mixed)`。
+  **明示フラグ + 内部自動検出セーフティネット**（df/run_ids に `PROV_` 検出で強制 provisional・CLI `main` L1006-1032 は provisional 非対応のため auto-detect が CLI 経路を保護）。
+- cover: title band 右上に **英語 ribbon `PROVISIONAL - SESSION DATA`**（CJK=0 維持・§49）+ Scope card 下に 4行注記
+  （Not final DB integration / Original setup data not merged / Run numbers are provisional / For race-weekend engineering review only）。
+  `chart_cover` は PPTX（L809）/PDF（L983）共用 = **単一変更点**。mixed 選択は provisional 扱い + `Mixed final + provisional runs` 注記。
+- filename: `prov_tok` を `_{ts}` 直前に挿入（L849-850/L999-1000）→ `..._MISANO_JA52_FP_PROVISIONAL_<TS>`。final-only は byte 同一。
+- Workbench: `_on_create_report` L3458-3470 の警告を確認ダイアログ「provisional reportとして生成しますか？」（既定 Cancel）へ置換・Yes で `provisional=True`。
+- Phase C 検証計画: py_compile / sample PPTX+PDF（まず MISANO/JA52/FP）/ text抽出 `PROVISIONAL` / final-only 無 `_PROVISIONAL_` / CJK=0 / offscreen smoke / DB 件数不変。
+- **次ゲート = `Report v2 provisional mode GO`**。
+
+---
+
+## 60. Race Weekend workflow Phase B-5 — Report v2 provisional mode 実装（2026-07-07 Claude Code・GO受領・apply済）
+
+**`Report v2 provisional mode GO` を同セッションで受領**。readiness = §59。レポート = `reports/report_v2_provisional_mode_apply_20260706.md`。
+**変更 = `suspension_report.py` + `ts24_workbench.py` のみ・DB read-only**（業務6 + provisional 3 全件数 before==after 確認済み・commit なし）。
+
+### 60a. 実装 / 検証（8/8 PASS）
+- `suspension_report.py`: `build_report_v2`/`build_report_pdf` に `provisional=False` kwarg + `_detect_provisional()` 自動検出
+  （PROV_ → 強制 provisional・mixed 判定）。`chart_cover(provisional, mixed)` = アンバー ribbon **`PROVISIONAL - SESSION DATA`** +
+  英語4行注記（+ mixed 注記）。filename `PROVISIONAL_` トークンを `{ts}` 直前に挿入（両 builder）。
+  ※ribbon 位置は readiness 座標がタイトル/フッタと干渉したため title band 右上 y0.93 へ目視調整（readiness 許容範囲・PNG で非重複確認）。
+- `ts24_workbench.py` `_on_create_report`: 旧警告 → `QMessageBox.question`（Yes|Cancel・既定 Cancel）。Yes で `provisional=True` 両 builder 呼出。final-only はダイアログなし・無変更。
+- sample: `reports/pptx/suspension_report_v2_MISANO_JA52_FP_PROVISIONAL_20260707_PROVSAMPLE.pptx/.pdf`（14スライド）+
+  final 無回帰 `..._JEREZ_DA77_TEST1_DAY1_20260707_FINALREG.pptx/.pdf`（18スライド・`_PROVISIONAL_` 無し・ribbon 無し）。
+- 検証: py_compile / cover PNG 目視（ribbon+4注記・英語のみ）/ **CJK=0 両サンプル** / auto-detect (True,False) /
+  offscreen 7タブ・PROV選択→question 1回・既定 Cancel・Cancel 生成ゼロ・Yes stub で provisional=True 伝搬・final-only ダイアログ 0 /
+  **DB 件数完全不変**。rollback = 2ファイル revert + sample 削除。**GUI/サンプル最終目視は Tatsuki ローカル**。
+
+### 60b. 残作業（各別承認）
+FAIL 7 outing 救済 / Task 4 Workbench Session Import ボタン / post-event final 化・provisional クリア（Task 7-8）/
+Supabase / DB Master / origin push。**Race Weekend live workflow の主要ピース（Scan→Staging→Overlay→Provisional Report）はこれで完成**。
+
+---
+
+## 61. Supabase v2 architecture migration readiness（2026-07-07 Claude Code・Phase A・read-only・DDL GO待ち）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-07）。Codex 設計（`reports/supabase_v2_architecture_design_20260707.md` +
+`04_REFERENCE/SQL_SCHEMAS/supabase_v2_core_schema_20260707.sql`）の read-only レビュー。**本番 Supabase への SQL/sync/POST 一切なし・local mode=ro のみ**。
+レポート = `reports/supabase_v2_migration_readiness_20260707.md`。
+
+### 61a. レビュー判定 = **要修正（方向性は採用可・DDL実行前に7点改訂）**
+- **BLOCKING**: `v_sync_runs` の `rs.*` により run_id 列重複 → Postgres で CREATE VIEW 失敗・**単一トランザクションのため現SQLは COMMIT ごと全滅**。
+- 設計修正6点: ①track_temp/air_temp/weather は per-run 列のため v2 sessions でなく runs へ ②statistic 'peak' 禁止（新22列=p95/凍結列=max を区別）
+  ③phase CHECK に 'ph12' 追加 ④source_files.sha256 → manifest_hash 改名（stat manifest のため）⑤runs.source 列欠落 ⑥metric_versions テーブル追加（metric_version_log 32行の受け皿）。
+- 整合OK: 自然キー §1c 衝突なし・event_id（season内包）で round シーズン跨ぎ解決・run_setup 30列は local 一致。
+
+### 61b. mapping 要点 / ゲート分割
+- result_laps: legacy と v2 staging が同一自然キー → **VIEW `race_lap_detail`（12763行）を単一供給源** + source_table 列追加。
+- lap_suspension wide→long ≈ 5-6万行・**n<5 は行を作らない（0≠NULL 厳守）**。provisional は data_stage 必須 + final-only view 既定。
+- ゲート: **G1 DDL実行GO**（schema改訂+projectionサンプル後）→ G2 初回 v2 sync GO（新規 `sync_to_supabase_v2.py`・既存v3不変）→
+  G3 compat view 切替GO（行レベル一致証明後）→ G4 旧テーブル整理GO。rollback = `DROP SCHEMA ts24_v2 CASCADE`（正本無影響）。
+
+---
+
+## 62. Task 4 — Workbench Session Import (staging) ボタン実装（2026-07-07 Claude Code・apply済）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-07 Task 4 finish gate）。レポート = `reports/workbench_session_import_button_20260707.md`。
+**変更 = `ts24_workbench.py` のみ**（`ImportQualityTab`・`session_extract_staging.py` subprocess 再利用・二重実装なし）。
+
+### 62a. 実装 / 検証
+- `⬇ Session Import (staging)` ボタン（L6763-6768・Session Scan の隣）+ `_run_import()`（L6908-7095）:
+  dry-run subprocess → 確認ダイアログ（候補/PASS/WARN/FAIL/queue 変更予定を明示・**Apply|Cancel 既定 Cancel**）→ `--apply` → refresh + 結果表示。
+  exit 1 = 「候補なし」info（apply 選択肢なし）。非0 exit = warning（末尾+ログ）。ログ `reports/session_import_{dryrun,apply}_<TS>.log`。非クラッシュガード。
+- 検証全PASS: py_compile / offscreen 7タブ・両ボタン・実 dry-run・Cancel で DB 不変 / DB invariance（業務6 + provisional 12/79/79）/
+  MISANO 12 prov runs・Report v2 provisional guard 無回帰。live apply は対象なしのため未実施（次 race weekend で実地）。
+- **★運用上の発見**: 未フィルタ dry-run で **歴史的 pending 160 outing/1249 laps**（Round7 以前・既に final 取込済みイベント）が候補化。
+  既定 Cancel で誤投入は防止されるが、**Apply すると final 済みデータの provisional 重複投入となるリスク** →
+  次 race weekend 前に queue 歴史的 pending の整理（skipped 化 or イベントフィルタ既定）を別タスクで推奨（レポート §4）。
+
+---
+
+## 63. Supabase v2 schema revision — readiness 7点反映（2026-07-07 Claude Code・ローカルSQLのみ・本番未実行）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-07）。§61 readiness の 7 findings を反映した改訂DDLをローカル作成。
+**Supabase 本番接続・実行ゼロ・原本SQL不変・正本DB read-only**。
+成果物 = `04_REFERENCE/SQL_SCHEMAS/supabase_v2_core_schema_20260707_revised.sql` + `reports/supabase_v2_schema_revision_20260707.md`。
+
+- **7/7 修正**: ①v_sync_runs の rs.* 廃止・run_setup 30列明示（重複列0を機械確認）②weather/temp を runs へ（sessions は代表値注記）
+  ③statistic CHECK = avg/mean/min/max/p95/count/duration・'peak' 禁止（新22=p95/凍結=max 対応表）④phase CHECK に ph12
+  ⑤sha256→manifest_hash（+nullable content_sha256）⑥runs.source 追加 ⑦metric_versions テーブル追加（local 32行受け皿）。
+- 追加確認3点反映: result_laps = race_lap_detail 単一供給源 COMMENT + source_table 列 / n<5・n<10 は行を作らない（0≠NULL）/
+  compat view は final-only 既定 + `_with_provisional` opt-in ×2。
+- 逸脱（意図的）: race_results sector1-3 は 7 findings 外のため未追加（G1 前の判断事項として記録）。
+- 検証: stdlib 構造チェック（47文・BEGIN/COMMIT 単一・view 重複列0・'peak' 0・ph12 有）。実 parse は G1 の Supabase staging で実施。
+- **次ゲート = G1 `Supabase v2 schema GO`（DDL 実行）** → G2 初回 sync → G3 view 切替 → G4 整理（§61b どおり）。
+
+---
+
+## 64. Round7 full integration readiness / finalization gate（2026-07-07 Claude Code・Phase A・read-only・GO待ち）
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-07）。**GO 不要の Phase A readiness**（canonical mode=ro・scratch は /tmp のみ・書込ゼロ）。
+レポート = `reports/round7_full_integration_readiness_20260707.md` / mapping = `..._mapping_20260707.csv` / plan = `..._plan_20260707.sql`。
+
+### 64a. 測定 / source completeness
+- 業務 runs/laps/lap_suspension=275/1202/1202（ROUND7=0）・race_results ROUND7=74・pdf_v2_staging ROUND7=1094 PASS・
+  provisional 12/79/79（event_key `20260612-ROUND7-JA52`）・queue ROUND7 = awaiting_gate12/failed7/skipped14 + report pending1。
+- source 完備: 2D 33 outing / Report xlsx / Original 13 ROUND7/MISANO 行（full setup 有）/ 6 Result PDF。
+
+### 64b. ★scratch rebuild 検証（build_master_db `--all --out /tmp` exit 0・受入ゲート |2D−PDF|>1.5s = 0件 PASS・BLOCKER なし）
+- **final = 13 runs / 77 laps ≠ provisional 12/79（clean match でない）**。差分は全て build_master_db の Original マージ仕様（全ラウンド共通）:
+  ①WUP2: 2→1 run・**−2 laps**（WUP2-02 outing が Original WUP2 M=1 により drop）
+  ②RACE1 & RACE2: 各 +1 run（0-lap の Original-only R2＝Original 重複行・実レース setup C106 は 2D 保持の R1 でなく R2 に載る）
+  ③run_id は PROV_ prefix が外れ・setup + wheel-force `wf_*_n` 列が final で充填（provisional では NULL）・**best_lap_s は全マッチ run で一致**。
+- **決定論ゲート安全**: scratch の非ROUND7 laps=1202・canonical と byte 一致（差分0）。remap されるのは既存 `NA_MISANO_RACE1/2_JA52_R1`（0-lap placeholder）2件が ROUND7 R2 へ入るのみ＝lap 損失なし。final 総計 runs 286/laps 1279。
+- reconcile: Original 重複キー RACE1/RACE2×2（構造的・全サーキット共通）・WUP2 2D=2/Orig=1・RACE 2D=1/Orig=2。ROUND7-fatal な unmatched/mismatch なし。
+
+### 64c. 推奨 = **条件付き GO**（canonical 健全・build/gate PASS・既存データ保護）
+- Tatsuki が3構造事実を承認すれば GO: (1) final 13/77 ≠ provisional 12/79 (2) WUP2-02 の 2 laps drop (3) RACE Original-only R2 + setup 行割当。
+- 承認可（=標準挙動として受容）→ **`Round7 final integration GO`**。否なら NO-GO（Original/build 修正が先）。
+- finalization 計画（GO 後）: backup → scratch rebuild → 決定論ゲート（既存1202不変 + ROUND7 が scratch と一致）→ cutover_db.py →
+  provisional clear（DELETE by provisional_event_key）→ Workbench final 表示確認（12→final 表示・重複なし）→ DB Master refresh → Supabase v3 sync+audit。
+  Supabase v2 は G1 別ゲート（対象外）。rollback 各段。リーダー独立検証: canonical 275/1202/1202/866・prov 12/79/79 不変を再確認。
+
+### 64d. ⛔ cutover 方式 data-loss 欠陥検出 → 実行停止（2026-07-07・GO 後の安全確認）
+- **`Round7 final integration GO` 受領後、実行前に cutover_db.py を確認 → 重大欠陥を発見し canonical 無変更で停止**。
+- cutover_db.py は master(2D再ビルド) を丸ごとスワップ + PRESERVE テーブルのみ旧DBから引継ぐ。PRESERVE = problem_log/setup_decision_log/
+  problem_library/round_brief/lap_observation_log/race_results/pdf_lap_times/best_worst_pairs（§37-§44 追加より前の古い状態）。
+- **cutover 実行で消失**: `pdf_lap_times_v2_staging`(7710・§38) / `race_lap_detail` VIEW(§40・**Workbench Race Analysis が RACE_LAP_SRC 依存→破損**) /
+  品質・Phase2A（source_file_registry 405/import_queue 397/data_quality_log/analysis_run_log/metric_version_log 32）。
+- readiness §64 は runs/laps/lap_suspension の決定論ゲートは検証したが cutover のテーブル保全は検証漏れ。
+- **安全代替**: Option A = ROUND7-only targeted insert（§44 追加のみ方式・全テーブル保全・placeholder NA_ 2件のみ置換）/
+  Option B = cutover_db.py PRESERVE 更新 + cutover 後に VIEW/staging 再適用。→ Tatsuki 方式判断待ち。
+
+---
+
+## 65. ★Round7 provisional → final 本データ化（targeted insert・Option B / Round7-only build）— 2026-07-08 Claude Code
+
+Tatsuki 指示「システムを正しい状態に保ち Round7 provisional を本データにする最適作業」= GO 相当。§64d の targeted-insert 方式を実行。
+**スコープ = DB + Workbench のみ**（final 反映 + provisional クリア）。DB Master / Supabase / origin push は対象外・別GO据え置き。
+readiness = `reports/round7_targeted_insert_readiness_20260708.md` / 実行 = `reports/round7_targeted_insert_apply_20260708.md`。
+
+### 65a. 方式 = Option B（Round7-only build）— iCloud offload 対応
+- full `--all` rebuild は非Round7 1202 ラップの決定論ゲートに全 DATA 2D event フォルダを要するが、移動先ネットワークで **iCloud が
+  DL を停止**（event 21フォルダ/約1.3GB dataless・0 MB/s）→ full rebuild 実行不能。Tatsuki 選択（AskUserQuestion）で **Round7 のみビルド**。
+- **MISANO は ROUND7 単独サーキット** → `build_all` の cross-event state（rcs_events/pool 消費）が MISANO キーに関して Round7 内で完結。
+  よって Round7 だけを同一ロジックで処理すれば Round7 行は full rebuild と byte 等価（下記 cross-source で実証）。
+- コード変更（追加のみ・default 挙動不変）: `build_master_db.py` の `build_all(out_db, only_events=None)` にイベントフィルタ + CLI `--round ROUND7`。
+
+### 65b. ビルド + 等価性検証（全 PASS）
+- `build_master_db.py --all --round ROUND7 --out /tmp/ts24_r7only.db` → 受入ゲート |2D−PDF|>1.5s **0件**・Round7 **13 runs/77 laps/77 lap_suspension**。
+- **cross-source ゲート**（`apply_round7_targeted_insert.py --scratch-scope round7`）:
+  - **lap 2D値（lap_time_s/susf/susr/f_dive_spd/r_dive_spd）vs provisional: 77/77 完全一致**（provisional は session_extract_staging＝別コードパス由来 → 2D 抽出同一を実証）。
+  - best_lap vs provisional 11/11・vs §64 --all mapping 11/11（＝前日 full rebuild と等価）・vs race_results 公式 RACE1 Δ0.006/RACE2 Δ0.015s（telemetry対公式・想定内）。
+- **content ゲート**: setup(f_spr_l) 13/13・wheel-force 77行・best §64 一致・0-lap R2 2件存在。
+
+### 65c. final 反映（canonical 書込）
+- backup `02_DATABASE/_backup_round7_targeted_20260708_200025/`（WAL-safe: main+sidecar）。
+- `apply_round7_targeted_insert.py --scratch-scope round7 --apply`: placeholder `NA_MISANO_RACE1/2_JA52_R1` **DELETE** + Round7 **13/77/77 INSERT**（明示列・scratch から `WHERE round='ROUND7'`）。
+  事後 assert（PROTECTED COUNT 不変・totals 286/1279/1279・Round7 13/77/77・content 再検証）全通過 → COMMIT。
+- **独立検証（mode=ro）**: runs **286** / laps **1279** / lap_suspension **1279**・race_results 866。Round7 13/77/77・placeholder 残 0・setup 13/13・WF 77。
+  **PROTECTED 全不変**: pdf_lap_times_v2_staging 7710 / source_file_registry 405 / import_queue 397 / data_quality_log 1340 / analysis_run_log 11 /
+  metric_version_log 32 / pdf_lap_times 7613 / race_lap_detail VIEW 12763・**非Round7 laps 1202 保持**。
+- ハング対処: 初回 apply が `wal_checkpoint(TRUNCATE)` で iCloud ロックによりハング（2分 timeout・canonical は中断ロールバックで無変更）→ **PASSIVE checkpoint** へ変更し解消。
+
+### 65d. provisional クリア（Workbench 二重表示回避＝正しい状態化）
+- backup `02_DATABASE/_backup_round7_provclear_20260708_200609/`。
+- event_key `20260612-ROUND7-JA52` を 3 provisional テーブルから DELETE: **79/79/12 → 0/0/0**・業務テーブル不変・Round7 runs=13 を assert。
+
+### 65e. Workbench offscreen smoke（PASS）
+- MainWindow **7タブ**構築 OK（overlay SQL・race_lap_detail VIEW とも finalization 後に正常）。
+- overlay 総 1279 行・**provisional 0 行・PROV_ 0 件（⏳prov 重複なし）**・Round7 = **final 11 run**（テレメトリ有・`20260612_ROUND7_MISANO_*`）表示・race_lap_detail ROUND7 1094。
+- **GUI 最終目視は Tatsuki ローカル**（🦾 Suspension/Posture・Race Analysis で MISANO/JA52 final 確認）。
+
+### 65f. 受容した標準挙動 / rollback / スコープ外
+- **WUP2 最速ラップ 98.045 が final から落ちる**（採用 WUP2-R1=98.160・4laps / drop WUP2-R2=98.045・2laps＝build_master_db の Original マージ top-lap 選択・全ラウンド共通）。Tatsuki 指示スコープ内として受容。
+- placeholder 2件は ID 継承でなく件数整合（DELETE 2 / INSERT 13 のうち 0-lap R2 が 2）。
+- rollback: final=`_backup_round7_targeted_20260708_200025/` 復元 / provisional clear=`_backup_round7_provclear_20260708_200609/` 復元。
+- スコープ外（別GO）: DB Master(Excel) refresh（`refresh_db_master_safe.py`・Round7 は今 2D由来テーブルに入ったため反映され得る）/ Supabase sync / origin push。
+- 変更: `build_master_db.py`（event filter 追加のみ）/ `apply_round7_targeted_insert.py`（round7 scope + cross_source_gate + PASSIVE checkpoint + WAL-safe backup + busy_timeout）。新規: `reports/round7_targeted_insert_apply_20260708.md`。
+
+---
+
+## 66. Report v2 feedback Phase A read-only 監査（P0 Sus_Speed = phase-window artifact）— 2026-07-08 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-08）+ 指示書 `reports/report_v2_feedback_code_instruction_20260708.md` + フィードバックノート `08_REPORT_NOTES/2026-07-08_Report_Feedback.md`。
+**GO 不要の read-only 監査**（DB `mode=ro` のみ・**canonical 書込/metric定義変更/抽出ロジック変更/サイレントfilter=一切なし**・コード/Excel/Supabase 無変更・push なし）。
+成果物 = `reports/report_v2_feedback_audit_20260708.md`（指示書7セクション全網羅）。マルチエージェント（Investigate 5次元 + Verify 3敵対検証・8エージェント・0エラー・0/3 反証失敗）。
+
+### 66a. P0 Sus_Speed 逆転 = phase-window artifact（valid_under_definition・計算バグではない）
+- **逆転は実在かつ systemic**: `apex_f_dive_spd_avg > brk_f_dive_spd_avg` が全DB **1111/1146=97%**・median 2.11×。全サーキット（MOST100%/JEREZ99%/PHILLIP98%/BALATON97%/ARAGON96%/ASSEN96%/**MISANO85%**＝最弱）で成立＝MISANO 固有ではない。
+- **根本原因**: `FULL_BRAKING`（`BRAKE_FRONT∈[9,20]` **かつ** `SUSP_FRONT∈[90,130]`）はフォークが既に深く沈んだ準定常 dwell（phase-mean `brk_susf`≈107mm・bottom≈122mm）を密 sampling（`fullbrk_count`≈2000-3100）し、本当の高速ダイブ過渡（フォークが `SUSP_FRONT<90` で `30→90mm` へ急降下・ブレーキ ramp `<9bar` 中）を **二重に構造除外**。`MID_CORNER`（`SUSP_FRONT∈[50,100]`・活発 mid-stroke）は圧縮 v>0 の conditional mean が高い。
+- **trace 再構成**（build_master_db を import・生 2D 再 resample・`vf=np.gradient/dtg`）で DB 値を byte-exact 再現（FP R1 L2=63.2/189.6 等）→ compute バグ無し。正圧縮 speed mass の **82–95% が `SUSF<90`**（マスク外）、`FULL_BRAKING` 内は 2–5% のみ。
+- **決定的 discriminator**: **avg は逆転するが peak は逆転しない**（`brk_f_dive_spd_peak` mean 471.8 > `apex_f_dive_spd_peak` mean 345.4・apex>brk は 31%）→ 符号/単位/ノイズ/物理いずれでもなく **averaging window に起因**と確定。
+- 排除された代替仮説（Verify 3敵対検証すべて反証失敗）: sign/unit bug（common-mode・両 phase 同一 `vf`+`v>0`）/ np.gradient ノイズ（peak も膨らむはずだが逆転せず・密 window の brk がむしろ上振れするはず）/ 物理（braking が最速 spike を保持）/ MISANO quirk（systemic・MISANO は最弱）/ report mislabel（`suspension_report.py` L48-54 と Workbench `_PHASE_SPD` L3093-3099 が一致）。
+- sign 自己整合確認: 大 mm = 圧縮（`brk_susf`107>`apex_susf`75>`ce_susf`20mm・lap_max 124mm）・dive=v>0。unit=非校正 grid 微分 mm/s（相対 damping-speed index・車速 km/h と混同禁止・`SPEED_NOTE` L59）。avg=mean(n≥5)/peak=p95(n≥10)（L327-334）。
+
+### 66b. 副次発見
+- **peak reducer 非対称**: 凍結 legacy `brk_f_dive_spd_peak`=`max()`（L309）だが新22列 peak=p95（L333）→ report の cross-phase「peak」バーは max-vs-p95＝apples-to-oranges（avg 比較は両者 mean なので無影響）。
+- **Öhlins 照合**: `04_REFERENCE/FKR-1xx-setting-library-version-1.0.pdf`（前フォーク）+ **発見** `04_REFERENCE/TTX36-GP-v3.6.xlsm`（Öhlins TTX36 GP rear-shock Setting library Excel＝実質「Setting Bank」）。どちらも **Force[N] vs shaft-velocity[m/s]・Compression/Rebound 別スタック**。数値 low/high-speed 閾値の明示なし。TS24 の Sus_Speed は **観測位置の travel-rate（非校正相対 index・interp grid 微分・位置センサ由来）** で Öhlins（校正済み力の伝達関数・dyno shaft）とは **別物・非直接比較**。対応するのは方向 convention のみ（dive↔Compression / reb↔Rebound）。**Öhlins low/high-speed 用語への rename は非推奨**（意味が異なる）。file 名「Ohlins Setting Bank」literal は無し・`NIX 30` workbook は不在。
+- feedback 項目1（F_Sus が R_Sus を潰す視認性）= **small multiples 推奨**（dual-Y は誤読リスク・normalized は絶対 mm を隠す）。項目2（slow lap）= 決定論 **report-only** filter（`is_outlap` + session median 比外れ値）+ **page-2 開示テーブル必須**（適用 filter・除外 lap 一覧・理由）。
+
+### 66c. 推奨（2段階・各明示GO要・実装は Phase A では未着手）
+- **分類 = metric label / phase-window definition issue**（no-issue でも sign/unit/extraction defect でも report-mapping mislabel でもない）。
+- **Tier1（report-only・DB/抽出 無変更・推奨先行）**: ① `brk_f_dive_spd_avg` を「ブレーキ時のダイブ速度」と提示しない・phase 窓を明示する再ラベル（例 "Braking F-Dive (deep-stroke/settled)"）② peak バーの reducer 整合（表示時 p95 化 or 注記）③ F/R position を small multiples ④ slow-lap filter + page-2 開示 ⑤ 非校正相対 index 注記維持・Öhlins 用語不採用。→ GO 文言 `Report v2 feedback report-only GO`。
+- **Tier2（抽出指標追加・追加のみ・凍結列不変）**: 真の dive-in rate が必要なら、`SUSP_FRONT<90` で上昇中かつブレーキ ramp（≈0.3-9bar・`dSUSP_FRONT/dt>0`）を key にした **ブレーキ onset dive 新列**を §44 と同じ非破壊追加方式で新設。→ GO 文言 `Suspension speed extraction fix GO`。
+- **非推奨**: `FULL_BRAKING` マスクの in-place 変更（凍結 legacy 列と全履歴値を silent に変える）。Phase A 中の定義変更/DB書込。
+
+### 66d. スコープ外（禁止遵守）
+- canonical 書込・provisional clear・Round7 targeted insert 変更・metric 定義変更・抽出ロジック変更・サイレント report filter・DB Master refresh・Supabase sync/DDL・origin push＝**すべて未実施**。
+- 生 2D は再構成対象 MISANO outing について読取可（iCloud offload なし）・再構成は 120s ガード内。
+- 新規: `reports/report_v2_feedback_audit_20260708.md`。変更: `CLAUDE.md` §66（+ Obsidian log/CURRENT_STATE/AI_HANDOFF/INBOX Result）。
+
+---
+
+## 67. Report v2 feedback Tier1 report-only 実装（Tatsuki `Report v2 feedback report-only GO` 受領）— 2026-07-08 Claude Code
+
+§66 audit を受け、Tatsuki が Phase B の **Tier1（report-only）のみ**を承認（AskUserQuestion 回答＝`Report v2 feedback report-only GO`）。
+**変更 = `suspension_report.py` のみ**（canonical DB / 抽出ロジック / `build_master_db.py` / `ts24_workbench.py` / DB Master / Supabase / origin push は無変更）。Tier2（抽出指標追加）は未承認＝据え置き。
+
+### 67a. 実装（suspension_report.py・4点）
+1. **Sus_Speed 再ラベル（P0 の誤解防止）**: phase-speed パネル題に窓を明示（`PHASE_SPEED_REGION`）= Braking `deep-stroke / settled` / Apex `mid-stroke` / Exit `corner-exit (sparse)`。Compare 表ヘッダも `Brk F-Dive [idx·deep]` / `Apex F-Dive [idx·mid]`。`SPEED_WINDOW_NOTE`（"MEAN velocity within each phase window … NOT the peak brake dive-in rate … do NOT read Apex>Braking as 'the front dives faster at apex'"）を phase summary / lap-by-lap speed / Data limits に表示。
+2. **peak reducer 注記修正**: 旧 "peak = p95"（brk は実は凍結 MAX）→ `PEAK_NOTE`「peak 列は非表示・cross-phase 比較不可（brk=legacy MAX vs 他 p95）」。peak バーは元々未描画のため注記のみ修正。
+3. **F/R position を small multiples**: `chart_phase_summary` を 1×2 → 1×3（F position / R position 独立Y / F&R speed）に分離 → feedback①（F が R を潰す）を解消（R が独立軸で可読）。
+4. **slow/out-lap filter（report-only・page-2 開示）**: 新 `apply_lap_filter`（決定論・DB書込なし）= out/in ラップ（`_is_outlap==1`・列があるとき）+ session 中央値 × `SLOW_LAP_FACTOR`(1.07) 超の slow lap を除外。全除外は退化ガードで無効化。`lap_filter_note` で **Data Quality ページ（page 2）に「適用 filter・除外 lap 一覧・理由」を必ず開示**。`build_report_v2`/`build_report_pdf` に `lap_filter=True` kwarg（既定 ON・後方互換・CLI `--no-lap-filter` で無効化可）。
+
+### 67b. 検証
+- py_compile PASS。sample 生成（final MISANO JA52・全 session）= `reports/pptx/suspension_report_v2_MISANO_JA52_ALL_20260708_TIER1.pptx/.pdf`。filename が `_ALL_`（`_PROVISIONAL_` でない）＝§65 finalization 後の final data・provisional 自動検出も正常。
+- PDF 目視（Read）: page2 = **12 out-lap 除外 + 開示テキスト表示** / phase summary = **F/R 別パネル独立軸で R 可読**・速度題に region / compare 表 = `[idx·deep]`/`[idx·mid]` / Data limits = 誤解防止注記 + peak 注記修正。
+- 後方互換 smoke: Workbench 風 df（`_is_outlap` 無し）で `apply_lap_filter` が slow-lap 規則のみで動作（kept 65/excluded 12）・`build_report_v2` 生成 OK・filter OFF 経路 OK・offscreen MainWindow 構築 OK。**GUI 最終目視は Tatsuki ローカル**（Workbench 📄 Create Report v2・既定で filter ON + 新ラベル）。
+
+### 67c. rollback / スコープ外
+- rollback: `suspension_report.py` を revert（DB/Excel/Workbench 無変更のため他に影響なし）+ sample 削除。
+- スコープ外（未実施）: **Tier2 抽出指標追加**（`Suspension speed extraction fix GO` 待ち）/ canonical DB write / `build_master_db.py` 変更 / `ts24_workbench.py` 変更 / DB Master refresh / Supabase / origin push。
+- 変更: `suspension_report.py`。新規: sample pptx+pdf / `CLAUDE.md` §67（+ Obsidian log/CURRENT_STATE/AI_HANDOFF/INBOX）。
+
+---
+
+## 68. Round8-only provisional guard（P0・Round8 以外を Apply 不可に）— 2026-07-09 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-09 P0）+ 指示書 `reports/round8_only_provisional_guard_code_instruction_20260709.md`。
+Tatsuki要求「必ずRound8のデータだけをPrevisionalで表示、Report作成」を **人手注意でなくコードで** 担保（GO gate なし＝指示が承認・forbidden で canonical write/queue/DB Master/Supabase/commit/push は禁止）。
+方式 = **`--required-round` フラグ**（指示書が「cleaner」と認めた代替）+ **2層 fail-closed** + Workbench UI ガード。**変更 = `session_extract_staging.py` + `ts24_workbench.py`**（DB/queue/Excel/Supabase 無変更）。成果物 = `reports/round8_only_provisional_guard_apply_20260709.md`。
+
+### 68a. 実装
+- `session_extract_staging.py`: 新 `--required-round <ROUND>` / `enforce_apply_guard`（**Layer1**・`main` で `run_pipeline` より前）= ①`--apply` は `--event` 必須（無→`sys.exit(4)`）②`--required-round RR` と `--event` の round(`EVENT_RE`) 不一致→exit 4 / `do_apply` 冒頭に候補単位 **Layer2**（backup/DDL/INSERT の前・event 無 or round 不一致→return 4）。exit 4 を docstring に追記。
+- `ts24_workbench.py` `ImportQualityTab`: `QInputDialog` import / `REQUIRED_ROUND="ROUND8"`（次ラウンドで更新）/ `_guess_event_key`（`DATA 2D` から ROUND8 event 推測して pre-fill）/ `_run_import` = subprocess 前に event 入力必須（cancel/空/非ROUND8 は拒否・DB無変更）→ dry-run/apply 両方に `--event <ev> --required-round ROUND8` 付与 → 確認ダイアログに対象 event 明示（「この event のみ・ROUND8 限定」）。
+
+### 68b. 検証（全 PASS）
+- py_compile 両ファイル PASS。CLI: `--apply`(event無)=exit4 / `--apply --event ROUND7 --required-round ROUND8`=exit4 / dry-run ROUND7 同=exit4 / `--event ROUND8 --required-round ROUND8` dry-run=exit1（候補未登録）/ `--apply` 同=exit1（書込なし）。
+- Workbench offscreen（`QInputDialog`/`QMessageBox`/`subprocess.run` monkeypatch・`_run_import`）: valid ROUND8=**1 call** w/ `--event…--required-round ROUND8` / 空=**0 call**+warn / 非ROUND8=**0 call**+warn / cancel=**0 call**。`REQUIRED_ROUND=ROUND8`・`_guess_event_key`→`20260710-ROUND8-JA52`（folder 実在）。
+- **無書込証明**: 業務+provisional 件数 before==after（runs286/laps1279/lap_suspension1279/race_results866・provisional 0/0/0）＝全 guard-fail で無書込を実証（Layer1 は run_pipeline 前・Layer2 は backup 前）。
+
+### 68c. 残・rollback・スコープ外
+- **実データ apply 検証は Round8 初回 session 到着後**（`20260710-ROUND8-JA52` folder は存在するが Session Scan 未登録＝queue 候補 0）。次ラウンドは `REQUIRED_ROUND`/`--required-round` を更新（ガードは削除しない）。GUI 目視は Tatsuki ローカル。
+- rollback: `git checkout -- session_extract_staging.py ts24_workbench.py`。
+- スコープ外（forbidden 遵守）: canonical write / historical-pending apply / Round8 final化 / queue cleanup / DB Master / Supabase / commit・push / folder watcher。
+- 変更: `session_extract_staging.py` / `ts24_workbench.py`。新規: `reports/round8_only_provisional_guard_apply_20260709.md` / `CLAUDE.md §68`。
+
+---
+
+## 69. Round8 Session Import "No Candidates" hotfix（P0・現地復旧診断）— 2026-07-10 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-10 P0）+ 指示書 `reports/round8_session_import_no_candidates_hotfix_code_instruction_20260710.md`。
+Tatsuki が Round8 2D data を保存したが Workbench `Session Import (staging)` が `新規取込候補はありません（queue pending 0）` を表示（現地で復旧手順不明のまま詰まる）。
+**変更 = `ts24_workbench.py` のみ**（`ImportQualityTab`・診断改善 + 安全な Scan 復旧導線）。`extraction_scan.py`/`session_extract_staging.py` は無変更＝**Round8 guard §68 完全保持**。DB read-only（業務テーブル before==after 不変・実 Scan/Import 未実行）。成果物 = `reports/round8_session_import_no_candidates_hotfix_20260710.md`。
+
+### 69a. Root cause
+- `DATA 2D/20260710-ROUND8-JA52` はディスク実在（`FP-JA52-01/02.MES`・`.DDD`/`.LAP`/`.HED` 完備・`discover_outings`=2 outing nested）だが `source_file_registry`/`import_queue` に Round8 行 **0**。
+- `session_extract_staging.py`（Session Import 実体）は **filesystem 直読でなく `import_queue` を読む** → Session Scan 前に Import すると候補0（exit 1）。＝データ欠損でもバグでもなく「未Scan（ワークフロー順序未実行）」。従来UIが復旧導線を出さなかったのが唯一の問題。
+
+### 69b. 実装（`ImportQualityTab`・3点）
+- 新規 `_looks_unstable(ev_dir)`: 半端コピー/iCloud placeholder/コピー継続中を **name+stat のみ**で検出（内容非読取＝iCloud DL 非誘発・§24a）。`.icloud`/`._`/`.~`/`.partial`/`.tmp`/`~$` + mtime<30s を計数。
+- 新規 `_diagnose_zero_candidates(ev)`（read-only・管理テーブル SELECT のみ）: `(case,title,message,offer_scan)` を返す。case = `folder_missing`（folder 無）/ `not_scanned`（folder有・registry/queue 0 → Scan 誘導）/ `unstable`（未安定サイン併記）/ `no_pending`（Scan済だが pending 0 = 既取込）/ `unknown`。
+- `_run_import` の exit==1 分岐を差替: 原因別メッセージ + `offer_scan=True` 時は **「Session Scan を実行」ボタン**（押下で既存 `_run_scan()`=`extraction_scan.py`・管理テーブルのみ実行 → 「Scan 後に再 Import」案内）。**auto-apply しない**（provisional 書込は従来どおり人手 Apply + event guard 経由のみ）。
+
+### 69c. 検証（全 PASS）
+- py_compile（ts24_workbench/extraction_scan/session_extract_staging）PASS。
+- `extraction_scan.py --dry-run --min-age 0` → 検出 408（2D=315 Round8含む）・**DB 書込なし**（dry-run 後 registry/queue Round8=0）。
+- offscreen smoke: 7タブ無回帰 / `_diagnose_zero_candidates('20260710-ROUND8-JA52')`=not_scanned・offer_scan=True / 存在しない event=folder_missing / `_looks_unstable`(実dir)=""（安定） / `_run_import`(exit1 monkeypatch): 「閉じる」→scan呼出0・「Session Scan を実行」→scan呼出1。
+- **業務+provisional+Round8管理行 before==after 不変**（runs286/laps1279/lap_suspension1279/race_results866/pdf_lap_times7613・prov0/0/0・reg/queue Round8=0）。GUI 最終目視は Tatsuki ローカル。
+
+### 69d. 現地復旧手順 / スコープ外
+- 復旧: `📥 Import / Quality` → `🔍 Session Scan`（管理テーブルのみ）→ `⬇ Session Import` → event `20260710-ROUND8-JA52`（自動 pre-fill）→ dry-run 確認 → Apply（既定 Cancel）。候補0でも未Scan なら復旧導線が自動表示。
+- rollback: `git checkout -- ts24_workbench.py`。
+- スコープ外（forbidden 遵守・未実施）: Round8以外 import / event filter なし apply / Round8 final化 / canonical write / historical queue cleanup / DB Master refresh / Supabase / commit・push / folder watcher auto-apply。**実 Scan/Import は現地 iCloud 目視運用のため Tatsuki ローカルに委譲**（データ安定性は確認済）。
+- 変更: `ts24_workbench.py`。新規: `reports/round8_session_import_no_candidates_hotfix_20260710.md` / `CLAUDE.md §69`。
+
+---
+
+## 70. Round8 Donington circuit 正規化 readiness（P0・final化前・read-only）— 2026-07-10 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-10 P0・§69 hotfix 後 Codex/Tatsuki が formal 化）+ 指示書 `reports/round8_donington_circuit_normalization_code_instruction_20260710.md`。§69 で私が FOR_CODEX へ申し送った circuit 正規化課題の read-only readiness。**`circuit_canon` 変更・provisional 書換・run_id/lap_id 変更・finalization 一切なし**（DB `mode=ro`・業務テーブル不変）。成果物 = `reports/round8_donington_circuit_normalization_readiness_20260710.md`。GO 文言 = `Round8 Donington normalization GO`。
+
+### 70a. 実測（read-only）
+- provisional: **2 runs/21 laps/21 lap_suspension**・circuit=**`DONINGTONPARK`**・run_id `PROV_20260710_ROUND8_DONINGTONPARK_FP_JA52_R1/R2`。業務 286/1279/1279/866 不変。
+- canonical: `TRACK_M["DONINGTON"]=4023`・`DONINGTONPARK` キー無し（`.get`=None）。業務テーブルに `DONINGTONPARK` **0件**（未汚染）。race_results DONINGTON 168 行=**全 `data_scope='COMPANY'`（BSB）**。**runs/laps/lap_suspension に data_scope 列は無い**（COMPANY/WorldSSP は round+circuit で分離・data_scope は race_results のみ）。
+- 根本原因: Report DAY1 CIRCUIT=`"DONINGTON PARK"` → `circuit_canon`（`build_master_db.py:71-76`）が空白除去で `DONINGTONPARK`。辞書に `BALATONPARK→BALATON` はあるが **`DONINGTONPARK→DONINGTON` が欠落**。`.line` 不在・HED=`Donington`（未使用・event_circuit は Report 優先）。
+
+### 70b. 修正設計（GO 後・追加のみ）
+- **一点修正で両経路解決**: `session_extract_staging.py:385-388` が `bmd.circuit_canon(bmd.circuit_from_report(...))` を使用＝**provisional と finalization が同一関数共有** → `build_master_db.circuit_canon` に `"DONINGTONPARK":"DONINGTON"` 追加で両方 `DONINGTON` 化。
+- **circuit_canon は約7ファイルに重複**（全て BALATONPARK 有・DONINGTONPARK 無）: 必須=`build_master_db.py:71`＋`cutover_db.py:34`、一貫性=`reconcile_2d_vs_original.py`/`corner_phase_analysis.py`/`lap_overlay_extractor.py`/`lap_suspension_stats.py`/`parse_2d_channels.py`（後者群は HED 由来で既に DONINGTON・防御的追加）。将来課題=共有モジュール集約（別タスク）。
+- **apply = provisional 再生成推奨**（in-place UPDATE で run_id/lap_id 書換は非推奨）: backup → Round8 provisional DELETE（event_key）→ fix 後 `session_extract_staging.py --apply --event 20260710-ROUND8-JA52 --required-round ROUND8` 冪等再取込で DONINGTON 生成。§65d と同型。
+- 検証ゲート（finalize 前必須）: provisional circuit=DONINGTON・run_id に DONINGTONPARK 0・counts 2/21/21・業務不変 / `TRACK_M.get("DONINGTON")=4023` で is_outlap ④復活 / scratch `build_master_db --round ROUND8` 受入ゲート0・circuit=DONINGTON。
+
+### 70c. 運用推奨 / スコープ外
+- **Round8 finalization は本 fix + 検証完了まで実施しない**（放置で canonical に DONINGTONPARK 確定＝二重サーキット化・is_outlap ④ degrade）。fix 前に QP/RACE が届けば DONINGTONPARK になるため、**FP のみの今 fix するのが最小コスト**。追加分は fix 後に一括 re-normalization。
+- 別途: Tatsuki ノート `2026-07-10　Update idea.md`（bike_geometry_master/setup_snapshots/ΔGeometry 等の将来 DB 設計案）を確認・記録（inbox タスク化されておらず実装対象外・将来設計候補）。
+- スコープ外（禁止遵守・未実施）: circuit_canon 変更 / provisional 書換 / run_id・lap_id 変更 / Round8 final化 / canonical write / DB Master / Supabase / commit・push / historical queue cleanup / Round8-only guard 変更。
+- 新規: `reports/round8_donington_circuit_normalization_readiness_20260710.md` / `CLAUDE.md §70`。変更なし（read-only）。
+
+---
+
+## 71. ★Round8 Donington circuit 正規化 apply（Tatsuki `Round8 Donington normalization GO` 受領）— 2026-07-10 Claude Code
+
+§70 readiness を受け Tatsuki が本セッションで **`Round8 Donington normalization GO`** を明示 → 実行。**circuit_canon alias 追加（7ファイル・追加のみ）+ Round8 provisional 再生成**（`DONINGTONPARK`→`DONINGTON`）。**canonical 業務テーブル書込なし・Round8 finalization は別 GO 据え置き・commit/push なし**。成果物 = `reports/round8_donington_circuit_normalization_apply_20260710.md`。
+
+### 71a. コード修正（追加のみ・7ファイル）
+- `circuit_canon`（strip 非英数系）に `"DONINGTONPARK":"DONINGTON"` 追加: `build_master_db.py:74`（最重要＝provisional/finalization 共有）/ `cutover_db.py:39` / `reconcile_2d_vs_original.py:33`。
+- `_CIRC_NORM`（空白保持系）に `"DONINGTON PARK":"DONINGTON"` + `"DONINGTONPARK":"DONINGTON"` 追加: `corner_phase_analysis.py` / `lap_overlay_extractor.py` / `lap_suspension_stats.py` / `parse_2d_channels.py`（HED 由来で従前も DONINGTON・防御的）。
+- 各ファイル「対象1回・未パッチ」assert 付き置換。py_compile 8ファイル PASS。回帰 assert: `circuit_canon("DONINGTON PARK")="DONINGTON"`・他サーキット（BALATON PARK/PHILLIP/ARAGON/MISANO…）不変・`TRACK_M.get("DONINGTON")=4023`。
+
+### 71b. provisional 再生成（regenerate 戦略・§70 §5.2）
+- pre-DELETE backup `02_DATABASE/_backup_donington_norm_20260710_145654/`（db+wal+shm）。
+- DELETE（`provisional_event_key='20260710-ROUND8-JA52'`）2/21/21→0/0/0（同一接続で業務不変 assert 後 commit）。
+- `session_extract_staging.py --apply --event 20260710-ROUND8-JA52 --required-round ROUND8 --include-awaiting`（`--event` filter で Round8 のみ・`--include-awaiting` で既 awaiting_gate FP2 再候補・DELETE 済で manifest hash 新規→INSERT）。circuit=DONINGTON・FP-01 PASS(15lap/90.24)・FP-02 WARNING(6lap/89.96)・**業務6 before==after assert 合格**。auto-backup `_backup_session_staging_20260710_145654/`。
+
+### 71c. 検証（全 PASS）
+- provisional: business 286/1279/1279/866/7613 不変・prov 2/21/21・circuit=`DONINGTON`(2/2)・run_id `PROV_20260710_ROUND8_DONINGTON_FP_JA52_R1/R2`・**DONINGTONPARK 残骸 0**（prov+業務 run_id/lap_id 全0）。
+- scratch finalization（`build_master_db --round ROUND8 --out /tmp`・canonical 無書込）: Round8 circuit=`DONINGTON`(2/2)・DONINGTONPARK 0・runs2/laps21・**受入ゲート |2D−PDF|>1.5s=0件 ✅**→finalization も DONINGTON 生成を実証。scratch 削除。
+- Workbench offscreen: 7タブ・overlay 1300行（final1279+prov21）・Donington 表記=`DONINGTON` のみ・DONINGTONPARK 0行。GUI 目視は Tatsuki。
+- 補足: 再import の `circuit P10 ref=None` は canonical に DONINGTON の 2D laps 未存在のため（MISANO 初回と同挙動・§64/§65）。修正の本質効果は finalization で `TRACK_M["DONINGTON"]=4023` 解決＝is_outlap ④ 有効化。
+
+### 71d. rollback / スコープ外
+- rollback: code=`git checkout --`（7ファイル）/ provisional=`_backup_donington_norm_20260710_145654/` 復元 or DELETE→旧コード再import。業務テーブル無変更。
+- スコープ外（禁止遵守・未実施）: Round8 finalization（別 GO）/ canonical write / DB Master / Supabase / commit・push / historical queue cleanup / Round8-only guard 変更。
+- **次（別 GO）**: Round8 finalization は後続 session 到着後に §65 型 targeted-insert で（本正規化が前提充足）。
+- 変更: `build_master_db.py`/`cutover_db.py`/`reconcile_2d_vs_original.py`/`corner_phase_analysis.py`/`lap_overlay_extractor.py`/`lap_suspension_stats.py`/`parse_2d_channels.py` + `CLAUDE.md §71`。新規: `reports/round8_donington_circuit_normalization_apply_20260710.md`。DB: provisional のみ再生成。
+
+---
+
+## 72. Round8 QP unregistered outings hotfix（P0・outing単位診断）— 2026-07-10 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-10 19:09 P0）+ 指示書 `reports/round8_qp_unregistered_outings_hotfix_code_instruction_20260710.md`。
+Tatsuki が Round8 QP data を保存したが Workbench `Session Import (staging)` が候補0（`session_import_dryrun_20260710_190918.log` = `[STAGE] 候補 0 件`）。
+**変更 = `ts24_workbench.py` のみ**（`ImportQualityTab`・追加のみ）。`extraction_scan.py`/`session_extract_staging.py` 無変更＝**Round8 guard §68 完全保持**。DB read-only（before==after 完全一致・実 Scan/Import 未実行）。成果物 = `reports/round8_qp_unregistered_outings_hotfix_20260710.md`。
+
+### 72a. Root cause
+- `DATA 2D/20260710-ROUND8-JA52` にディスク実在 **5 outing**（`FP-JA52-01/02` + `QP-JA52-01/02/03`）だが、registry/queue には **FP 2D 2行 + report 1行のみ**（QP 3本未登録）。`session_extract_staging.py` は `import_queue` を読むため候補0（exit 1）が必然。
+- §69 hotfix は **event 単位 count 診断**のため `registry=3 / queue=3(pending=1)` と見え、「event に既存行あり・新規 outing だけ未登録」を特定できず **unknown に落ちていた**。→ 診断を **outing 単位の突合**へ強化。
+
+### 72b. 実装（`ImportQualityTab`・3点・追加のみ）
+- 新規 `_reconcile_event_outings(ev)`: read-only outing 突合。disk = event 直下 `*.MES` フォルダ列挙（**name+stat のみ・内容非読取・iCloud DL 非誘発**・§24a 同方針）/ registry = `file_type='2d_outing' AND file_path LIKE '%<ev>%'` の `.MES` stem / queue = `target_kind='2d_extract'` の stem + pending/awaiting_gate 計数（report 等は `non_2d_pending` に分離）。戻り値 = disk/registry/queued/pending_2d/awaiting_gate_2d/missing_from_registry/missing_from_queue/non_2d_pending。
+- `_diagnose_zero_candidates` に case **`missing_outings`** 追加（`no_pending`/`unknown` より前）: missing outing 名を明示 + 突合数値 + **「report 行 pending N 件は 2D 抽出候補ではありません。Report 紐付けは provisional 2D 抽出の前提条件ではありません」** + `_looks_unstable` 併記 + `offer_scan=True`（既存 §69「Session Scan を実行」ボタン→`_run_scan()`→再Import案内へ接続・**auto-apply なし**）。
+- `_load()` で `🔎 検出チェック` タブ先頭に合成行 **`detect_outing_reconcile_2d`** を挿入（read-only・`data_quality_log` へ書かない）: `disk_2d=5 registry_2d=2 queue_2d=2 pending_2d=0 awaiting_gate_2d=2 missing=QP-JA52-01, QP-JA52-02, QP-JA52-03 next_action=Session Scan（report pending 1 件は 2D 候補外）`・missing あり=**FAIL 赤表示**（report pending と 2D 候補を分離表示）。
+
+### 72c. 検証（全 PASS）
+- py_compile 3ファイル（ts24_workbench/extraction_scan/session_extract_staging）PASS。
+- offscreen: 7タブ無回帰 / `_reconcile_event_outings` = missing=QP-JA52-01/02/03・awaiting_gate_2d=2・non_2d_pending=1 を正確検出 / `_diagnose_zero_candidates`=`missing_outings`・offer_scan=True・msg に QP 3本+Session Scan+report非前提を明示 / 既存 `folder_missing` 無回帰 / 検出チェック行0 = `detect_outing_reconcile_2d` FAIL。
+- **DB before==after 完全一致**: runs 286 / laps 1279 / lap_suspension 1279 / race_results 866 / pdf_lap_times 7613 / provisional 2/21/21 / registry 408 / queue 400。
+- Round8 guard §68 無変更（`session_extract_staging.py` の `--required-round`/`enforce_apply_guard` 存置・`extraction_scan.py` 無変更）/ §69 exit==1 配線無回帰 / 変更ファイルは `ts24_workbench.py` のみ（他の未コミット差分は §46e/§65/§71 の既記録作業）。
+- **raw-2D-first 確認**: 復旧経路は disk 突合→Session Scan（管理テーブルのみ）→dry-run→人手 Apply で完結し、Report 完了 / DB Master / Supabase / canonical finalization を一切前提にしない（Race weekend 必須要件・指示書準拠）。
+
+### 72d. 現地復旧手順 / rollback / スコープ外
+- 復旧（Tatsuki）: `📥 Import/Quality` → `⬇ Session Import` → event `20260710-ROUND8-JA52` → 候補0 popup が QP 3本 missing を明示 →「Session Scan を実行」→ Scan 完了後もう一度 Session Import → dry-run 確認（Round8 QP のみ）→ Apply（既定 Cancel・別確認）。**実 Scan/Import は iCloud 目視運用のため Tatsuki ローカル実行**。
+- rollback: `git checkout -- ts24_workbench.py`（DB 無変更）。
+- スコープ外（forbidden 遵守・未実施）: guard 弱体化 / unfiltered import / auto-apply / Round8 final化 / canonical write / Report 完了の前提化 / DB Master refresh / Supabase sync / historical queue cleanup / commit・push / folder watcher。
+- 変更: `ts24_workbench.py`。新規: `reports/round8_qp_unregistered_outings_hotfix_20260710.md` / `CLAUDE.md §72`。
+
+---
+
+## 73. Race weekend Workbench data ops hardening（P0・fail-closed安全レイヤー）— 2026-07-10 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-10 P0）+ 指示書 `reports/race_weekend_workbench_data_ops_hardening_code_instruction_20260710.md`。
+Tatsuki 要求「Race weekend の Workbench データ作業で絶対に問題が起きないよう対策」を、operator の注意力でなく **Workbench 自身の fail-closed 安全レイヤー**で担保。
+**変更 = `ts24_workbench.py` のみ**（`ImportQualityTab`・約610行追加）。`extraction_scan.py`/`session_extract_staging.py` は**無変更＝§68 Round8-only guard 完全保持**。DB 書込なし（SELECT のみ・Safety Audit の書込は `.md` 1ファイルのみ）。成果物 = `reports/race_weekend_workbench_data_ops_hardening_20260710.md`（+ audit サンプル `race_weekend_workbench_safety_audit_20260710_213504.md`）。
+
+### 73a. 背景
+- Round8 FP/QP provisional は正常反映済み（**5 runs / 39 laps / 39 lap_suspension**・canonical 286/1279/1279/866/7613/7710 不変・Round8 canonical 0・PROV 汚染 0）。
+- ただし安全性は「operator が `保存→Scan→Import dry-run→候補確認→Apply→overlay→Report v2 provisional` を正しく踏む」前提に依存（§62 で歴史的 pending 160 outing の誤 Apply リスク・§69/§72 で未Scan 詰まりの実績）。live workflow は raw-2D-first・offline-capable（Report 完了/DB Master/Supabase/canonical finalization を前提にしない）が非交渉要件。
+
+### 73b. 実装（`ImportQualityTab`・指示書§1-§6）
+- **§1 🏁 Race Weekend Status サブタブ**（inner QTabWidget 先頭・等幅テキスト・🛡 Safety Audit ボタン併設）: `_race_weekend_status()`/`_render_weekend_status()`/`_refresh_weekend_status()`（`_load` から refresh）。event / raw_2d_on_disk / registered_2d / queue_2d(pending/awaiting_gate/failed/skipped) / provisional by session / canonical_round8 / report_pending(**not a blocker**) / next_action を **local disk + SQLite のみ**で表示。
+- **§2 `_preapply_gate(ev, dry_stdout)`**（L7322・fail-closed 8チェック・read-only）: ①ROUND8 event 再確認 ②候補 run_id 抽出（`gate <outing>: PASS|WARNING (run_id=..., laps=N)` regex・**FAIL隔離分と report pending は構造的に候補外**・候補0=FAIL＝fail-closed）③非ROUND8/非PROV_ 混入列挙 ④date+round と ev 整合（historical pending 検出）⑤disk-registry-queue 突合（missing→「先に Session Scan」）⑥候補数>disk数 検出 ⑦canonical ROUND8=0（runs/laps/lap_suspension）⑧expected delta 算出。**FAIL 1件でも critical ダイアログで全列挙し Apply 中止（subprocess 未起動・DB 無変更）**。
+- **§4 PASS 時の確認ダイアログ**: 候補 session 別一覧（例 QP: 3 outing / 18 laps）+ expected provisional delta + gate 全PASS + report pending not-a-blocker 明記（**既定 Cancel**）。複数 session 混在時は追加の明示確認（**既定 No**）。
+- **§3 `_post_apply_check`**（L7405・read-only）: apply 直前 `_all_counts()`（canonical 6 + provisional 3）→ apply 後に canonical unchanged / provisional delta==expected（laps==lap_suspension）/ ROUND8 only / canonical `PROV_%`=0 / canonical DONINGTONPARK=0 / report prerequisite not required を判定。全PASS=information、FAIL=**critical（apply ログ・backup パス〔stdout grep→02_DATABASE glob fallback〕・変化テーブル明示・「これ以上操作せず Code に連絡（do not continue）」）**。
+- **§5** `_reconcile_event_outings` に disk/registry/queue/missing_by_session + failed_2d/skipped_2d を追加（既存キー不変＝§72 無回帰）。`_session_of_stem()` 新設。
+- **§6 `_run_safety_audit()`/`_write_safety_audit()`** → `reports/race_weekend_workbench_safety_audit_<TS>.md`（7セクション: raw disk / registry・queue / provisional / canonical invariants / 最新 scan・import ログ / next action / PASS-FAIL summary。DB は SELECT のみ）。
+
+### 73c. 検証
+- 実装セルフチェック全PASS: py_compile 3ファイル / offscreen 7タブ+inner 4タブ / status 実測 / gate 模擬（ok・非ROUND8混入・historical・空stdout fail-closed）/ audit .md 生成 / DB counts before==after。監督が `_preapply_gate`/`_post_apply_check`/`_run_import` 配線をコードレビュー（fail-closed 順序・既定 Cancel/No・例外時 DB 無変更・exit 2 時も expected delta 整合）。
+- **独立検証（別エージェント・read-only）全PASS**: MainWindow **7タブ**・inner **4タブ**（先頭=🏁）/ `_race_weekend_status('20260710-ROUND8-JA52')` = disk **5**（FP2/QP3）・queue awaiting_gate **5**・provisional **5 runs/39 laps**（FP 2/21・QP 3/18）・canonical_round8 **全0**・report_pending **1**・next_action `safe / waiting for new raw 2D` / gate 正常系（模擬 `PROV_20260710_ROUND8_DONINGTON_QP_JA52_R1..R3` laps 6/6/6）= **ok=True・QP 3 outing/18 laps・expected_delta(3,18,18)**、`PROV_20260612_ROUND7_MISANO_FP_JA52_R1` 混入 = **ok=False（FAIL 2件で run_id 明示）**、空 stdout = ok=False / **DB 11テーブル before==after 完全一致**（286/1279/1279/866/7613/7710・prov 5/39/39・registry 411/queue 403）/ §68 guard 保持（`extraction_scan.py` git clean・`enforce_apply_guard`/`--required-round` 存置）。
+
+### 73d. 運用・rollback・スコープ外
+- **Workbench がブロックするもの**: 非ROUND8 Apply / 非PROV_・historical pending 混入 / 未Scan Apply / report pending の 2D 候補化 / FAIL隔離分の取込 / canonical ROUND8>0 での live intake / dry-run 不明時の見切り Apply（fail-closed）/ apply 後 canonical 汚染の見逃し。**人間確認に残るもの**: iCloud 同期目視 / Scan・Import・Apply の最終クリック（既定 Cancel/No）/ 複数 session 混在の追加確認 / invariant FAIL 時の停止判断 / Report v2 provisional 確認 / Safety Audit 読解 / finalization（別 GO）。詳細 = deliverable §1/§2。
+- 現地手順: Status タブ確認 → （missing 時）Session Scan → Session Import → gate 自動評価 → Apply（既定 Cancel）→ post-apply invariant → Safety Audit（session 前/離脱前）。
+- rollback: `git checkout -- ts24_workbench.py`。**⚠ HEAD(5651d97) は §44 時点のため未コミットの §48〜§72 Workbench 機能もまとめて戻る** → 本タスクのみ外す場合は §73 追加ブロックの targeted revert（DB 無変更のため DB rollback 不要）。
+- スコープ外（forbidden 遵守・未実施）: canonical write / Round8 final化 / provisional clear / DB Master refresh / Supabase sync / commit・push / folder watcher auto-apply / §68 guard 弱体化 / Report 完了の前提化。**GUI 最終目視は Tatsuki ローカル**。
+- 変更: `ts24_workbench.py`。新規: `reports/race_weekend_workbench_data_ops_hardening_20260710.md` / `CLAUDE.md §73`。
+
+---
+
+## 74. Report v2 Update（数値ラベル・All Laps Phase Trend・Lap Time Distribution）— 2026-07-10 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-10 P1）+ 指示書 `reports/report_v2_update_code_instruction_20260710.md`（Tatsuki ノート `2026-07-10　Report Update` 由来）。
+Report v2 の品質改善を **report-only** で実装。**変更 = `suspension_report.py` のみ**（`ts24_workbench.py` 無変更・既存 `📄 Create Report v2` ボタンはそのまま動作）。
+DB は **`mode=ro` のみ**（canonical 書込 / extraction logic / metric definition / phase mask / provisional import / Race Weekend data ops / DB Master refresh / Supabase sync / commit・push = すべて無し）。成果物 = `reports/report_v2_update_20260710.md`。
+
+### 74a. 背景（Tatsuki 要望 4 点）
+①既存グラフ上で実数値を直接確認したい ②Report 選択中の**全 Run・全 Lap** をフェーズ別に 1 グラフ文脈で見てトレンドを確認したい ③明らかに飛び出た外れ値を色/マーカーで直感的に分かるようにしたい（**除外はしない**）④既存 lap-time progression に加えて **Lap time 分布図**のページが欲しい。
+
+### 74b. 実装（`suspension_report.py`・4 点）
+- **§1 数値ラベル**: 新ヘルパー `_bar_value_labels()`（棒上ラベル・Y **+10% headroom** で軸/タイトル非重複・**12 本超でフォント縮小**・**欠損=ラベル無し、0 と表示しない**）。`chart_phase_summary` 全 3 フェーズページに配線（F/R position=`x.x` mm・speed=整数 idx）。`chart_run_overview` 既存 best/median ラベルは無回帰。
+- **§2 新ページ `All Laps Phase Trend & Outliers`**: 新 `chart_all_laps_phase_trend()`・phase summary 3 ページ後 / lap-by-lap 前（**slide 7**・両 builder）。1×3 フェーズパネル・X=連続 lap 連番・色=run・lap 毎マーカー・run 毎 median 破線。**page-2 filter 後の全選択 run・全 lap（新規 silent filter なし・RUN_CHART_CAP 非適用）**。metric=**Front position family のみ**（F+R 過密のためページ注記に明記・rear は phase summary 側）。外れ値 = 新 `_iqr_bounds()`（Q1/Q3±1.5×IQR per phase・有効値≥4）→ **赤リング+`R# L# value` ラベル・cap 6/panel**（`+N more flagged`）。注記「report-only visual flags; no DB/extraction change; laps NOT removed」を図内 + PPTX ノートに焼込み。
+- **§3 新ページ `Lap Time Distribution`**: 新 `chart_lap_time_distribution()`・lap-time progression 直後（**slide 9**・両 builder）。run 別 **box plot + 個別 lap 点**（**決定論 jitter・RNG 不使用**）・Y 軸 `M:SS,CC`・同 IQR ルールで outlier 赤リング+ラベル（cap 6）・**gold ★ fastest** 注記。final-only / provisional-only / mixed 3 モード動作・空 run ガード。
+- **§4 PPTX/PDF parity**: 両ページを `build_report_v2` と `build_report_pdf` の**同位置**に追加。新定数 `OUTLIER_IQR_K=1.5` / `OUTLIER_LABEL_CAP=6` / `TREND_OUTLIER_NOTE` / `DIST_NOTE`。
+
+### 74c. 検証（全 PASS）
+- py_compile 2 ファイル PASS。
+- サンプル = provisional Round8 `reports/pptx/suspension_report_v2_DONINGTON_JA52_ALL_PROVISIONAL_20260710_RPTUPD.pptx`（18 枚）+ `.pdf`（18 頁）（FP2+QP3 run・39→filter 後 34 lap・**auto-detect で PROVISIONAL ribbon + filename token 維持**）/ final 無回帰 `..._MISANO_JA52_ALL_20260710_RPTUPD_FINALREG.pptx`（20 枚）+ `.pdf`（`_PROVISIONAL_` 無し）。
+- PNG 目視: 数値ラベル・trend ページ（5 run・median 破線・赤リング `R3 L8 114.0` 等）・distribution ページ（box+点+`R2 L3 1:35,38`・fastest ★）。page-2 filter 開示維持（除外 lap 一覧 = provisional 5 / final 12 lap）。
+- **全スライド CJK=0（両デッキ）** / **DB 14 テーブル before==after 完全一致**（runs286/laps1279/lap_suspension1279/race_results866/pdf_lap_times7613/v2_staging7710・prov 5/39/39・registry411/queue403 他）。
+
+### 74d. 制限・rollback・スコープ外
+- 制限: outlier ラベル cap 6/panel / 12 本超バーはフォント 6.5pt / trend ページ=Front position のみ（ページ内開示・rear は phase summary 側）/ IQR は有効値≥4 必要 / lap-time outlier は page-2 filter 後 lap で算出（開示済）/ PPTX のみの「Run detail cap」テキストページ非対称は既存のまま（スコープ外）。**GUI クリック確認（📄 Create Report v2）は Tatsuki ローカル**。
+- rollback: **`suspension_report.py` は untracked のため git revert 不可、かつ §48 以降の全 Report v2 機能を内包＝単純削除不可**。本更新のみ戻す場合は該当関数（`_bar_value_labels`/`chart_all_laps_phase_trend`/`_iqr_bounds`/`chart_lap_time_distribution`/新定数 4 つ）と両 builder 配線の **targeted revert**。DB/Excel/Supabase/Workbench 無変更のため DB rollback 不要。
+- スコープ外（禁止遵守・未実施）: canonical write / extraction・metric・phase mask 変更 / provisional import・Race Weekend data ops 変更 / DB Master refresh / Supabase sync / commit・push。
+- 変更: `suspension_report.py`。新規: `reports/report_v2_update_20260710.md` / サンプル pptx+pdf ×2 組 / `CLAUDE.md §74`。
+
+## 75. Race Weekend Event Control Plane readiness（P0・Phase A・read-only）— 2026-07-11 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-11 P0）+ 設計正本 `04_SYSTEM_DESIGN/2026-07-11_Race_Weekend_Event_Control_Plane.md`。
+ROUND8 live 運用中のため **Phase A read-only readiness のみ**。**DB / runtime コード / queue / provisional / Workbench UI = 完全無変更**（DB は本フェーズで一切開いていない。数値は調査エージェント3件の結果を引用）。書込 = `reports/race_weekend_event_control_plane_readiness_20260711.md` / `reports/event_manifest_schema_proposal_20260711.json`（UNEXECUTED DESIGN PROPOSAL・未配線）/ Obsidian .md のみ。実装ゲート = `Event control plane implementation GO`。
+
+### 75a. 背景
+
+WUP1 provisional intake 成功（ROUND8 prov 6 runs/46 laps/46 lap_susp・canonical ROUND8 0/0/0）だが、Session Scan が全データ領域を走査し registry 新規20・queue pending 19 を追加。queue pending 383 のうち **ROUND8 は 11 のみ・historical 372（97%・26イベント分散）**＝全域 Scan の副作用（detect_duplicate が log の 87%=2304行）。誤 Apply は §68/§73 で防御済だが、live scan と maintenance scan の分離・イベント定義の全工程共有が必要。調査は 3 エージェント（Workflow 棚卸し / Data-integrity / Adversarial 7 シナリオ）+ supervisor 矛盾検証（3報告は相互整合・補正1点=§62「historical 160 outing」は現在 372 に増加＝各時点で正）。
+
+### 75b. 調査結果・敵対所見
+
+- **Workflow**: `extraction_scan.py` = event/round filter 一切なし（scan_2d:167-174 全イベント・rglob 全域・CLI に --event 無し・queue 投入:419-432 全件＝歴史的 pending の発生源）。`session_extract_staging.py` = queue 駆動・§68 二層 guard（enforce_apply_guard:634-654 / do_apply:484-494）は健在だが **--required-round default None＝CLI 単体では非有効**。`ts24_workbench.py` = **ROUND8 実効ハードコードは :6935 `REQUIRED_ROUND` の1箇所のみ**（毎ラウンド手動書換=唯一の必須コード変更）・`_run_scan`:6857 引数なし全域 scan・`_run_import`:7683-7706 は guard 常時付与。Manifest 最小手術点は3つ（scan filter+--manifest / staging main() args 充填 / Workbench REQUIRED_ROUND manifest 化）＝**§68/§73 は入力値の出所が変わるだけで無改変**。他負債: build_master_db.py:124 rider 列挙 / KNOWN_SESSIONS 固定集合。
+- **Data-integrity**: event 一次表現・event 粒度 state・遷移履歴・raw_2d_root/allowed_sessions・event 単位 fingerprint 集約は既存スキーマで**全て不足 → 新テーブル event_manifest + event_state_ledger 必要**（既存 ALTER 不要・追加のみ）。`events` テーブルは report 事後生成（ROUND8 行なし）＝manifest 不適。provisional_event_key は rider 含む＝event×rider 粒度（weekend と2階層区別要）。sha256 は 2d=64hex / report=`stat:` 短縮の二形式混在。import_queue 'done' 遷移 0 件（未実装）。data_quality_log severity 表記揺れ→新テーブルは CHECK 制約。ROUND8 の source_manifest_hash ↔ registry.sha256 一致=トレーサビリティ成立。
+- **Adversarial 7 シナリオ**: ①同名同サイズ差替=**UNPROTECTED**（stat fingerprint は mtime 除外・内容差替を永久に再検出せず）②event 外 .MES=PARTIAL（**nested tier は HED ゲート免除で素通り**・copia/loose は BLOCKED）③コピー途中=PARTIAL（dataless st_blocks==0 と mtime 古い truncated 検出不能）④同一 outing 再取込=PARTIAL・**★最重要: run_no バッチ相対採番→通常運用で run_id 衝突→INSERT OR REPLACE 上書き+旧 laps 孤児化**（CLI 無検出）⑤historical pending=Workbench BLOCKED / **CLI PARTIAL**（--required-round None 素通り）⑥canonical 混入=BLOCKED-事前（残穴: COUNT assert のみ・DDL 無検証 executescript）⑦中断=BLOCKED（残穴: backup WAL sidecar 非対応 staging:499-501 / scan:364-370）。
+- **fail-closed 要求（優先順）**: **P0-1** active_event を DB Ledger 単一正本化・CLI 強制（REQUIRED_ROUND 二重保守廃止）/ **P0-2** run_no 決定論採番+既存 run_id 衝突×hash 不一致=FAIL+REPLACE 時旧 lap 全削除 / P1-3 全 tier HED メタ照合+期待 outing 集合 / P1-4 apply 時 content sha256 Ledger 記録 / P1-5 DDL sha256 ピン留め+content-digest assert / P2-6 dataless 検出+--min-age 0 apply 禁止 / P2-7 歴史 pending superseded 化+Safety Audit に provisional⊆active 検査。rollback 要求 = WAL-safe backup 統一・REPLACE pre-image 保存・apply 状態機械（started/committed）。
+
+### 75c. 設計骨子
+
+- **Event Manifest**: 人が作成・承認する JSON（`02_DATABASE/event_manifests/<event_key>.json`）+ DB ミラー `event_manifest`（Phase B 新設・追加のみ）。必須 = event_key（YYYYMMDD-ROUNDx-RIDER・派生 weekend_key）/ date / round / circuit（TRACK_M 一致必須）/ riders / raw_2d_root / allowed_sessions / status（`draft→approved→active→locked→closed` CHECK・**active 同時1件**）/ schema_version。運用 = manifest_version（locked 後は新 version のみ）/ content_hash（**初回 apply receipt に保存→以後の書換え検出**）/ approved_by・approved_at（Tatsuki）/ activated_at / fingerprint_policy（stat|content・シナリオ①対応）/ expected_outings（宣言時は集合外 gated）。ROUND8 例 = `20260710-ROUND8-JA52`・DONINGTON・JA52・FP/QP/WUP1/WUP2/RACE1/RACE2・raw_2d_root=`DATA 2D/20260710-ROUND8-JA52`（実 JSON = schema proposal 内）。
+- **Event-scoped Scan**: live = `--manifest` 指定時 raw_2d_root のみ+reports/results は round 一致のみ（queue 投入も scope 内のみ＝歴史的 pending 発生源遮断）。maintenance = 引数なし現行動作を別名分離（Workbench live ボタンは --manifest 付与）。受入条件 = disk/registry/queue/dry-run 候補が **(event_key, outing_stem, fingerprint)** で 1:1・不一致は fail-closed+理由表示。移行順 = Phase B は manifest **追加入力**（§68 guard・§69/§72 診断・§73 Safety Audit 無改変併存）→複数セッション実証後 Phase C で唯一の許可源へ切替・REQUIRED_ROUND はフォールバック残置。
+- **Event State Ledger**: 新テーブル `event_state_ledger`（**追記型・UPDATE 禁止**）= entry_id PK / event_key / scope（event|session|outing）/ scope_id / state（CHECK）/ prev_state / reason / actor / analysis_run_id / receipt_json / created_at。状態機械 = `discovered→registered→candidate_ready→staged→verified→reportable→finalized` + 分岐 failed/warning_accepted/skipped/superseded/quarantined（理由必須）。Apply receipt = manifest content_hash+version / expected vs actual delta / post-apply invariants / operator 決定 / backup path / dry-run・apply ログ path。apply 状態機械（apply_started→apply_committed）で中断残骸を起動時検出。境界 = reportable まで provisional・finalized は別 GO（§65 型）・DB Master/Supabase/origin push はさらに独立 GO。
+- **Phase B 分割**: **B-1**（最初・最小）= create_quality_tables.py 方式で 2 テーブル新設（追加のみ・冪等・CHECK）+ ROUND8 manifest JSON 承認 + Workbench 🏁 タブ read-only 表示のみ（scan/staging 挙動変更ゼロ）→ **B-2** = extraction_scan --manifest + maintenance 分離（フォールバック=現行）→ **B-3** = staging/Workbench manifest 読込（REQUIRED_ROUND 残置・二重検証）+ **P0-2 run_no 決定論採番+衝突 FAIL** + P0-1 CLI active-event 強制 + WAL-safe backup 統一。各 B-x で変更ファイル・migration（2テーブル追加のみ・既存 ALTER なし）・後方互換（manifest 不在=現行動作）・テスト（offscreen+CLI ガード行列+DB 不変）・GUI 確認（Tatsuki）・切戻し（DROP/ファイル削除/revert・guard 無改変で安全）を明示。
+
+### 75d. 次ゲート・スコープ外
+
+- 次ゲート: **`Event control plane implementation GO`**（この文言まで実装・DB migration・配線は一切開始しない。ROUND8 稼働中は Phase A で停止）。
+- スコープ外（forbidden 遵守・未実施）: runtime 3 スクリプト変更 / canonical・provisional・registry・queue・data_quality_log への書込・削除・migration / DB Master refresh / Supabase / commit・push / Round8 finalization / provisional clear / §68 guard 弱体化 / folder watcher・auto-apply。
+- 新規: `reports/race_weekend_event_control_plane_readiness_20260711.md` / `reports/event_manifest_schema_proposal_20260711.json`（未配線）/ `CLAUDE.md §75`。コード変更: **なし**。
+
+---
+
+## 76. ROUND8 Live Intake P0 Operations Gate（read-only runbook）— 2026-07-11 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-11 P0 第2タスク・L86-135）。§75 readiness で確定した P0 穴（①CLI 単体 `--apply` は `--required-round` 省略可 ②同一 session 時間差 outing の batch 相対 run_no → run_id 衝突 REPLACE 上書き+孤児 lap ③nested tier の event 外 .MES 素通り ④同名同サイズ差替検出不能）を、実装 GO までの間 **運用で発火させない**ための現状監査 + 現地 Runbook。**read-only / documentation-only**（DB は `mode=ro` SELECT のみ・runtime コード / queue / provisional / Workbench UI 無変更・テスト Scan/Apply なし・書込 = 本 .md と Obsidian .md のみ）。成果物 = `reports/round8_live_intake_p0_operations_gate_20260711.md`。
+
+### 76a. 背景
+
+ROUND8 live provisional 運用中（WUP1 まで成功）。Workbench 経由の Apply は §68 二層 guard + §73 fail-closed（`_preapply_gate` 8チェック / `_post_apply_check` invariant / 🏁 Status / 🛡 Safety Audit）で防御済みだが、§75 で「CLI 単体は guard 非有効」「run_no バッチ相対採番の衝突は通常運用で発火し得る」「事前 gate は衝突を検出できない」が確定。B-1 以降は `Event control plane implementation GO` 待ちのため、それまで唯一の安全経路 = 既存 Workbench 導線を Runbook として固定する。
+
+### 76b. 現状監査（mode=ro・全チェック PASS）
+
+- provisional 3テーブル: **6 runs / 46 laps / 46 lap_suspension**（FP 2/21・QP 3/18・WUP1 1/7）= 期待完全一致。run_id 重複 0・親 run なし lap 0・laps↔lap_suspension lap_id 差分 0/0。
+- provenance: 全 6 run が `provisional_event_key='20260710-ROUND8-JA52'`・circuit=DONINGTON・rider=JA52・quality PASS 5 + WARNING 1（FP_R2）・**source_manifest_hash ↔ registry.sha256 が 6/6 JOIN 一致**。
+- canonical 汚染 0: runs/laps/lap_suspension/race_results の ROUND8 行 0・`PROV_%` 0・DONINGTONPARK 0。totals = 286/1279/1279/866/7613/7710 不変。
+- **queue 分離（JA52 live intake に混ぜてはいけない対象を数値で確定）**: queue 422 行（pending 383 / awaiting_gate 18 / failed 7 / skipped 14）。ROUND8 = 17 行 → **JA52 2d=awaiting_gate 6（取込済・再候補化禁止）/ JA52 report_import pending 1（2D 候補外=not a blocker）/ DA77 2d pending 10（Apply 対象外）**。加えて **historical pending 372（26 イベント分散）は絶対に Apply しない**。awaiting_gate 18 の残り 12 は ROUND7 JA52（final 反映済 §65・再候補化禁止）。
+
+### 76c. Runbook 骨子（正本 = reports/round8_live_intake_p0_operations_gate_20260711.md）
+
+- **許可経路（これのみ）**: 📥 Import/Quality → 🔍 Session Scan → ⬇ Session Import dry-run → 候補確認 → Apply 確認（既定 Cancel）→ 🏁 Status / 🛡 Safety Audit → provisional overlay 確認。
+- **禁止**: 直接 CLI `session_extract_staging.py --apply` / `--include-awaiting` / live 中の全体 maintenance scan / DB ブラウザ更新 / 複数 session 曖昧一括 Apply / DA77・report・historical 行の Apply。
+- 新 session 到着時 8 ステップ（iCloud 目視 → Status → Scan → Import dry-run〔候補 run_id が既存と重複しないか目視必須〕→ Apply → post-apply invariant 全PASS → Status+Safety Audit → overlay ⏳prov）+ 復旧時保存物（scan/import ログ・Safety Audit .md・ダイアログ/Status スクリーンショット・backup パス）。
+- Session Scan の全域走査副作用（他イベント registry/queue 増加）は既知・Apply 防御済み・記録のみで気にしない。
+- **Apply せず停止の 5 ケース**（各: 画面表示 / 危険理由 / 停止後 = Cancel→ログ保存→Code へ連絡）: ①同一 session 追加 outing（run_no 衝突・★最重要）②Apply 候補が 1 session でない（複数 session ダイアログ=原則 No）③run_id 既存重複 or expected delta 不一致（post-apply invariant FAIL 含む）④event 外 / DA77 / report 行が候補に出現 ⑤canonical 変化表示（Status canonical_round8≠0 / canonical unchanged FAIL）。
+- **★ケース1 の検出限界を明記（隠さない）**: `_preapply_gate`（ts24_workbench.py:7322-7402）は候補 run_id vs 既存 provisional run_id を照合せず、**衝突時も expected delta が +1 で一致するため事前検出は不完全**。事後は `_post_apply_check`:7425-7435 の provisional delta FAIL（actual +0 runs）で捕捉されるが上書き発生後。→ **運用ルール = 「同一 session の既存 run がある状態で同 session の新規候補が出たら Apply 前に必ず停止」**（恒久修正は B-3 P0-2）。
+- 付録A = 5 ケース ↔ 検出機構の file:line 対応表（`_preapply_gate`:7322 #1-#8 / 確認ダイアログ:7778-7823〔既定 Cancel・複数 session 既定 No〕/ `_post_apply_check`:7405-7490 / `_race_weekend_status`:7219 / `_run_safety_audit`:7493）。ケース 2-5 = 既存機構で実効・ケース 1 のみ運用先回り必須。
+
+### 76d. ゲート再掲・スコープ外
+
+- **B-1 開始 GO = `Event control plane implementation GO`**（それまで runtime/migration/配線ゼロ）。finalization / DB Master / Supabase / origin push は Runbook 対象外・個別 GO のまま。ROUND8 closure → ROUND9 readiness タスクは **`ROUND8 weekend closed`** 待ち（未着手・触らない）。
+- スコープ外（forbidden 遵守・未実施）: `extraction_scan.py`/`session_extract_staging.py`/`ts24_workbench.py`/DB schema 変更 / テスト目的の Scan・Apply・queue/provisional/DB 更新 / DB Master / Supabase / commit・push / Round8 finalization / provisional clear。
+- 新規: `reports/round8_live_intake_p0_operations_gate_20260711.md` / `CLAUDE.md §76`。コード変更: **なし**。
+
+---
+
+## 77. Workbench APEX / Damping Run Filter（P1・read-only UIのみ・Tatsuki実装承認済）— 2026-07-11 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-11 P1）+ 指示書 `reports/workbench_apex_damping_run_filter_code_instruction_20260711.md`。
+Tatsuki の「両ページで Run 単位の検索・複数選択をしたい」要求＝**read-only UI 変更の明示承認**。`🦾 Suspension/Posture` の `📊 APEX分析（基本）` と `⚙️ Damping / Phase` が Circuit だけで全 Run 混在表示だったのを、両ページ共通 **`🔎 Run Filter`** で選択 run ID だけに絞れるようにした。
+**変更 = `ts24_workbench.py` の `PostureAnalysisTab` のみ**（+367/−1 行・8 ハンク・全て当該クラス内）。`extraction_scan.py`/`session_extract_staging.py` 無変更＝**§68 ROUND8 fail-closed guard 完全保持**。**DB は一切開かず**（in-memory `_df` read-only フィルタのみ・SQL/schema/書込ゼロ）。成果物 = `reports/workbench_apex_damping_run_filter_apply_20260711.md`。
+
+### 77a. 実装（`PostureAnalysisTab`）
+- **`🔎 Run Filter` 共通パネル**（新 `_build_run_filter_panel()`・内部サブタブの上に配置）: 折りたたみトグル(▾/▸) + `Rider`/`Session`/`Stage`(All/Final/Provisional) コンボ + `検索` + `全選択`/`全解除` + 状態ラベル + Run 複数選択 checkbox リスト（`QListWidget`・maxHeight 132px）。
+- **階層** = 上部 Circuit（global・既存）→ Rider → Session → Data stage → 検索可能 Run。`_combo_circ.currentTextChanged` を `_update_all`→新 `_rf_on_circuit`（Circuit 変更で Rider/Session/Run 再構築→再描画）へ再配線。
+- **両ページ反映** = `_filtered_df()` 末尾に `_apply_run_filter()`（Rider→Session→Stage→選択 run_id・**物理/lap-time validity の後**に適用）。`_update_all()` が APEX 4 パネル + Damping 3 プロット＋数値テーブルを**同一 `_filtered_df()`** で描くため両ページが常に同じ選択 ID を反映。
+- **空選択 = 明示空状態**（`_rf_clear_plots` で全プロット+Damping 表クリア・赤ラベル「Run 未選択…全Runへは戻しません」）。**サイレントに全 Run へ戻さない**。
+- **既定 = 現挙動保持**（Circuit スコープ内の有効 Run 全選択＝従来の全 lap 表示）。再読込/再構築で選択を可能な限り保持（`prev` 集合）。**Data stage 区別保持**（`data_stage` 列優先・無ければ `run_id` PROV_ prefix・provisional は `⏳ …(prov)`）。`PhaseRunCompareWidget` の選択セマンティクス踏襲（重複実装なし）。
+- **3フェーズ Run比較は独立**（`_inner_tabs.currentChanged`→`_rf_on_tab_changed` で比較タブ表示中は共通 Run Filter 非表示・`PhaseRunCompareWidget` 無改変）。検索は表示切替のみ（選択保持）・全選択/全解除は検索絞込中は表示中のみ対象。
+
+### 77b. 検証（全 PASS）
+- py_compile PASS。offscreen smoke（**canonical のコピー**に対して実行・実 DB 未オープン）: 7 タブ/内部 3 タブ・Run Filter 全ウィジェット存在・既定 circuit=全 run_list 175 全選択 filtered 1200・ASSEN 17 run/102 lap・Rider DA77 62/9・Session FP 16・**空選択→0 lap（全 Run へ戻らない）**・単一 run 11 lap・3 run 16 lap・**APEX+Damping 共有**（Damping 表 16 == filtered 16）・DONINGTON Provisional 6 prov run（ラベル `⏳ … (prov)`）・Final stage 0（ROUND8 未 finalization で正）・**3フェーズ比較の選択 4 run 不変**・タブ可視性・refresh 再構築。
+- **canonical/provisional/registry/queue before==after**（`mode=ro`）: 286/1279/1279/866/7613/7710・prov 6/46/46・registry 431/queue 422。**実 canonical DB SHA-256 完全一致**（`e74bdbfe…f42cda`）＝書込ゼロを実証。**GUI 目視（単一/複数/ROUND8 provisional Run 切替）は Tatsuki ローカル**。
+
+### 77c. rollback / スコープ外
+- rollback: Run Filter 追加ブロックの **targeted revert**（`_build_run_filter_panel`/`_rf_*`/`_apply_run_filter` 群 + `_setup_ui` の panel 追加・`_combo_circ` 再配線・`currentChanged` 接続 + `_filtered_df`/`_update_all`/`_load_data` の追加分）。⚠ `git checkout` は §48〜§76 未コミット機能も戻るため不可。基準スナップショット = scratchpad `ts24_workbench.py.pre_run_filter`。DB/Excel/Supabase 無変更で DB rollback 不要。
+- スコープ外（禁止遵守・未実施）: `extraction_scan.py`/`session_extract_staging.py`/import queue/staging・finalization/Report 生成/metric・phase 抽出/DB schema/DB 書込（テスト含む）/DB Master/Supabase/commit・push/ROUND8 fail-closed intake controls 弱体化。
+- 変更: `ts24_workbench.py`（`PostureAnalysisTab` のみ）。新規: `reports/workbench_apex_damping_run_filter_apply_20260711.md` / `CLAUDE.md §77`。
+
+---
+
+## 78. ★ROUND8 final DB integration（Track A・Tatsuki実行承認済 P0）— 2026-07-13 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-13 P0・**実行承認済**）+ 指示書 `reports/round8_final_integration_code_instruction_20260713.md`。
+Phase 1 read-only監査 → Phase 2 canonical apply → Phase 3 Workbench検証 → v2 staging補完 を完遂。**Race2 2D/telemetryのみ保留**（唯一の欠落ソース・捏造/placeholder/Race1流用なし）。
+成果物 = `reports/round8_final_integration_readiness_20260713.md`（Phase 1）/ `reports/round8_final_integration_apply_20260713.md`（Phase 2-3 + §11 v2 staging）/ `reports/pdf_v2_gate_20260713.md`。
+
+### 78a. Phase 1監査（read-only・canonical sha256 before==after 実証）
+- 全ROUND8ソース棚卸し（hash/mtime/disposition）: Report / Original（2026-07-12更新・ROUND8 JA52 9行）/ Result PDF 6本（RACE2含む）/ 両rider 2D。**Race2 .MES 両rider不在を確認**。
+- ROUND8限定scratch build: 19 runs/165 laps。**provisional 137/137 lap 完全一致**（値不一致0）・全10 rider/session best が公式PDF ±0.010s・circuit=DONINGTON のみ。
+- **SX汚染検出**: build_master_db が FAIL隔離済み `SX_F1`/`SX_SP`（FP-01/SP-03 の重複telemetry 21 laps）を session='SX' として取込 → apply時除外を必須化。**DA77 WUP2**（`WU2-#77-01`・7 laps・queue pending 未取込）は正当データとして取込対象化。
+- **§3c 発見（NO-GO flag）**: Original の 2025 BSB Donington RACE1/RACE2 行（C104）が ROUND8 行（C106）と自然キー衝突（Original に round/date 列なし）→ scratch で JA52 RACE1 telemetry R1 に誤って C104 が付与され、正しい C106 は 0-lap ghost R2 へ。
+
+### 78b. §3c 監督裁定（Option 2改・canonical側決定論補正）
+- Original 編集は却下（§1b 原本読み取り専用）/ 誤setupのまま apply も却下。**採用 = R1 へ C106 payload（Original setup 33列）を付与し、2025重複行の副産物である 0-lap ghost R2 は挿入しない**（クリーンな Original なら build が生成したはずの姿と一致）。
+- **wf_* 再計算**: C104/C106 でバネレート相違（8.75/90 vs 9.0/84）のため R1 の 20 lap_suspension 行を build_master_db と同一式・丸めで再計算（WF_F=susp×9.0 / WF_R=susp×42.0）・in-transaction assert 全20行検証。
+- 既存 canonical `NA_DONINGTON_RACE1/2_JA52_R1`（2025年・round=NULL・C104）は**不変**。**Tatsuki への提案**: Original の 2025 BSB Donington 行の区別（例 CIRCUIT→DONINGTON_BSB25）を推奨（Race2 2D 到着後の finalization で同じ衝突が再発するため）。
+
+### 78c. Phase 2 apply（新規ツール3本・全て既定dry-run・WAL-safe backup・単一transaction・失敗時rollback）
+- `apply_round8_race_results.py`: **+74 → race_results 940**（RACE1 33/RACE2 33/FP・QP・WUP1・WUP2 各2・衝突0・DONINGTON物理レンジ対応）。
+- `apply_round8_targeted_insert.py`: **+16 runs/+144 laps/+144 lap_suspension → 302/1423/1423**（JA52 8 runs: FP2/QP3/WUP1/WUP2/RACE1、DA77 8 runs: FP2/SP3/WUP1/WUP2/RACE1）。assert: RACE2 telemetry=0・SX=0・DONINGTONPARK=0・orphan/dup=0・laps==ls・非ROUND8行 sha256 一致・保護テーブル不変（pdf_lap_times 7613/registry/queue/quality/metric_version_log 32/race_lap_detail VIEW）・RACE1 JA52=R1のみ f_set_c='C106'。schema gate は列集合等価（§44 ALTER 由来の物理順差を許容・INSERT は明示列名）。
+- `apply_round8_provisional_clear.py`: 等価ゲート（137/137 canonical 一致）後に **provisional 15/137/137 → 0/0/0**。queue: awaiting_gate 15 + pending 1（WU2-#77-01）→ done / **FAIL 4（SX×2・WU1-01/02 zero-lap）+ SP-77-03 incomplete は証跡として残置**。historical queue は無変更。
+- v2 staging補完（既存承認パイプライン §32-§38）: gate `--all` = ROUND8 RACE1 PASS 31/RACE2 PASS 32・**過去ラウンド回帰0**・G5 は rider-session-best相対（89s laps 正常通過）→ `apply_pdf_v2_staging.py --apply` = **v2_staging 7710 → 8824（+1114 ROUND8）**・`race_lap_detail` 12763 → **13877**（ROUND8 1114行・team #52/#77 各19 laps/race）。
+- backups: `_backup_round8_rr_20260713_010310` / `_backup_round8_targeted_20260713_010320` / `_backup_round8_provclear_20260713_010332` / `_backup_round8_v2staging_20260713_075631`（+ツール自前 `_backup_pdf_v2_staging_20260713_075640`）。DB sha256 2eedecbd…→977baad8…。rollback = 各backup復元 or `DELETE FROM pdf_lap_times_v2_staging WHERE round='ROUND8'`（レポート§11）。
+
+### 78d. Phase 3 Workbench検証（offscreen・`ts24_workbench.py` 無変更）
+- 7タブ構築OK・DONINGTON final = **16 runs/144 laps** overlay（data_stage 全'final'・⏳prov 0・PROV_ 0）。チャート表示 139/144 = in-lap 5本が FULL_BRAKING ゾーン統計NULLで標準validity filterにより非表示（**データはDB完全保持**・全ラウンド共通挙動）。
+- **Race2**: Suspension/Posture に RACE2 行 0（session comboに出ない＝Race1/provisional流用経路なし・fake placeholderなし）。Race Analysis は ROUND8 選択可・RACE2 = PDF由来 562行/32名 表示（公式データ経路のみ）。
+- **GUI 最終目視は Tatsuki ローカル**（`python3 ts24_workbench.py` → DONINGTON final確認・Race Analysis ROUND8）。
+
+### 78e. スコープ外（別承認のまま）
+- Supabase sync（v3 に ROUND8 delta 未反映）/ DB Master refresh / origin commit・push / 破壊的 historical queue cleanup / Race2 2D 到着後の telemetry finalization（別GO・§78b の Original 衝突注意）。
+- Track B（Event Control Plane B-1〜B-3 実装）は並行タスク（fixture/scratch限定・§75設計準拠・別記録予定）。
+- 新規: `apply_round8_race_results.py` / `apply_round8_targeted_insert.py` / `apply_round8_provisional_clear.py` / 報告書3本 / `CLAUDE.md §78`。既存コード変更なし（Track A分）。
+
+---
+
+## 79. ★Event Control Plane B-1〜B-3 実装 + production接続（Track B・Tatsuki実行承認済 P0）— 2026-07-13 Claude Code
+
+Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-13 P0 項目6-8・**B-1/B-2/B-3実装の明示承認**）+ §75設計。fixture/scratch DBでTrack Aと並行実装し、**受入全PASS + Track A rollback点確立後にのみ**production Workbench経路へ接続（指示項目8遵守）。
+成果物 = `reports/race_weekend_event_control_plane_apply_20260713.md`（実装+テスト証跡+§7配線spec+§8 production配線）/ `reports/round9_readiness_acceptance_20260713.md`（Round9 template+13ステップactivationチェックリスト）。
+
+### 79a. 実装（B-1→B-2→B-3）
+- **B-1**: 新規 `create_event_control_tables.py`（冪等・追加のみ・CHECK制約・**active同時1件=partial UNIQUE index**・**追記型=UPDATE/DELETE拒否トリガー**）= `event_manifest` + `event_state_ledger`。新規 `event_manifest.py`（load/validate/seal/register/activate/ledger・**content_hash改ざん検出をJSON/DB行/列の3層**・版は不変・activateは明示のみ）。実マニフェスト `02_DATABASE/event_manifests/20260710-ROUND8-JA52.json` / `-DA77.json`（DA77は重複 `SP-77-03`・未知 `SX_*` を expected_outings 外＝gated宣言）+ `TEMPLATE_ROUND9.json`（**そのままではvalidation FAIL＝誤activate不能設計**）。
+- **B-2**: `extraction_scan.py --manifest <json>` = live scan（manifest宣言raw rootのみ走査・未知session/宣言外stemはgated・queue投入はevent scope内のみ・`fingerprint_policy=content` で全byte hash・global self-heal skip）。**引数なし=現行維持のmaintenance scan**（help明記）。受入identity = (event_key, outing_stem, fingerprint)。
+- **B-3**: `session_extract_staging.py` = ①**あらゆる `--apply` にresolvable required round必須**（明示flag→active manifest解決→どちらも無ければ **exit 4**＝P0-1閉塞）+ active manifest時は `--event`==event_key・session∈allowed_sessions ②**決定論run ID**（outing-stem末尾番号由来）: 同名同内容=冪等no-op / 同名異内容・stem差替=明示conflict FAIL（無書込）/ canonical衝突=FAIL＝**§76★ケース1（batch相対run_no衝突REPLACE上書き）の恒久修正=P0-2完了** ③WAL-safe backup（db+wal+shm）+ ledger receipt（apply_started/committed/failed・テーブル不在時は後方互換skip）。
+
+### 79b. 検証（敵対テスト26/26 PASS・後方互換byte一致・production非干渉実証）
+- 敵対suite（fixture/scratch・`/tmp/ts24_trackb_work/results.json`）: zero/multiple active・manifest改ざん（JSON+DB mirror）・event外/historical apply・unscoped CLI apply・二重取込no-op・同名異内容conflict・旧仕様なら衝突する2バッチ→R1/R2独立採番・コピー途中保留・未知session/宣言外stem gated・zero-lap FAIL隔離・クラッシュ3態様（backup前/txn中/commit後receipt前）・**Race2 PDF-without-2D→PDFのみqueue・telemetry捏造0**・global scan副作用なし・Track A後canonical衝突検出 — **全てfail-closed**。
+- 回帰: 引数なし `extraction_scan --dry-run` stdout **byte一致**（変更前後）・現行style staging dry-run同一。テストsuite全体でproduction DB sha256不変を実証。
+
+### 79c. production接続（§8・指示項目8の条件充足後）
+- 管理2テーブルをproduction作成（backup `02_DATABASE/_backup_event_control_20260713_082939/`・**業務テーブル302/1423/1423/940/7613/8824不変assert**）。ROUND8マニフェスト2本をv1登録→**closed**（terminal・**activateせず=active 0**→全manifest-aware経路が後方互換fallback）。ledger監査4行。
+- Workbench配線（§7 spec verbatim・backup `05_SCRIPTS/_backup_trackb_wiring_20260713_080110/`）: `_active_manifest()`/`required_round()`（**REQUIRED_ROUND literal はfallbackとして残置**・12参照置換）/ `🔍 Live Event Scan`（`--manifest` 付与・**active manifest無しはfail-closed拒否＝暗黙global scanなし**）+ 新 `🗄 Historical Maintenance Scan`（確認dialog・既定Cancel）/ 🏁 Statusにactive manifest・hash・ledger直近10・last receipt・orphan apply_started・session別 `telemetry_pending`（RACE2のみ正表示）/ importダイアログに候補stem/fingerprint12/run_id/laps+stop reasons / Safety Audit §4b追加（manifest state・provisional⊆scope・orphan=0）。**§68/§73ゲート・§77 Run Filter無改変**。
+- 検証: py_compile 4本 / offscreen smoke **28/28 PASS**（7タブ・no-active-manifest状態・live scan拒否・DONINGTON final 16 runs・Run Filter回帰・Race Analysis ROUND8 1114行）/ scratch copyでのactivation解決テスト（合成ROUND9 activate→required_round()=ROUND9・productionはactive 0のまま）/ **16テーブルfull-row sha256一致**（追加は新2テーブルの2+4行のみ）。
+
+### 79d. 運用変更・残課題・rollback
+- **Round9以降**: `REQUIRED_ROUND` 手動書換は不要 → `round9_readiness_acceptance_20260713.md` の13ステップchecklistでmanifest承認→activate（Tatsuki）。activateまでは全経路が現行ROUND8 fallback（ROUND8はcanonical>0のため§73ゲートでlive intake自体block＝安全）。
+- 残課題: ①Tatsuki GUI目視 ②既存bug `analysis_run_id` 秒解像度PK衝突（Track B以前から・別followup）③cosmetic: 🏁 next_actionの§73警告表示（ROUND8 finalized+fallback literal時・Round9 activateで自然解消）④dual-rider週末はper-rider順次activate運用（schema v2でweekend multi-root候補）。
+- rollback: Workbench=`.pre_wiring` 復元 / DB=`_backup_event_control_*` 復元（or 新2テーブルDROP）/ scan・staging=`.pre_trackb` 復元。
+- スコープ外（未実施）: Supabase / DB Master / commit・push / historical queue cleanup / canonical業務テーブル書込。
+- 新規: `create_event_control_tables.py` / `event_manifest.py` / manifests 3 JSON / 報告書2本。変更: `extraction_scan.py` / `session_extract_staging.py` / `ts24_workbench.py`（後方互換・fallback内蔵）。
