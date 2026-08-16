@@ -19,9 +19,14 @@ Phase 2A の範囲のみ:
   本スクリプトが書くのは「管理テーブル」のみ（rev.2 §0.1 で許可）:
     source_file_registry / import_queue / data_quality_log / analysis_run_log
 
-実行: python3 extraction_scan.py            (正本DBの管理テーブルへ反映・要バックアップ)
+実行: python3 extraction_scan.py            (引数なし = 全域 MAINTENANCE scan・従来動作)
       python3 extraction_scan.py --dry-run  (検出のみ・DB書込なし)
       python3 extraction_scan.py --db <path> / --no-backup / --min-age <sec>
+      python3 extraction_scan.py --manifest <event_manifest.json>
+          (LIVE event-scoped scan: manifest 宣言 raw root のみ走査・round 一致の
+           reports/results のみ・queue 投入も event 内に限定。§75 Event Control Plane B-2。
+           --manifest 無指定時の挙動は従来と完全同一=後方互換)
+exit: 0=成功 / 1=DB無効 / 2=管理テーブル未作成 / 5=manifest 検証・scope 失敗（fail-closed・無書込）
 """
 from __future__ import annotations
 import argparse
@@ -106,13 +111,29 @@ def file_stable(p: Path, min_age: int, now: float) -> bool:
         return False
 
 
-def manifest_hash(files: list[Path], deep: bool = False) -> tuple[str, int, str]:
+def manifest_hash(files: list[Path], deep: bool = False,
+                  deep_all: bool = False) -> tuple[str, int, str]:
     """2D outing の manifest hash。
     既定(stat-only): 各ファイル (name,size,mtime) を正規化連結して sha256。**中身は読まない**
       → iCloud のデータレス(未ダウンロード)ファイルでダウンロードを誘発せず、ハング/遅延しない
         (2A=「抽出しない・疑うだけ」の原則。検出に内容読込は不要)。差分検出は size/mtime で十分。
     deep=True(--deep-hash): 小メタ拡張子のみ全バイト sha256 を併用(全ファイルDL済が前提)。
+    deep_all=True(live manifest scan・fingerprint_policy='content'): **全ファイル**を全バイト
+      sha256（同名同サイズ差替=adversarial シナリオ1 を live event で検出。走査は当該イベント
+      1個のみ=有界。全ファイルDL済前提=live weekend の運用条件）。
     戻り: (sha256, ファイル数, 構成メモ)。"""
+    if deep_all:
+        lines = []
+        n = 0
+        for p in sorted(files, key=lambda x: x.name.lower()):
+            try:
+                lines.append(f"{p.name}|{p.stat().st_size}|FULL|{sha256_file(p)}")
+                n += 1
+            except OSError:
+                continue
+        blob = "\n".join(lines)
+        return (hashlib.sha256(blob.encode()).hexdigest(), n,
+                f"manifest: content(full-hash all) {n} files")
     lines = []
     full = stat = 0
     for p in sorted(files, key=lambda x: x.name.lower()):
@@ -164,13 +185,28 @@ def add_check(d: Detected, name, result, severity, detail):
 
 
 # ───────────────────────── DATA 2D 検出 ─────────────────────────
-def scan_2d(bmdb, min_age: int, now: float, deep: bool = False) -> list[Detected]:
+def scan_2d(bmdb, min_age: int, now: float, deep: bool = False,
+            manifest: dict | None = None) -> list[Detected]:
+    """manifest=None（既定）= 従来どおり全イベント走査（後方互換・挙動不変）。
+    manifest 指定時（live event-scoped scan・§75 B-2）:
+      - manifest.event_key の 1 イベントのみ走査（event-external ソースは構造的に対象外）
+      - allowed_sessions 外の session / expected_outings 外の outing stem は 'gated'
+        （queue へは入らない = fail-closed）
+      - fingerprint_policy='content' なら全ファイル全バイト hash（同名差替検出）"""
     out = []
     try:
         events = bmdb.discover_events()
     except Exception as e:
         print(f"[WARN] discover_events 失敗: {e}", file=sys.stderr)
         return out
+    m_sessions = m_expected = None
+    m_deep_all = False
+    if manifest is not None:
+        events = {k: v for k, v in events.items() if k == manifest["event_key"]}
+        m_sessions = set(manifest["allowed_sessions"])
+        if manifest.get("expected_outings") is not None:
+            m_expected = set(manifest["expected_outings"])
+        m_deep_all = manifest.get("fingerprint_policy", "content") == "content"
     for name, ev in events.items():
         try:
             outings = bmdb.discover_outings(ev["dir"])
@@ -218,8 +254,8 @@ def scan_2d(bmdb, min_age: int, now: float, deep: bool = False) -> list[Detected
                           f"{file_id}: mtime<{min_age}s のファイル {len(unstable)}件 → 保留")
                 out.append(d)
                 continue
-            # manifest hash（既定 stat-only=中身を読まない）
-            mh, nfiles, mnote = manifest_hash(files, deep=deep)
+            # manifest hash（既定 stat-only=中身を読まない / live content policy は全バイト）
+            mh, nfiles, mnote = manifest_hash(files, deep=deep, deep_all=m_deep_all)
             d.sha256 = mh
             try:
                 st = ddd.stat()
@@ -227,6 +263,29 @@ def scan_2d(bmdb, min_age: int, now: float, deep: bool = False) -> list[Detected
                 d.file_mtime = datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")
             except OSError:
                 pass
+            # manifest scope gate（live scan のみ・fail-closed: gated は queue へ入らない。
+            # hash 計算後に置く = gated 行も fingerprint を保持し registry/receipt で追跡可能）
+            if manifest is not None:
+                try:
+                    sess = bmdb.session_canon_2d(base, ev.get("round") or "")
+                except Exception:
+                    sess = None
+                d.session = sess
+                if sess not in m_sessions:
+                    d.status = "gated"
+                    d.notes = f"tier={tier}; session={sess!r} not in manifest allowed_sessions; {mnote}"
+                    add_check(d, "detect_session_not_allowed", "FAIL", "critical",
+                              f"{file_id}: session={sess!r} は manifest 許可外 "
+                              f"({sorted(m_sessions)}) → gated(Tatsuki判断)")
+                    out.append(d)
+                    continue
+                if m_expected is not None and base not in m_expected:
+                    d.status = "gated"
+                    d.notes = f"tier={tier}; outing {base!r} not in manifest expected_outings; {mnote}"
+                    add_check(d, "detect_outing_not_expected", "FAIL", "critical",
+                              f"{file_id}: outing stem {base!r} は manifest 宣言集合外 → gated")
+                    out.append(d)
+                    continue
             # HED 矛盾（copia/loose のみゲート。nested は HED 陳腐化のため不問＝本体方針踏襲）
             note = f"tier={tier}; {mnote}"
             if tier in ("copia", "loose") and ev_circ:
@@ -370,7 +429,10 @@ def backup_db(db_path: Path) -> Path:
     return dest
 
 
-def upsert(conn, detected: list[Detected], analysis_run_id: str, now_iso: str):
+def upsert(conn, detected: list[Detected], analysis_run_id: str, now_iso: str,
+           self_heal: bool = True):
+    """self_heal=True（既定・従来動作）: 全 registry を対象に discovered→queued 整合。
+    live manifest scan は self_heal=False（event 外の行に一切触れない）。"""
     cur = conn.cursor()
     ins = upd = unchanged = queued = 0
     for d in detected:
@@ -433,12 +495,14 @@ def upsert(conn, detected: list[Detected], analysis_run_id: str, now_iso: str):
             cur.execute("UPDATE source_file_registry SET status='queued' WHERE file_path=?",
                         (d.file_path,))
     # 自己修復: open queue 行を持つ discovered を queued に整合（移行/中断時の取り残し対策）
-    cur.execute(
-        """UPDATE source_file_registry SET status='queued'
-           WHERE status='discovered' AND file_id IN
-             (SELECT file_id FROM import_queue
-              WHERE status IN ('pending','processing','awaiting_gate'))"""
-    )
+    # live manifest scan では skip（event 外 registry 行への副作用ゼロを保証）
+    if self_heal:
+        cur.execute(
+            """UPDATE source_file_registry SET status='queued'
+               WHERE status='discovered' AND file_id IN
+                 (SELECT file_id FROM import_queue
+                  WHERE status IN ('pending','processing','awaiting_gate'))"""
+        )
     conn.commit()
     return ins, upd, unchanged, queued
 
@@ -457,7 +521,9 @@ def _log_checks(cur, d: Detected, analysis_run_id, now_iso, only=None):
 
 def main() -> int:
     assert_mgmt_only()
-    ap = argparse.ArgumentParser(description="TS24 Phase 2A: 検出→registry→queue（業務テーブル不変）")
+    ap = argparse.ArgumentParser(
+        description="TS24 Phase 2A: 検出→registry→queue（業務テーブル不変）。"
+                    "引数なし=全域 MAINTENANCE scan（従来動作）/ --manifest=LIVE event-scoped scan")
     ap.add_argument("--db", type=Path, default=DEFAULT_DB)
     ap.add_argument("--dry-run", action="store_true", help="検出のみ・DB書込なし")
     ap.add_argument("--no-backup", action="store_true")
@@ -465,17 +531,53 @@ def main() -> int:
                     help=f"安定とみなす mtime 経過秒（既定{STABLE_AGE_SEC_DEFAULT}）")
     ap.add_argument("--deep-hash", action="store_true",
                     help="全バイト sha256 を併用（全ファイルDL済前提・iCloudデータレスでは遅延/ハング注意）")
+    ap.add_argument("--manifest", type=Path, default=None,
+                    help="Event Manifest JSON（02_DATABASE/event_manifests/*.json）。指定時は "
+                         "LIVE event-scoped scan: manifest 宣言 raw root のみ走査・round 一致の "
+                         "reports/results のみ・queue 投入も event 内に限定（§75 B-2）。"
+                         "無指定 = 全域 MAINTENANCE scan（従来動作・後方互換）")
     args = ap.parse_args()
 
     now = time.time()
     now_iso = datetime.now().isoformat(timespec="seconds")
+
+    # ── LIVE manifest モード（fail-closed・検証不合格なら scan 前に exit 5） ──
+    manifest = None
+    if args.manifest is not None:
+        try:
+            import event_manifest as evm
+        except ImportError:
+            sys.path.insert(0, str(SCRIPTS))
+            import event_manifest as evm
+        try:
+            manifest = evm.load_manifest(args.manifest, verify_hash=True, require_hash=True)
+        except evm.ManifestError as e:
+            print(f"[FATAL] manifest 検証失敗（fail-closed・scan/queue 無変更）: {e}", file=sys.stderr)
+            return 5
+        raw_root = ROOT / manifest["raw_2d_root"]
+        if not raw_root.is_dir():
+            print(f"[FATAL] manifest raw_2d_root が存在しません（fail-closed）: {raw_root}",
+                  file=sys.stderr)
+            return 5
+        print(f"[INFO] LIVE event-scoped scan: {manifest['event_key']} "
+              f"v{manifest['manifest_version']} hash={manifest['content_hash'][:12]}… "
+              f"policy={manifest['fingerprint_policy']} allowed={manifest['allowed_sessions']}")
+
     bmdb = load_bmdb()
 
     mode = "deep-hash(全バイト)" if args.deep_hash else "stat-only(size,mtime・中身読まない)"
+    if manifest is not None and manifest.get("fingerprint_policy", "content") == "content":
+        mode = "content(全ファイル全バイト・live manifest)"
     print(f"[INFO] Phase 2A scan 開始（業務テーブルには書き込みません / 同一性={mode}）")
-    det2d = scan_2d(bmdb, args.min_age, now, deep=args.deep_hash)
+    det2d = scan_2d(bmdb, args.min_age, now, deep=args.deep_hash, manifest=manifest)
     detrep = scan_reports(args.min_age, now, deep=args.deep_hash)
     detres = scan_results(args.min_age, now, deep=args.deep_hash)
+    if manifest is not None:
+        # event-scoped filter: round 一致の reports/results のみ（event-external は live 対象外）
+        rnd = manifest["round"]
+        riders = set(manifest["riders"])
+        detrep = [d for d in detrep if d.round == rnd and d.rider in riders]
+        detres = [d for d in detres if d.round == rnd]
     detected = det2d + detrep + detres
 
     # サマリ
@@ -509,18 +611,60 @@ def main() -> int:
         return 2
 
     analysis_run_id = f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_extraction_scan"
+    run_scope = manifest["event_key"] if manifest is not None else "ALL"
+    params = {"min_age": args.min_age}
+    if manifest is not None:
+        params["manifest"] = str(args.manifest)
+        params["manifest_content_hash"] = manifest["content_hash"]
     conn.execute(
         """INSERT INTO analysis_run_log
            (analysis_run_id,script_name,agent,target_db,target_table,run_scope,
             rows_in,started_at,status,params_json,notes)
            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (analysis_run_id, "extraction_scan.py", "Extraction", "unified",
-         "source_file_registry,import_queue", "ALL", len(detected), now_iso, "running",
-         json.dumps({"min_age": args.min_age}), "Phase2A scan（業務テーブル不変）"),
+         "source_file_registry,import_queue", run_scope, len(detected), now_iso, "running",
+         json.dumps(params),
+         "LIVE event-scoped scan（業務テーブル不変）" if manifest is not None
+         else "Phase2A scan（業務テーブル不変）"),
     )
     conn.commit()
 
-    ins, upd, unchanged, queued = upsert(conn, detected, analysis_run_id, now_iso)
+    ins, upd, unchanged, queued = upsert(conn, detected, analysis_run_id, now_iso,
+                                         self_heal=(manifest is None))
+
+    # ── live scan の ledger 受領書（event_state_ledger があるときのみ・後方互換） ──
+    if manifest is not None:
+        try:
+            import event_manifest as evm
+            if evm.tables_exist(conn):
+                identities = [
+                    dict(event_key=manifest["event_key"],
+                         outing_stem=d.ekey.split("/", 1)[1] if d.ekey else d.file_name,
+                         fingerprint=d.sha256, status=d.status)
+                    for d in det2d
+                ]
+                evm.append_ledger(
+                    conn, manifest["event_key"], scope="event", scope_id=None,
+                    state="registered",
+                    reason=f"live scan: 2d={len(det2d)} report={len(detrep)} pdf={len(detres)} "
+                           f"new={ins} updated={upd} unchanged={unchanged} queued={queued}",
+                    actor="extraction_scan.py", analysis_run_id=analysis_run_id,
+                    manifest_version=manifest["manifest_version"],
+                    manifest_content_hash=manifest["content_hash"],
+                    receipt=dict(identities=identities, min_age=args.min_age,
+                                 fingerprint_policy=manifest.get("fingerprint_policy")))
+                for d in det2d:
+                    if d.status in ("gated", "incomplete"):
+                        evm.append_ledger(
+                            conn, manifest["event_key"], scope="outing",
+                            scope_id=d.ekey.split("/", 1)[1] if d.ekey else d.file_name,
+                            state="quarantined", reason=d.notes or d.status,
+                            actor="extraction_scan.py", analysis_run_id=analysis_run_id,
+                            manifest_version=manifest["manifest_version"],
+                            manifest_content_hash=manifest["content_hash"])
+                conn.commit()
+        except Exception as e:
+            print(f"[WARN] ledger 記録失敗（scan 結果自体は有効）: {e}", file=sys.stderr)
 
     conn.execute(
         """UPDATE analysis_run_log SET finished_at=?, status='success',
