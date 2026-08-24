@@ -4368,9 +4368,10 @@ class PostureAnalysisTab(QWidget):
             self._btn_rf_toggle.setText("▾" if checked else "▸")
 
     def _rf_on_tab_changed(self, idx):
-        # APEX分析(0) / Damping・Phase(1) では表示、3フェーズRun比較(2) では非表示
+        # APEX分析(0) / Damping・Phase(1) / Damping 分布(3) では表示、
+        # 3フェーズRun比較(2) と Setup Diff(4) は独自コントロールのため非表示
         if hasattr(self, "_run_filter_panel"):
-            self._run_filter_panel.setVisible(idx in (0, 1))
+            self._run_filter_panel.setVisible(idx in (0, 1, 3))
 
     def _rf_on_circuit(self, *_):
         """上部 Circuit コンボ変更 → Rider/Session/Run を再構築（全選択）→ 再描画。"""
@@ -4552,12 +4553,17 @@ class PostureAnalysisTab(QWidget):
             "各ライダーのアペックス平均特性を5指標で比較。\n"
             "全軸「外側 = 相対的に良好」に正規化済み。\n\n"
             "【各指標の物理的意味】\n"
-            "・Pitch (SusF−SusR)\n"
-            "  外側 = 均等荷重に近い（ブレーキング残り小）\n"
-            "  内側 = ノーズDIVE過大 or テールDOWN\n\n"
-            "・Heave = (SusF+SusR)/2\n"
-            "  外側 = 沈み込み小（軽荷重 or ソフトセット）\n"
-            "  内側 = 沈み込み大（高荷重 or ハードブレーキ）\n\n"
+            "⚠ Pitch / Heave は車体の pitch / heave ではない。\n"
+            "   フォーク変位とショック変位はストローク・方向・リンク比が\n"
+            "   異なるため、これは **位置差 / 位置平均の proxy** である。\n"
+            "   荷重の大小として解釈しないこと（リンク比・rake・\n"
+            "   wheelbase を用いた座標変換が未実装）。\n\n"
+            "・Pitch proxy (SusF−SusR)\n"
+            "  外側 = 前後の沈み込み差が小さい\n"
+            "  内側 = 前後の沈み込み差が大きい\n\n"
+            "・Heave proxy = (SusF+SusR)/2\n"
+            "  外側 = 位置平均が小さい\n"
+            "  内側 = 位置平均が大きい\n\n"
             "・BRK SusF（制動時フロント圧縮）\n"
             "  外側 = 制動中の沈み込み小 → 安定制動\n"
             "  内側 = 過大なノーズDIVE → 不安定\n\n"
@@ -4616,6 +4622,12 @@ class PostureAnalysisTab(QWidget):
         self._inner_tabs.addTab(self._build_damping_phase_tab(), "⚙️ Damping / Phase")
         self._phase_cmp = PhaseRunCompareWidget(self._pg)
         self._inner_tabs.addTab(self._phase_cmp, "🔧 3フェーズ Run比較")
+        # ── 2026-08-24 追加（read-only）──────────────────────────────
+        # 📉 Damping Dist は共通 Run Filter に従う / 🆚 Setup Diff は独立
+        self._damp_dist = DampingDistWidget(self._pg)
+        self._inner_tabs.addTab(self._damp_dist, "📉 Damping 分布")
+        self._setup_diff = SetupDiffWidget(str(DB_PATH))
+        self._inner_tabs.addTab(self._setup_diff, "🆚 Setup Diff")
         # 3フェーズRun比較タブでは共通 Run Filter を隠す（当該タブは独自コントロール）
         self._inner_tabs.currentChanged.connect(self._rf_on_tab_changed)
         root.addWidget(self._inner_tabs, stretch=1)
@@ -4720,13 +4732,15 @@ class PostureAnalysisTab(QWidget):
         self._pw_dp_ph12.setLabel("bottom", "Lap No")
         bot.addWidget(_make_help_panel(
             self._pw_dp_ph12,
-            "PH1-2 Rear@0mm 累積秒",
-            "PH1-2 Rear@0mm 累積秒 — Lap推移\n\n"
+            "PH1-2 リアサス位置≤0mm 滞在時間",
+            "PH1-2 リアサス位置≤0mm 滞在時間 — Lap推移\n\n"
             "PH1-2（BRAKE_FRONT>=0.3bar の進入相）で\n"
-            "SUSP_REAR<=0mm（リア完全伸び切り）だった累積秒 [s]。\n"
-            "（ph12_rear0_s）\n\n"
-            "リアが浮く＝荷重が乗っていない時間。\n"
-            "タイヤ摩耗が進むとこの値が増える挙動を見る。\n\n"
+            "SUSP_REAR<=0mm だった累積秒 [s]。（ph12_rear0_s）\n\n"
+            "⚠ これは **サス位置が閾値以下だった時間** であり、\n"
+            "   後輪法線荷重 Nr=0 を計算した値ではない。\n"
+            "   リア接地喪失の代理として断定しないこと。\n"
+            "   Nr=0 の判定には wheel-load モデル（重心高・前後位置）が要る。\n"
+            "   0mm のゼロ点がイベント間で同一かも未確認。\n\n"
             "DA77(青) / JA52(橙) を色分け。\n"
             "NaN（データなし）のラップは除外。",
         ))
@@ -4946,12 +4960,16 @@ class PostureAnalysisTab(QWidget):
             # 決して全Runへ勝手に戻さない（指示書 Required UX 5）。
             self._rf_clear_plots()
             self._rf_update_status(empty=True)
+            if hasattr(self, "_damp_dist"):
+                self._damp_dist.set_dataframe(None)
             return
         self._draw_pitch_scatter(df)
         self._draw_phase_space(df)
         self._draw_radar(df)
         self._draw_trend(df)
         self._draw_damping_phase(df)
+        if hasattr(self, "_damp_dist"):
+            self._damp_dist.set_dataframe(df)
         self._rf_update_status(empty=False, n=len(df))
 
     # ── ラップ詳細ポップアップ ────────────────────────────────────
@@ -5083,6 +5101,14 @@ class PostureAnalysisTab(QWidget):
             gs = QGridLayout(grp_setup)
             gs.setSpacing(3)
             gs.setColumnMinimumWidth(0, 110)
+            # 導出ジオメトリ（モデル値・実測ではない。較正・限界は SetupDiffWidget を参照）
+            try:
+                _g = SetupDiffWidget.geometry_of(run_meta)
+            except Exception:
+                _g = None
+            _geo_txt = ("—" if not _g else
+                        f"rake {_g['rake']:.2f}°  /  trail {_g['trail']:.1f}mm"
+                        + ("  ⚠外挿" if _g["extrapolated"] else "  (model)"))
             setup_rows = [
                 ("Fork Spr L/R",
                  f"{_fmt(run_meta.get('f_spr_l'))} / {_fmt(run_meta.get('f_spr_r'))}"),
@@ -5090,13 +5116,23 @@ class PostureAnalysisTab(QWidget):
                  f"{_fmt(run_meta.get('f_comp'),'clk',0)} / {_fmt(run_meta.get('f_reb'),'clk',0)}"),
                 ("Fork Preload",    _fmt(run_meta.get("f_preload"))),
                 ("Fork Oil Lvl",    _fmt(run_meta.get("f_oil_lvl"))),
-                ("Fork Offset",     _fmt(run_meta.get("f_offset"))),
+                # 2026-08-24: HP Insert / TOS / Link / Swing arm を追加（従来は非表示だった）
+                ("Fork Offset / Insert",
+                 f"{_fmt(run_meta.get('f_offset'))} / {run_meta.get('f_offset2') if run_meta.get('f_offset2') not in (None, '') else '—'}"),
                 ("Fork Hgt T/B",
                  f"{_fmt(run_meta.get('f_hgt_top'))} / {_fmt(run_meta.get('f_hgt_bot'))}"),
+                ("Geometry (model)", _geo_txt),
+                ("F 減衰力 (FKR dyno)", FrontDamperLibrary.fmt(run_meta)),
+                ("R 減衰力 (TTX36 dyno)", RearDamperLibrary.fmt(run_meta)),
                 ("Shock Spr",       _fmt(run_meta.get("r_spr"), "N/mm")),
+                ("Shock Preload",   _fmt(run_meta.get("r_preload"))),
                 ("Shock Comp / Reb",
                  f"{_fmt(run_meta.get('r_comp'),'clk',0)} / {_fmt(run_meta.get('r_reb'),'clk',0)}"),
+                ("Shock TOS len x spr",
+                 f"{run_meta.get('r_tos_length') or '—'} x {run_meta.get('r_tos_spring') or '—'}"),
                 ("Shock Len",       _fmt(run_meta.get("shock_len"))),
+                ("Link / Swing arm",
+                 f"{run_meta.get('link') or '—'} / {_fmt(run_meta.get('swing_arm'))}"),
                 ("Ride Hgt",        _fmt(run_meta.get("ride_hgt"))),
                 ("Tyre F / R",
                  f"{run_meta.get('tyre_front') or '—'} / {run_meta.get('tyre_rear') or '—'}"),
@@ -6999,6 +7035,13 @@ class CommentAnalysisTab(QWidget):
         self._cb_circuit = QComboBox(); self._cb_rider = QComboBox(); self._cb_tag = QComboBox()
         self._ed_kw = QLineEdit(); self._ed_kw.setPlaceholderText("キーワード全文検索")
         self._ck_tyre = QCheckBox("タイヤ関連のみ")
+        # 2026-08-24 追加: コメントとセット状態の結合表示
+        # （同じ症状のときのフォーク/ショック構成を並べ、幾何由来かダンピング由来かを切り分ける）
+        self._ck_setup = QCheckBox("🔧 セット状態を併記")
+        self._ck_setup.setChecked(True)
+        self._ck_setup.setToolTip(
+            "同じ症状が出たときのフォーク/ショックのパッケージを並べて表示する。\n"
+            "同一ジオメトリで挙動が違う（＝原因は幾何ではない）等の切り分けに使う。")
         btn = QPushButton("🔍 検索"); btn.clicked.connect(self.refresh)
         for cb in (self._cb_circuit, self._cb_rider, self._cb_tag):
             cb.addItem("ALL")
@@ -7015,8 +7058,10 @@ class CommentAnalysisTab(QWidget):
         for cb in (self._cb_circuit, self._cb_rider, self._cb_tag):
             cb.currentTextChanged.connect(self.refresh)
         self._ck_tyre.toggled.connect(self.refresh)
+        self._ck_setup.toggled.connect(self.refresh)
         for w in (QLabel("Circuit"), self._cb_circuit, QLabel("Rider"), self._cb_rider,
-                  QLabel("Tag"), self._cb_tag, self._ed_kw, self._ck_tyre, btn):
+                  QLabel("Tag"), self._cb_tag, self._ed_kw, self._ck_tyre,
+                  self._ck_setup, btn):
             f.addWidget(w)
         f.addStretch(1)
         lay.addLayout(f)
@@ -7057,8 +7102,7 @@ class CommentAnalysisTab(QWidget):
             q += " GROUP BY r.circuit, rt.tag ORDER BY cnt DESC"
             freq = c.execute(q, p).fetchall()
             # Panel3: コメント詳細
-            q2 = ("SELECT r.date,r.circuit,r.session,r.rider,r.run_no,r.comment,r.tyre_front,r.tyre_rear,"
-                  "r.best_lap_s,(SELECT group_concat(tag) FROM run_tags WHERE run_id=r.run_id) tags "
+            q2 = ("SELECT r.*, (SELECT group_concat(tag) FROM run_tags WHERE run_id=r.run_id) tags "
                   "FROM runs r WHERE r.comment IS NOT NULL AND r.comment<>''")
             p2 = []
             if circ != "ALL": q2 += " AND r.circuit=?"; p2.append(circ)
@@ -7085,22 +7129,72 @@ class CommentAnalysisTab(QWidget):
                 self._tbl_freq.setItem(i, j, it)
         self._tbl_freq.resizeColumnsToContents()
 
+    @staticmethod
+    def _g(r, k):
+        """sqlite3.Row から欠損に強く値を取り出す。"""
+        try:
+            v = r[k]
+        except (IndexError, KeyError):
+            return ""
+        return "" if v is None else str(v).strip()
+
     def _fill_detail(self, rows):
-        cols = ["Date", "Circuit", "Session", "Rider", "Run", "Tyre F/R", "Best", "Tags", "Comment"]
+        # 🔧 セット状態併記（2026-08-24）。既定 ON。OFF で従来の列構成に戻る。
+        show_setup = getattr(self, "_ck_setup", None) is not None and self._ck_setup.isChecked()
+        cols = ["Date", "Circuit", "Session", "Rider", "Run"]
+        if show_setup:
+            cols += ["F spr/pre/cmp/reb", "F reb@0.3 [N]", "Geo off/ins", "Trail(model)",
+                     "R spr/pre/cmp/reb", "R reb@0.3 [N]", "R TOS", "Ride h"]
+        cols += ["Tyre F/R", "Best", "Tags", "Comment"]
         self._tbl_detail.clear(); self._tbl_detail.setColumnCount(len(cols))
         self._tbl_detail.setHorizontalHeaderLabels(cols); self._tbl_detail.setRowCount(len(rows))
 
-        def _fmt(s):
-            if s is None: return ""
-            m = int(s // 60); return f"{m}:{s-60*m:06.3f}"
+        def _fmt(v):
+            if v is None: return ""
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return ""
+            m = int(v // 60); return f"{m}:{v-60*m:06.3f}"
+
+        g = self._g
         for i, r in enumerate(rows):
-            vals = [r["date"] or "", r["circuit"] or "", r["session"] or "", r["rider"] or "",
-                    str(r["run_no"] or ""), f"{r['tyre_front'] or ''}/{r['tyre_rear'] or ''}",
-                    _fmt(r["best_lap_s"]), r["tags"] or "", (r["comment"] or "").replace("\n", " ")]
+            vals = [g(r, "date"), g(r, "circuit"), g(r, "session"), g(r, "rider"), g(r, "run_no")]
+            if show_setup:
+                try:
+                    geo = SetupDiffWidget.geometry_of(
+                        {"f_offset": g(r, "f_offset"), "f_offset2": g(r, "f_offset2")})
+                except Exception:
+                    geo = None
+                trail = (f"{geo['trail']:.1f}" + ("*" if geo["extrapolated"] else "")) if geo else "—"
+                try:
+                    _fr = FrontDamperLibrary.force(g(r, "f_set_r"), g(r, "f_reb"), 300.0)
+                except Exception:
+                    _fr = None
+                try:
+                    _rr = RearDamperLibrary.force(g(r, "r_set_r"), g(r, "r_reb"), 300.0)
+                except Exception:
+                    _rr = None
+                vals += [
+                    f"{g(r,'f_spr_l')}/{g(r,'f_preload')}/{g(r,'f_comp')}/{g(r,'f_reb')}",
+                    (f"{_fr:.0f}" if _fr is not None else "—"),
+                    f"{g(r,'f_offset') or '—'}/{g(r,'f_offset2') or '—'}",
+                    trail,
+                    f"{g(r,'r_spr')}/{g(r,'r_preload')}/{g(r,'r_comp')}/{g(r,'r_reb')}",
+                    (f"{_rr:.0f}" if _rr is not None else "—"),
+                    f"{g(r,'r_tos_length')}x{g(r,'r_tos_spring')}",
+                    g(r, "ride_hgt"),
+                ]
+            vals += [f"{g(r,'tyre_front')}/{g(r,'tyre_rear')}",
+                     _fmt(g(r, "best_lap_s")), g(r, "tags"),
+                     g(r, "comment").replace("\n", " ")]
+            c_idx = len(cols) - 1
             for j, v in enumerate(vals):
-                it = QTableWidgetItem(v)
-                if j == 8 and any(k in (r["comment"] or "").lower() for k in self.TYRE_KW):
-                    it.setBackground(QColor("#FFF2CC"))   # タイヤ言及コメントを淡色強調
+                it = QTableWidgetItem(str(v))
+                if j == c_idx and any(k in g(r, "comment").lower() for k in self.TYRE_KW):
+                    it.setBackground(QColor("#FFF2CC"))   # タイヤ言及コメント
+                elif show_setup and 5 <= j <= 12:
+                    it.setBackground(QColor("#EEF4FB"))   # セット状態列
                 self._tbl_detail.setItem(i, j, it)
         self._tbl_detail.resizeColumnsToContents()
 
@@ -8740,6 +8834,726 @@ class ImportQualityTab(QWidget):
                     it.setBackground(QColor("#FFF2CC"))
                 t.setItem(i, j, it)
         t.resizeColumnsToContents()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 🆚 Setup Diff — Run A/B 設定差分 + 交絡フラグ + 導出ジオメトリ
+# ── 2026-08-24 追加。read-only（DB は mode=ro で参照のみ・書込ゼロ）。
+#    目的: 「2つの run の間で何が変わったか」を全項目で提示し、単一変数比較か
+#    どうかを走行前に明示する。今季のオフセット変更はすべて複数項目と同時に
+#    行われており、事後に帰属できなかった。その再発を構造的に防ぐ。
+# ════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# FKR ダンパーライブラリ — clicker → 実減衰力 [N]（セット側の性質のみ）
+# ── 出典: 04_REFERENCE/FKR-1xx-setting-library-version-1.0-interactive.xlsm
+#    sheet 'InData'（dyno 実測 228 本 = C101-C106 / R101-R106 x クリック 6-24、
+#    shaft speed 0.001-0.5 m/s、力 [N]）。PDF 2 ページ目の Force-Velocity グラフと同一系。
+#
+# ⚠ 用途の限定（Codex 監査 §1）:
+#    本値は **damper shaft velocity を指定したときのセット固有の減衰力** であり、
+#    セット同士の比較にのみ用いる。2D の相対ダンピング速度指数（lap_suspension の
+#    *_spd_*）とは軸を共有しない。速度軸の重ね合わせは校正が揃うまで禁止。
+#
+# ⚠ フロント / リアは別ライブラリ・別ダンパー。**両者の力を直接比較してはならない**
+#    （リアは link レバー比を介して車輪に伝わるが link 定義が未取得のため wheel force へ
+#     換算できない。表示値はいずれも damper shaft force）。
+# ════════════════════════════════════════════════════════════════════════════
+class DamperLibrary:
+    """(valve code, click) → 指定 shaft velocity での減衰力 [N] を返す read-only ルックアップ。
+
+    サブクラスで PATH と run 列名（COMP_CODE/COMP_CLICK/REB_CODE/REB_CLICK）を定義する。
+    """
+
+    PATH = None
+    LABEL = ""
+    COMP_CODE = COMP_CLICK = REB_CODE = REB_CLICK = ""
+    REF_V_MM_S = (100.0, 300.0)   # 参照 shaft velocity [mm/s] = 0.1 / 0.3 m/s
+    _cache = None
+
+    @classmethod
+    def curves(cls) -> dict:
+        if cls._cache is None:
+            try:
+                with open(cls.PATH, encoding="utf-8") as f:
+                    raw = json.load(f)
+                cls._cache = {k: v for k, v in raw.items() if not k.startswith("_")}
+            except Exception:
+                cls._cache = {}
+        return cls._cache
+
+    @staticmethod
+    def key(code, click) -> str | None:
+        if code in (None, "") or click in (None, ""):
+            return None
+        try:
+            return f"{str(code).strip()}_{int(float(click))}"
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def force(cls, code, click, v_mm_s: float):
+        """指定 shaft velocity [mm/s] での減衰力 [N]。解決不能なら None（線形補間）。"""
+        pts = cls.curves().get(cls.key(code, click) or "")
+        if not pts:
+            return None
+        d = {float(x): float(y) for x, y in pts}
+        if v_mm_s in d:
+            return d[v_mm_s]
+        xs = sorted(d)
+        lo = max([x for x in xs if x <= v_mm_s], default=None)
+        hi = min([x for x in xs if x >= v_mm_s], default=None)
+        if lo is None or hi is None or lo == hi:
+            return None
+        return d[lo] + (d[hi] - d[lo]) * (v_mm_s - lo) / (hi - lo)
+
+    @classmethod
+    def summary(cls, run: dict) -> dict:
+        """run の圧側/伸側コード + クリックから力をまとめる（列名はサブクラス定義）。"""
+        out = {}
+        for side, ck, kk in (("comp", cls.COMP_CODE, cls.COMP_CLICK),
+                             ("reb", cls.REB_CODE, cls.REB_CLICK)):
+            code, clk = run.get(ck), run.get(kk)
+            out[f"{side}_key"] = cls.key(code, clk)
+            for v in cls.REF_V_MM_S:
+                out[f"{side}@{int(v)}"] = cls.force(code, clk, v)
+        return out
+
+    @classmethod
+    def fmt(cls, run: dict) -> str:
+        """「圧 100N / 300N ・ 伸 76N / 299N」形式の 1 行表示。"""
+        sm = cls.summary(run)
+        def one(side):
+            a, b = sm.get(f"{side}@100"), sm.get(f"{side}@300")
+            if a is None or b is None:
+                return "—"
+            return f"{a:.0f} / {b:.0f} N"
+        if sm["comp_key"] is None and sm["reb_key"] is None:
+            return "—"
+        return f"圧 {one('comp')}　伸 {one('reb')}　(@0.1 / 0.3 m/s shaft)"
+
+
+class FrontDamperLibrary(DamperLibrary):
+    """FKR-1xx フロントフォーク。出典 = FKR-1xx-setting-library-version-1.0-interactive.xlsm / InData。
+    228 本（C101-C106 / R101-R106 x click 6-24・shaft 0.001-0.5 m/s）。"""
+    PATH = SCRIPT_DIR.parent / "04_REFERENCE" / "fkr_damping_library.json"
+    LABEL = "FKR fork"
+    COMP_CODE, COMP_CLICK, REB_CODE, REB_CLICK = "f_set_c", "f_comp", "f_set_r", "f_reb"
+    _cache = None
+
+
+class RearDamperLibrary(DamperLibrary):
+    """Ohlins TTX36 GP リアショック。出典 = TTX36-GP-v3.6.xlsm / InData。
+    1209 本（C1-C9/C21-C23/C41-C49 + R1-R9/R41-R49 x click 6-36・shaft 0.001-1.0 m/s）。
+    ⚠ 表示は damper shaft force。link（レバー比）未取得のため wheel force ではない。
+    ⚠ DB 実使用のうち C21X / R25 / 'C9_H20 L15' は v3.6 に収載なし（"—" 表示）。"""
+    PATH = SCRIPT_DIR.parent / "04_REFERENCE" / "ttx36_damping_library.json"
+    LABEL = "TTX36 shock"
+    COMP_CODE, COMP_CLICK, REB_CODE, REB_CLICK = "r_set_c", "r_comp", "r_set_r", "r_reb"
+    _cache = None
+
+
+# 後方互換の別名（既存呼び出しはフロントを指す）
+FKRDamperLibrary = FrontDamperLibrary
+
+
+class SetupDiffWidget(QWidget):
+    """2 run の設定差分を全項目で比較し、交絡（同時変更）を判定する read-only ビュー。"""
+
+    # 比較対象（表示名, 列名, 群）。群 = FRONT / REAR / TYRE / COND
+    _FIELDS = [
+        ("Fork type",        "fork_type",     "FRONT"),
+        ("F Spring L / R",   "_f_spr",        "FRONT"),
+        ("F Preload",        "f_preload",     "FRONT"),
+        ("F Comp (clk)",     "f_comp",        "FRONT"),
+        ("F Reb (clk)",      "f_reb",         "FRONT"),
+        ("F Oil level",      "f_oil_level",   "FRONT"),
+        ("F Set C / R",      "_f_set",        "FRONT"),
+        ("F TOS len x spr",  "_f_tos",        "FRONT"),
+        ("Fork Offset",      "f_offset",      "FRONT"),
+        ("HP Insert",        "f_offset2",     "FRONT"),
+        ("F Height T / B",   "_f_hgt",        "FRONT"),
+        ("Shock type",       "shock_type",    "REAR"),
+        ("R Spring",         "r_spr",         "REAR"),
+        ("R Preload",        "r_preload",     "REAR"),
+        ("R Comp (clk)",     "r_comp",        "REAR"),
+        ("R Reb (clk)",      "r_reb",         "REAR"),
+        ("R Set C / R",      "_r_set",        "REAR"),
+        ("R TOS len x spr",  "_r_tos",        "REAR"),
+        ("Shock length",     "shock_len",     "REAR"),
+        ("Link",             "link",          "REAR"),
+        ("Ride height",      "ride_hgt",      "REAR"),
+        ("Swing arm",        "swing_arm",     "REAR"),
+        ("Tyre F",           "tyre_front",    "TYRE"),
+        ("Tyre R",           "tyre_rear",     "TYRE"),
+        ("Weather",          "weather",       "COND"),
+        ("Track temp",       "track_temp",    "COND"),
+        ("Air temp",         "air_temp",      "COND"),
+    ]
+    # 交絡判定の対象外（走行条件であってセット変更ではない）
+    _NON_SETUP = {"COND", "TYRE"}
+
+    # ── 導出ジオメトリのモデル定数 ────────────────────────────────
+    #   rake  = _RAKE_BASE + _RAKE_SLOPE * insert
+    #   trail = (R*sin(rake) - offset) / cos(rake)
+    # 較正点（T08 Front setups の実測・角度のみの構成 2 点）:
+    #   (offset30, insert+0.5) -> 24.3deg / trail 103.4
+    #   (offset26, insert-0.5) -> 23.6deg / trail 103.3
+    # 再現誤差 +-0.2mm。出典間の再現性（T08 と Cremona Test #07 で 0.1deg / 0.2mm 差）と
+    # 同オーダーであり、**0.3mm 未満の差は解釈しないこと**。
+    # ⚠ runs.f_offset2 は insert の「角度」のみを保持し、OPZIONE A/B の「+2」に相当する
+    #   線形成分を表現できない。線形成分を伴う構成では本モデルは約 0.5mm 過大評価する。
+    # **モデル値であり実測ではない**（UI に明示する）。実測値がある場合はそちらを優先。
+    _GEO_R          = 301.75  # 前輪有効半径 [mm]（較正 2 点から逆算・実測ではない）
+    _GEO_RAKE_BASE  = 23.95   # insert 0.0 のときの rake [deg]
+    _GEO_RAKE_SLOPE = 0.70    # insert 1.0deg あたりの rake 変化 [deg]
+    _GEO_INSERT_MIN = -0.5    # 較正範囲（外は外挿として警告）
+    _GEO_INSERT_MAX = 0.5
+
+    def __init__(self, db_path: str, parent=None):
+        super().__init__(parent)
+        self._db_path = db_path
+        self._runs: list[dict] = []
+        self._build_ui()
+        self.reload_runs()
+
+    # ── DB（read-only） ────────────────────────────────────────────
+    def _con(self):
+        con = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        return con
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(4)
+
+        note = QLabel(
+            "2 つの run の設定差分を全項目で比較する。バナーは<b>記録上の設定差分の数</b>のみを述べ、"
+            "<b>効果の帰属は主張しない</b>（タイヤ・コンディション・ライダー・走行フェーズは未統制）。"
+            " GEO 行は実測値ではなく<b>モデル導出値（ASSUMPTION）</b>。±0.2mm は独立検証精度ではなく"
+            "<b>較正点への再現誤差</b>（2 点較正）であり、<b>0.3mm 未満の差は解釈しないこと</b>。"
+            " insert の線形成分（例: +2）は f_offset2 に無いためモデルに反映されない。"
+            " DAMP 行は dyno 実測（F=FKR-1xx fork / R=Ohlins TTX36 GP shock）。"
+            " <b>指定 shaft velocity でのセット固有の力</b>であり、2D の速度指数とは無関係。"
+            " <b>リアは damper shaft force で wheel force ではない</b>（link 未取得）。"
+            "<b>F と R の力を直接比較しないこと</b>（別ダンパー・リンク介在）。"
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#555; font-size:10px; padding:2px;")
+        lay.addWidget(note)
+
+        # ── run 選択 2 系統 ────────────────────────────────────────
+        selrow = QHBoxLayout()
+        self._cb_circ = QComboBox()
+        self._cb_circ.setMinimumWidth(130)
+        self._cb_circ.currentTextChanged.connect(lambda *_: self._repopulate())
+        selrow.addWidget(QLabel("Circuit:"))
+        selrow.addWidget(self._cb_circ)
+
+        self._cb_a = QComboBox(); self._cb_a.setMinimumWidth(300)
+        self._cb_b = QComboBox(); self._cb_b.setMinimumWidth(300)
+        for cb in (self._cb_a, self._cb_b):
+            cb.currentIndexChanged.connect(lambda *_: self._recompute())
+        selrow.addSpacing(10)
+        selrow.addWidget(QLabel("A (基準):"));  selrow.addWidget(self._cb_a)
+        selrow.addSpacing(6)
+        selrow.addWidget(QLabel("B (比較):"));  selrow.addWidget(self._cb_b)
+        selrow.addStretch()
+        btn = QPushButton("🔄 再読込")
+        btn.clicked.connect(self.reload_runs)
+        selrow.addWidget(btn)
+        lay.addLayout(selrow)
+
+        # ── 交絡バナー ─────────────────────────────────────────────
+        self._banner = QLabel("—")
+        self._banner.setWordWrap(True)
+        self._banner.setStyleSheet(
+            "background:#EEE; border:1px solid #CCC; border-radius:3px;"
+            " padding:6px; font-size:12px; font-weight:bold;")
+        lay.addWidget(self._banner)
+
+        # ── 差分テーブル ───────────────────────────────────────────
+        self._tbl = QTableWidget(0, 5)
+        self._tbl.setHorizontalHeaderLabels(["群", "項目", "A", "B", "Δ"])
+        self._tbl.verticalHeader().setVisible(False)
+        self._tbl.setAlternatingRowColors(True)
+        lay.addWidget(self._tbl, stretch=1)
+
+        # ── 成績デルタ ─────────────────────────────────────────────
+        self._lbl_perf = QLabel("—")
+        self._lbl_perf.setWordWrap(True)
+        self._lbl_perf.setStyleSheet(
+            "color:#333; font-size:11px; padding:4px; background:#F7F7F7;"
+            " border:1px solid #DDD; border-radius:3px;")
+        lay.addWidget(self._lbl_perf)
+
+    # ── run リスト ─────────────────────────────────────────────────
+    def reload_runs(self):
+        try:
+            with self._con() as c:
+                rows = [dict(r) for r in c.execute(
+                    "SELECT * FROM runs ORDER BY date DESC, run_id")]
+        except Exception as e:
+            self._banner.setText(f"DB 読込失敗: {e}")
+            return
+        self._runs = rows
+        circs = sorted({(r.get("circuit") or "") for r in rows if r.get("circuit")})
+        cur = self._cb_circ.currentText()
+        self._cb_circ.blockSignals(True)
+        self._cb_circ.clear()
+        self._cb_circ.addItem("全サーキット")
+        for c_ in circs:
+            self._cb_circ.addItem(c_)
+        if cur:
+            i = self._cb_circ.findText(cur)
+            if i >= 0:
+                self._cb_circ.setCurrentIndex(i)
+        self._cb_circ.blockSignals(False)
+        self._repopulate()
+
+    def _repopulate(self):
+        circ = self._cb_circ.currentText()
+        pool = [r for r in self._runs
+                if circ in ("", "全サーキット") or r.get("circuit") == circ]
+        for cb in (self._cb_a, self._cb_b):
+            cb.blockSignals(True)
+            cb.clear()
+            for r in pool:
+                label = (f"{r.get('rider','?')}  {r.get('round') or '-'}  "
+                         f"{r.get('session','?')} R{r.get('run_no','?')}   {r.get('run_id','')}")
+                cb.addItem(label, r.get("run_id"))
+            cb.blockSignals(False)
+        if self._cb_b.count() > 1:
+            self._cb_b.setCurrentIndex(1)
+        self._recompute()
+
+    # ── 値の整形 ───────────────────────────────────────────────────
+    @staticmethod
+    def _v(run: dict, key: str):
+        """複合項目（_ 始まり）を組み立て、それ以外は生値を返す。"""
+        def g(k):
+            x = run.get(k)
+            return "" if x is None else str(x).strip()
+        if key == "_f_spr":  return f"{g('f_spr_l')} / {g('f_spr_r')}"
+        if key == "_f_set":  return f"{g('f_set_c')} / {g('f_set_r')}"
+        if key == "_f_tos":  return f"{g('f_tos_length')} x {g('f_tos_spring')}"
+        if key == "_f_hgt":  return f"{g('f_hgt_top')} / {g('f_hgt_bot')}"
+        if key == "_r_set":  return f"{g('r_set_c')} / {g('r_set_r')}"
+        if key == "_r_tos":  return f"{g('r_tos_length')} x {g('r_tos_spring')}"
+        return g(key)
+
+    @staticmethod
+    def _num(x):
+        try:
+            return float(str(x).replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+
+    # ── 導出ジオメトリ ─────────────────────────────────────────────
+    @classmethod
+    def geometry_of(cls, run: dict) -> dict | None:
+        """offset / insert から rake・trail・normal trail をモデル計算する。
+        戻り値に extrapolated（較正範囲外か）を含む。値が無ければ None。"""
+        import math
+        off = cls._num(run.get("f_offset"))
+        ins = cls._num(run.get("f_offset2"))
+        if off is None or ins is None:
+            return None
+        rake = cls._GEO_RAKE_BASE + cls._GEO_RAKE_SLOPE * ins
+        e = math.radians(rake)
+        trail = (cls._GEO_R * math.sin(e) - off) / math.cos(e)
+        return {
+            "rake": rake,
+            "trail": trail,
+            "normal_trail": trail * math.cos(e),
+            "extrapolated": not (cls._GEO_INSERT_MIN <= ins <= cls._GEO_INSERT_MAX),
+        }
+
+    # ── 本体 ───────────────────────────────────────────────────────
+    def _recompute(self):
+        ida = self._cb_a.currentData()
+        idb = self._cb_b.currentData()
+        by_id = {r.get("run_id"): r for r in self._runs}
+        a, b = by_id.get(ida), by_id.get(idb)
+        self._tbl.setRowCount(0)
+        if not a or not b:
+            self._banner.setText("run を 2 つ選択してください。")
+            self._banner.setStyleSheet(
+                "background:#EEE;border:1px solid #CCC;border-radius:3px;"
+                "padding:6px;font-size:12px;font-weight:bold;")
+            self._lbl_perf.setText("—")
+            return
+        if ida == idb:
+            self._banner.setText("同一 run が選択されています。")
+            self._lbl_perf.setText("—")
+            return
+
+        rows, n_setup_diff = [], 0
+        for label, key, grp in self._FIELDS:
+            va, vb = self._v(a, key), self._v(b, key)
+            if va == "" and vb == "":
+                continue
+            changed = (va != vb)
+            delta = ""
+            if changed:
+                na, nb = self._num(va), self._num(vb)
+                if na is not None and nb is not None:
+                    delta = f"{nb - na:+g}"
+                else:
+                    delta = "変更"
+                if grp not in self._NON_SETUP:
+                    n_setup_diff += 1
+            rows.append((grp, label, va or "—", vb or "—", delta, changed))
+
+        # 導出ジオメトリ行
+        ga, gb = self.geometry_of(a), self.geometry_of(b)
+        if ga and gb:
+            for lbl, k, unit in (("Rake (model)", "rake", "°"),
+                                 ("Trail (model)", "trail", "mm"),
+                                 ("Normal trail (model)", "normal_trail", "mm")):
+                va_, vb_ = ga[k], gb[k]
+                ch = abs(vb_ - va_) >= 0.05
+                rows.append(("GEO", lbl, f"{va_:.2f}{unit}", f"{vb_:.2f}{unit}",
+                             f"{vb_ - va_:+.2f}" if ch else "", ch))
+            if ga["extrapolated"] or gb["extrapolated"]:
+                rows.append(("GEO", "⚠ 較正範囲外", "insert が ±0.5 の外",
+                             "外挿値・参考", "", True))
+
+        # ── FKR ダンパーライブラリ由来の実減衰力（セット側の性質・2D 速度軸とは無関係）──
+        for lib, tag in ((FrontDamperLibrary, "F"), (RearDamperLibrary, "R")):
+            sa, sb = lib.summary(a), lib.summary(b)
+            for side, jp in (("comp", f"{tag} 圧側"), ("reb", f"{tag} 伸側")):
+                for v in lib.REF_V_MM_S:
+                    ka, kb = sa.get(f"{side}@{int(v)}"), sb.get(f"{side}@{int(v)}")
+                    if ka is None and kb is None:
+                        continue
+                    lbl = f"{jp} 減衰力 @{v/1000:g} m/s"
+                    va_ = f"{ka:.0f} N" if ka is not None else "—"
+                    vb_ = f"{kb:.0f} N" if kb is not None else "—"
+                    if ka is not None and kb is not None:
+                        ch = abs(kb - ka) >= 0.5
+                        dl = f"{kb - ka:+.0f} N ({(kb/ka - 1)*100:+.0f}%)" if ch and ka else ""
+                    else:
+                        ch, dl = True, "解決不能"
+                    rows.append(("DAMP", lbl, va_, vb_, dl, ch))
+            if sa.get("comp_key") or sb.get("comp_key") or sa.get("reb_key") or sb.get("reb_key"):
+                rows.append(("DAMP", f"{tag} バルブコード 圧 / 伸",
+                             f"{sa.get('comp_key') or '—'} / {sa.get('reb_key') or '—'}",
+                             f"{sb.get('comp_key') or '—'} / {sb.get('reb_key') or '—'}",
+                             "", (sa.get("comp_key") != sb.get("comp_key")
+                                  or sa.get("reb_key") != sb.get("reb_key"))))
+
+        self._tbl.setRowCount(len(rows))
+        for i, (grp, label, va, vb, delta, changed) in enumerate(rows):
+            for j, txt in enumerate((grp, label, va, vb, delta)):
+                it = QTableWidgetItem(str(txt))
+                if changed:
+                    it.setBackground(QColor(
+                        "#E8F0FE" if grp == "GEO" else
+                        "#E9F7EF" if grp == "DAMP" else "#FFF2CC"))
+                    if j in (2, 3, 4):
+                        f = it.font(); f.setBold(True); it.setFont(f)
+                else:
+                    it.setForeground(QColor("#999"))
+                self._tbl.setItem(i, j, it)
+        self._tbl.resizeColumnsToContents()
+
+        # ── 交絡バナー ─────────────────────────────────────────────
+        # ⚠ 本バナーは「記録上の設定差分の数」だけを述べ、効果の帰属は主張しない
+        #   （Codex 監査 §3）。タイヤ・コンディション・ライダー・走行フェーズは統制されて
+        #   いないため、設定差分が 1 項目でも因果は未確定である。
+        unc = [lbl for lbl, _k, grp in self._FIELDS
+               if grp in self._NON_SETUP and self._v(a, _k) != self._v(b, _k)
+               and (self._v(a, _k) or self._v(b, _k))]
+        unc_txt = ("　未統制の差分: " + " / ".join(unc)) if unc else ""
+        if n_setup_diff == 0:
+            msg = ("記録上の FRONT/REAR 変更は <b>0 項目</b>（走行条件のみ、または同一設定）。"
+                   + unc_txt)
+            css = "background:#E8F5E9;border:1px solid #A5D6A7;color:#1B5E20;"
+        elif n_setup_diff == 1:
+            msg = ("記録上の FRONT/REAR 変更は <b>1 項目</b>。ただしタイヤ・コンディション・"
+                   "ライダー・走行フェーズ等を統制していないため、<b>効果の帰属は未確定</b>。"
+                   + unc_txt)
+            css = "background:#E8F5E9;border:1px solid #66BB6A;color:#1B5E20;"
+        else:
+            msg = (f"⚠ 記録上の FRONT/REAR 変更は <b>{n_setup_diff} 項目</b>（同時変更）。"
+                   " どの項目が効いたかはこの比較からは特定できません。"
+                   " さらにタイヤ・コンディション等も統制されていません。" + unc_txt)
+            css = "background:#FFF3E0;border:1px solid #FFB74D;color:#E65100;"
+        self._banner.setText(msg)
+        self._banner.setStyleSheet(
+            css + "border-radius:3px;padding:6px;font-size:12px;font-weight:bold;")
+
+        # ── 成績・指標デルタ ───────────────────────────────────────
+        self._lbl_perf.setText(self._perf_delta(a, b))
+
+    def _perf_delta(self, a: dict, b: dict) -> str:
+        parts = []
+        ba, bb = self._num(a.get("best_lap_s")), self._num(b.get("best_lap_s"))
+        if ba and bb:
+            parts.append(f"Best lap: {ba:.3f} → {bb:.3f} ({bb - ba:+.3f} s)")
+        parts.append(f"n laps: {a.get('n_laps') or '—'} → {b.get('n_laps') or '—'}")
+        metrics = [("brk_f_dive_spd_avg", "F dive avg"),
+                   ("brk_f_dive_spd_peak", "F dive peak"),
+                   ("ph12_rear0_s", "PH1-2 R位置≤0mm [s]")]
+        try:
+            with self._con() as c:
+                for col, lbl in metrics:
+                    va = c.execute(
+                        f"SELECT AVG({col}) FROM lap_suspension WHERE run_id=?",
+                        (a.get("run_id"),)).fetchone()[0]
+                    vb = c.execute(
+                        f"SELECT AVG({col}) FROM lap_suspension WHERE run_id=?",
+                        (b.get("run_id"),)).fetchone()[0]
+                    if va is not None and vb is not None:
+                        parts.append(f"{lbl}: {va:.1f} → {vb:.1f} ({vb - va:+.1f})")
+        except Exception:
+            pass
+        cross_event = (a.get("round") != b.get("round")) or (a.get("circuit") != b.get("circuit"))
+        tail = ("　⚠ 別イベント間の比較です。ph12_rear0_s は SUSP_REAR のゼロ点校正に依存するため、"
+                "イベントを跨ぐ比較の妥当性は未確認です。また本指標はサス位置の滞在時間であり、"
+                "リア接地喪失（Nr=0）そのものではありません。" if cross_event else "")
+        return "　|　".join(parts) + tail
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 📉 Damping Distribution — サス速度のラップ分布 × 減衰カーブ（スロット）
+# ── 2026-08-24 追加。read-only。
+#    既存 Damping/Phase タブは avg と peak の 2 点のみを推移表示するため、
+#    「実際にどの速度域を使っているか」が失われる。本タブはラップ単位の
+#    分布を出し、減衰カーブが登録されていれば重ねる。
+#    ※ DB は lap 単位の avg/peak しか持たないため、これは **ラップ単位の分布**
+#      であってサンプル単位のヒストグラムではない（UI に明示）。
+# ════════════════════════════════════════════════════════════════════════════
+class DampingDistWidget(QWidget):
+    """サス速度のラップ分布を表示し、減衰カーブ（あれば）を重ねる read-only ビュー。"""
+
+    # (表示名, avg列, peak列, peak の定義)
+    # ⚠ brk_f_dive_spd_peak は **MAX**（凍結列）、その他 22 列の *_peak は **p95(n>=10)**。
+    #   定義が異なるため、両者を同一の分布として比較してはならない（Codex 監査 §2）。
+    _CHANNELS = [
+        ("Braking  F dive",   "brk_f_dive_spd_avg",  "brk_f_dive_spd_peak", "MAX"),
+        ("Braking  F reb",    "brk_f_reb_spd_avg",   "brk_f_reb_spd_peak", "p95"),
+        ("Braking  R dive",   "brk_r_dive_spd_avg",  "brk_r_dive_spd_peak", "p95"),
+        ("Braking  R reb",    "brk_r_reb_spd_avg",   "brk_r_reb_spd_peak", "p95"),
+        ("Apex  F dive",      "apex_f_dive_spd_avg", "apex_f_dive_spd_peak", "p95"),
+        ("Apex  F reb",       "apex_f_reb_spd_avg",  "apex_f_reb_spd_peak", "p95"),
+        ("Apex  R dive",      "apex_r_dive_spd_avg", "apex_r_dive_spd_peak", "p95"),
+        ("Apex  R reb",       "apex_r_reb_spd_avg",  "apex_r_reb_spd_peak", "p95"),
+        ("Corner Exit  F dive", "ce_f_dive_spd_avg", "ce_f_dive_spd_peak", "p95"),
+        ("Corner Exit  F reb",  "ce_f_reb_spd_avg",  "ce_f_reb_spd_peak", "p95"),
+        ("Corner Exit  R dive", "ce_r_dive_spd_avg", "ce_r_dive_spd_peak", "p95"),
+        ("Corner Exit  R reb",  "ce_r_reb_spd_avg",  "ce_r_reb_spd_peak", "p95"),
+    ]
+    # ── 減衰カーブ overlay: 無効（2026-08-24 Codex 監査 §1）─────────────
+    # 本タブの X 軸は **未校正の相対ダンピング速度指数**（距離グリッド上の平均 dt 仮定に
+    # よるバイアスを含む）。dyno カーブの横軸は **校正済み damper shaft velocity [m/s]**。
+    # 両者を同一 X 軸に載せることは物理的に不正であり、既存監査
+    # （reports/report_v2_feedback_audit_20260708.md）も「TS24 値を Ohlins の速度軸へ
+    # 載せられない」と結論している。よって overlay は下記が揃うまで**恒久的に無効**。
+    #   REFERENCE_REQUIRED
+    #     topic: calibrated damper shaft velocity
+    #     required_information: front/rear sensor calibration, linkage conversion,
+    #                           sampling-time calibration
+    #     reason: relative index cannot share an axis with dyno velocity
+    CURVE_OVERLAY_ENABLED = False
+    CURVE_FILE = SCRIPT_DIR.parent / "04_REFERENCE" / "damping_curves.json"
+
+    def __init__(self, pg_mod, parent=None):
+        super().__init__(parent)
+        self._pg = pg_mod
+        self._df = None
+        self._build_ui()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(4)
+
+        note = QLabel(
+            "サス速度の<b>ラップ単位分布</b>（DB は lap ごとの avg / peak のみ保持するため、"
+            "サンプル単位のヒストグラムではない）。速度は<b>相対ダンピング速度指数</b>で"
+            "校正済み絶対 mm/s ではない。上部の 🔎 Run Filter の選択に従う。"
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#555; font-style:italic; font-size:10px; padding:2px;")
+        lay.addWidget(note)
+
+        row = QHBoxLayout()
+        self._cb_ch = QComboBox()
+        for name, _, _, _pk in self._CHANNELS:
+            self._cb_ch.addItem(name)
+        self._cb_ch.setMinimumWidth(200)
+        self._cb_ch.currentIndexChanged.connect(lambda *_: self._sync_peak_label())
+        row.addWidget(QLabel("チャンネル:"))
+        row.addWidget(self._cb_ch)
+
+        self._cb_stat = QComboBox()
+        # peak の定義はチャンネル依存（MAX / p95）。ラベルは _sync_peak_label() で動的更新。
+        self._cb_stat.addItems(["avg（ラップ平均）", "peak", "avg + peak"])
+        self._cb_stat.setCurrentIndex(2)
+        self._cb_stat.currentIndexChanged.connect(lambda *_: self.redraw())
+        row.addSpacing(8)
+        row.addWidget(QLabel("統計:"))
+        row.addWidget(self._cb_stat)
+
+        self._sp_bins = QSpinBox()
+        self._sp_bins.setRange(5, 60); self._sp_bins.setValue(24)
+        self._sp_bins.valueChanged.connect(lambda *_: self.redraw())
+        row.addSpacing(8)
+        row.addWidget(QLabel("bins:"))
+        row.addWidget(self._sp_bins)
+
+        self._chk_split = QCheckBox("Rider で分割")
+        self._chk_split.setChecked(True)
+        self._chk_split.stateChanged.connect(lambda *_: self.redraw())
+        row.addSpacing(8)
+        row.addWidget(self._chk_split)
+        row.addStretch()
+        lay.addLayout(row)
+
+        if self._pg is None:
+            lay.addWidget(QLabel("pyqtgraph が必要です: pip install pyqtgraph"))
+            self._pw = None
+            return
+        self._pw = self._pg.PlotWidget()
+        self._pw.showGrid(x=True, y=True, alpha=0.3)
+        self._pw.addLegend()
+        self._pw.setLabel("bottom", "サス速度 [mm/s 相対指数]")
+        self._pw.setLabel("left", "ラップ数")
+        lay.addWidget(self._pw, stretch=1)
+
+        self._lbl_stats = QLabel("—")
+        self._lbl_stats.setWordWrap(True)
+        self._lbl_stats.setStyleSheet(
+            "color:#333; font-size:11px; padding:4px; background:#F7F7F7;"
+            " border:1px solid #DDD; border-radius:3px;")
+        lay.addWidget(self._lbl_stats)
+
+        self._lbl_peakdef = QLabel("")
+        self._lbl_peakdef.setWordWrap(True)
+        self._lbl_peakdef.setStyleSheet("color:#7a5b00; font-size:10px; padding:2px;")
+        lay.addWidget(self._lbl_peakdef)
+
+        self._lbl_curve = QLabel("")
+        self._lbl_curve.setWordWrap(True)
+        self._lbl_curve.setStyleSheet("color:#666; font-size:10px; padding:2px;")
+        lay.addWidget(self._lbl_curve)
+        self._sync_peak_label()
+
+    def _sync_peak_label(self):
+        """選択チャンネルの peak 定義（MAX / p95）をコンボと注記に反映して再描画する。"""
+        try:
+            kind = self._CHANNELS[self._cb_ch.currentIndex()][3]
+        except Exception:
+            kind = "p95"
+        self._cb_stat.setItemText(1, f"peak（ラップ {kind}）")
+        self._cb_stat.setItemText(2, f"avg + peak（{kind}）")
+        self._lbl_peakdef.setText(
+            f"このチャンネルの peak = <b>{kind}</b>。"
+            + ("　⚠ 本列のみ <b>MAX</b>（凍結列）であり、他チャンネルの p95 とは定義が異なる。"
+               "定義をまたいだ分布比較は不可。" if kind == "MAX" else
+               "　（p95 は方向サンプル n≥10 のラップのみ。n 不足は DB で NULL）"))
+        self.redraw()
+
+    # ── 減衰カーブスロット ─────────────────────────────────────────
+    def _load_curves(self) -> dict | None:
+        """減衰カーブ overlay は無効（速度軸が共有できないため）。常に None を返す。
+        有効化には damper shaft velocity への校正が必要（CURVE_OVERLAY_ENABLED 参照）。"""
+        return None
+
+    def set_dataframe(self, df):
+        self._df = df
+        self.redraw()
+
+    def redraw(self):
+        if self._pw is None:
+            return
+        self._pw.clear()
+        df = self._df
+        name, c_avg, c_peak, peak_kind = self._CHANNELS[self._cb_ch.currentIndex()]
+        if df is None or getattr(df, "empty", True):
+            self._lbl_stats.setText("表示するデータがありません（Run Filter の選択を確認）。")
+            return
+        cols = set(df.columns)
+        want = []
+        mode = self._cb_stat.currentIndex()
+        if mode in (0, 2) and c_avg in cols:
+            want.append((c_avg, "avg", (80, 140, 220)))
+        if mode in (1, 2) and c_peak in cols:
+            want.append((c_peak, f"peak({peak_kind})", (220, 120, 60)))
+        if not want:
+            self._lbl_stats.setText(f"列が DB にありません: {c_avg} / {c_peak}")
+            return
+
+        import numpy as np
+        stats_txt, drawn = [], 0
+        riders = ([r for r in sorted(df["rider"].dropna().unique().tolist())]
+                  if (self._chk_split.isChecked() and "rider" in cols) else [None])
+        nb = self._sp_bins.value()
+        for col, tag, base_rgb in want:
+            for ri, rider in enumerate(riders):
+                sub = df if rider is None else df[df["rider"] == rider]
+                vals = sub[col].dropna().to_numpy(dtype=float) if col in sub.columns else np.array([])
+                vals = vals[np.isfinite(vals)]
+                if vals.size < 3:
+                    continue
+                hist, edges = np.histogram(vals, bins=nb)
+                rgb = tuple(min(255, int(v * (1.0 if ri == 0 else 0.62))) for v in base_rgb)
+                label = f"{tag}" + (f" · {rider}" if rider else "")
+                self._pw.plot(edges, hist, stepMode=True,
+                              fillLevel=0, brush=rgb + (70,),
+                              pen=self._pg.mkPen(rgb, width=2), name=label)
+                drawn += 1
+                stats_txt.append(
+                    f"<b>{label}</b>: n={vals.size}  median={np.median(vals):.0f}  "
+                    f"p10={np.percentile(vals,10):.0f}  p90={np.percentile(vals,90):.0f}  "
+                    f"max={vals.max():.0f}")
+        if drawn == 0:
+            self._lbl_stats.setText("有効なラップがありません（n<3・または当該列が全 NULL）。")
+            return
+        self._pw.setTitle(f"{name} — ラップ分布")
+        self._lbl_stats.setText("　|　".join(stats_txt))
+
+        # ── 減衰カーブ（登録があれば重ねる） ───────────────────────
+        curves = self._load_curves()
+        if not curves:
+            self._lbl_curve.setText(
+                "⛔ 減衰カーブの重ね合わせは<b>無効</b>（REFERENCE_REQUIRED）。"
+                " 本グラフの X 軸は<b>未校正の相対ダンピング速度指数</b>、dyno カーブの横軸は"
+                " <b>校正済み damper shaft velocity</b> であり、同一軸に載せることは物理的に不正。"
+                " 有効化には ①フロント/リアのセンサー校正 ②リンク比換算 ③サンプリング時間校正"
+                " が必要（`report_v2_feedback_audit_20260708.md` / `fkr_damping_curve_prep_20260824.md`）。"
+                " なお FKR-1xx ライブラリのカーブ自体は取得済み"
+                "（PDF 2 ページ目の Force–Velocity グラフ、および interactive xlsm の InData 228 本）。")
+        else:
+            self._lbl_curve.setText(
+                f"減衰カーブ {len(curves)} 件を {self.CURVE_FILE.name} から読込済み"
+                "（右軸 = 減衰力 [N]）。")
+            try:
+                vb2 = self._pg.ViewBox()
+                self._pw.scene().addItem(vb2)
+                ax2 = self._pg.AxisItem("right")
+                self._pw.plotItem.layout.addItem(ax2, 2, 3)
+                ax2.linkToView(vb2)
+                vb2.setXLink(self._pw.plotItem)
+                ax2.setLabel("減衰力 [N]")
+
+                def _sync():
+                    vb2.setGeometry(self._pw.plotItem.vb.sceneBoundingRect())
+                    vb2.linkedViewChanged(self._pw.plotItem.vb, vb2.XAxis)
+                _sync()
+                self._pw.plotItem.vb.sigResized.connect(_sync)
+                for i, (cname, pts) in enumerate(curves.items()):
+                    if not pts:
+                        continue
+                    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+                    col = (40 + 60 * i % 200, 160, 90)
+                    vb2.addItem(self._pg.PlotCurveItem(
+                        xs, ys, pen=self._pg.mkPen(col, width=2, style=Qt.PenStyle.DashLine)))
+            except Exception:
+                self._lbl_curve.setText(
+                    self._lbl_curve.text() + "  ※ 右軸の描画に失敗（カーブは無視されました）。")
 
 
 class MainWindow(QMainWindow):
