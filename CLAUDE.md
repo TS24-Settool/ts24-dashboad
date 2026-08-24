@@ -3507,3 +3507,30 @@ Tatsuki 指摘により `04_REFERENCE/TTX36-GP-v3.6.xlsm`（Öhlins TTX36 GP Set
 ### 80f. スコープ外（未実施）
 canonical write / スキーマ変更 / DB Master refresh / Supabase / commit・push / Round9 activate。
 変更: `ts24_workbench.py`。新規: `04_REFERENCE/fkr_damping_library.json` / 報告書 3 本 / `CLAUDE.md §80`。
+
+### 80h. Damping 分布 案A / Setup Diff 案B + グラフ・テーブル英語化（2026-08-24 Tatsuki 選定）
+
+Tatsuki の視認性指摘（スクリーンショット 2 枚）に対し UI 案を提示し、選定結果を実装。
+**変更 = `ts24_workbench.py` のみ・DB 書込ゼロ**（SHA-256 不変）。検討ページ = Artifact「Workbench View Studies」。
+
+**方針**: <b>グラフ内・テーブル内の表記は英語に統一</b>（チームのエンジニアと共有するため）。
+その外側の説明文・折りたたみ Notes・ツールチップは日本語のまま。
+
+- **Damping 分布 = 案A（split panels）**: 同一線形軸では avg（中央値 52–56）が peak（370–466）に潰れていた →
+  `_pw_avg` / `_pw_peak` の 2 パネルへ分割し**それぞれ独立スケール**。裾は **p99 でクリップ**（表示のみ・
+  データ除外なし・チェックボックスで解除可）。median を破線で表示、凡例をプロット右上へ。
+  `統計` コンボは撤去（両方常時表示のため不要）。パネル題に **peak の実 reducer を常時併記**
+  （`Lap peak velocity (MAX)` / `(p95)`）= Tatsuki 選定。3 行あった注記は `▸ Notes` 折りたたみへ。
+- **Setup Diff = 案B（grouped sections）**: 群を列から**セクション見出し**へ移し件数を併記
+  （`Front  8 changed / 11` / `Rear  5 changed / 11` / `Geometry (model)  3 changed` /
+  `Damper force (dyno)  8 changed`）。5 列 → **4 列**（Item / A / B / Δ）、Item のみ伸縮・A/B/Δ は固定幅で
+  右側に集約。上部注記 3 行も `▸ Notes` 折りたたみへ（表示行数 13 → 20 行）。
+- **英語化**: 項目名（`Fork offset` / `HP insert` / `Shock TOS len x spr` …）・`changed` / `not in library` ・
+  `F comp force @0.1 m/s` / `R reb force @0.3 m/s` / `F valve code comp / reb` /
+  `⚠ outside calibration range` / `Rake` / `Ground trail` / `Normal trail` ・
+  バナー `Recorded FRONT/REAR changes: N items — Attribution not established …` ・
+  成績デルタ `Best lap` / `Laps` / `F dive mean` / `F dive peak (MAX)` / `PH1-2 rear travel ≤0mm [s]` ・
+  ラップ詳細 `F damper force (FKR dyno)` / `R damper force (TTX36 dyno)` / `comp … reb …`。
+  **フェーズ名（Braking / Apex / Corner Exit）は既に英語のため変更なし。**
+- 検証: py_compile / offscreen 全タブ巡回 / **テーブル内の日本語残り 0**（CJK 走査）/ 実描画キャプチャ目視 /
+  **DB SHA-256 不変**（302 / 1423 / 1423 / 940）。**GUI 最終目視は Tatsuki ローカル**。

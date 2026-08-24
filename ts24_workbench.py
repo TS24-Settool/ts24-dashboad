@@ -5122,8 +5122,8 @@ class PostureAnalysisTab(QWidget):
                 ("Fork Hgt T/B",
                  f"{_fmt(run_meta.get('f_hgt_top'))} / {_fmt(run_meta.get('f_hgt_bot'))}"),
                 ("Geometry (model)", _geo_txt),
-                ("F 減衰力 (FKR dyno)", FrontDamperLibrary.fmt(run_meta)),
-                ("R 減衰力 (TTX36 dyno)", RearDamperLibrary.fmt(run_meta)),
+                ("F damper force (FKR dyno)", FrontDamperLibrary.fmt(run_meta)),
+                ("R damper force (TTX36 dyno)", RearDamperLibrary.fmt(run_meta)),
                 ("Shock Spr",       _fmt(run_meta.get("r_spr"), "N/mm")),
                 ("Shock Preload",   _fmt(run_meta.get("r_preload"))),
                 ("Shock Comp / Reb",
@@ -8929,7 +8929,7 @@ class DamperLibrary:
             return f"{a:.0f} / {b:.0f} N"
         if sm["comp_key"] is None and sm["reb_key"] is None:
             return "—"
-        return f"圧 {one('comp')}　伸 {one('reb')}　(@0.1 / 0.3 m/s shaft)"
+        return f"comp {one('comp')}   reb {one('reb')}   (@0.1 / 0.3 m/s shaft)"
 
 
 class FrontDamperLibrary(DamperLibrary):
@@ -8961,36 +8961,50 @@ class SetupDiffWidget(QWidget):
 
     # 比較対象（表示名, 列名, 群）。群 = FRONT / REAR / TYRE / COND
     _FIELDS = [
-        ("Fork type",        "fork_type",     "FRONT"),
-        ("F Spring L / R",   "_f_spr",        "FRONT"),
-        ("F Preload",        "f_preload",     "FRONT"),
-        ("F Comp (clk)",     "f_comp",        "FRONT"),
-        ("F Reb (clk)",      "f_reb",         "FRONT"),
-        ("F Oil level",      "f_oil_level",   "FRONT"),
-        ("F Set C / R",      "_f_set",        "FRONT"),
-        ("F TOS len x spr",  "_f_tos",        "FRONT"),
-        ("Fork Offset",      "f_offset",      "FRONT"),
-        ("HP Insert",        "f_offset2",     "FRONT"),
-        ("F Height T / B",   "_f_hgt",        "FRONT"),
-        ("Shock type",       "shock_type",    "REAR"),
-        ("R Spring",         "r_spr",         "REAR"),
-        ("R Preload",        "r_preload",     "REAR"),
-        ("R Comp (clk)",     "r_comp",        "REAR"),
-        ("R Reb (clk)",      "r_reb",         "REAR"),
-        ("R Set C / R",      "_r_set",        "REAR"),
-        ("R TOS len x spr",  "_r_tos",        "REAR"),
-        ("Shock length",     "shock_len",     "REAR"),
-        ("Link",             "link",          "REAR"),
-        ("Ride height",      "ride_hgt",      "REAR"),
-        ("Swing arm",        "swing_arm",     "REAR"),
-        ("Tyre F",           "tyre_front",    "TYRE"),
-        ("Tyre R",           "tyre_rear",     "TYRE"),
-        ("Weather",          "weather",       "COND"),
-        ("Track temp",       "track_temp",    "COND"),
-        ("Air temp",         "air_temp",      "COND"),
+        ("Fork type",             "fork_type",     "FRONT"),
+        ("Fork spring L / R",     "_f_spr",        "FRONT"),
+        ("Fork preload",          "f_preload",     "FRONT"),
+        ("Fork comp  [clk]",      "f_comp",        "FRONT"),
+        ("Fork reb  [clk]",       "f_reb",         "FRONT"),
+        ("Fork oil level",        "f_oil_level",   "FRONT"),
+        ("Fork valve C / R",      "_f_set",        "FRONT"),
+        ("Fork TOS  len x spr",   "_f_tos",        "FRONT"),
+        ("Fork offset",           "f_offset",      "FRONT"),
+        ("HP insert",             "f_offset2",     "FRONT"),
+        ("Fork height T / B",     "_f_hgt",        "FRONT"),
+        ("Shock type",            "shock_type",    "REAR"),
+        ("Shock spring",          "r_spr",         "REAR"),
+        ("Shock preload",         "r_preload",     "REAR"),
+        ("Shock comp  [clk]",     "r_comp",        "REAR"),
+        ("Shock reb  [clk]",      "r_reb",         "REAR"),
+        ("Shock valve C / R",     "_r_set",        "REAR"),
+        ("Shock TOS  len x spr",  "_r_tos",        "REAR"),
+        ("Shock length",          "shock_len",     "REAR"),
+        ("Link",                  "link",          "REAR"),
+        ("Ride height",           "ride_hgt",      "REAR"),
+        ("Swing arm",             "swing_arm",     "REAR"),
+        ("Tyre front",            "tyre_front",    "TYRE"),
+        ("Tyre rear",             "tyre_rear",     "TYRE"),
+        ("Weather",               "weather",       "COND"),
+        ("Track temp",            "track_temp",    "COND"),
+        ("Air temp",              "air_temp",      "COND"),
     ]
     # 交絡判定の対象外（走行条件であってセット変更ではない）
     _NON_SETUP = {"COND", "TYRE"}
+
+    # 群の表示名（案B のセクション見出し・英語）。表示順もこの順。
+    _GROUP_LABEL = {
+        "FRONT": "Front",
+        "REAR":  "Rear",
+        "TYRE":  "Tyre",
+        "COND":  "Condition",
+        "GEO":   "Geometry  (model)",
+        "DAMP":  "Damper force  (dyno)",
+    }
+    _GROUP_ORDER = ("FRONT", "REAR", "GEO", "DAMP", "TYRE", "COND")
+    # 群ごとの淡色（Setup Diff 内で一貫）
+    _GROUP_TINT = {"GEO": "#E8F0FE", "DAMP": "#E9F7EF"}
+    _CHANGED_TINT = "#FFF2CC"
 
     # ── 導出ジオメトリのモデル定数 ────────────────────────────────
     #   rake  = _RAKE_BASE + _RAKE_SLOPE * insert
@@ -9027,19 +9041,33 @@ class SetupDiffWidget(QWidget):
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(4)
 
+        # 注記は既定で折りたたむ（常時 3 行が画面上部を占有していたため・2026-08-24）
+        self._btn_notes = QPushButton("▸ Notes — モデルの前提と読み方")
+        self._btn_notes.setCheckable(True)
+        self._btn_notes.setStyleSheet(
+            "QPushButton{border:none; color:#2F5D8A; font-size:10.5px;"
+            " text-align:left; padding:2px;}")
         note = QLabel(
             "2 つの run の設定差分を全項目で比較する。バナーは<b>記録上の設定差分の数</b>のみを述べ、"
-            "<b>効果の帰属は主張しない</b>（タイヤ・コンディション・ライダー・走行フェーズは未統制）。"
-            " GEO 行は実測値ではなく<b>モデル導出値（ASSUMPTION）</b>。±0.2mm は独立検証精度ではなく"
+            "<b>効果の帰属は主張しない</b>（タイヤ・コンディション・ライダー・走行フェーズは未統制）。<br>"
+            "・<b>GEO</b> は実測値ではなく<b>モデル導出値（ASSUMPTION）</b>。±0.2mm は独立検証精度ではなく"
             "<b>較正点への再現誤差</b>（2 点較正）であり、<b>0.3mm 未満の差は解釈しないこと</b>。"
-            " insert の線形成分（例: +2）は f_offset2 に無いためモデルに反映されない。"
-            " DAMP 行は dyno 実測（F=FKR-1xx fork / R=Ohlins TTX36 GP shock）。"
-            " <b>指定 shaft velocity でのセット固有の力</b>であり、2D の速度指数とは無関係。"
-            " <b>リアは damper shaft force で wheel force ではない</b>（link 未取得）。"
+            "insert の線形成分（例: +2）は f_offset2 に無いためモデルに反映されない。<br>"
+            "・<b>DAMP</b> は dyno 実測（F = FKR-1xx fork / R = Öhlins TTX36 GP shock）。"
+            "<b>指定 shaft velocity でのセット固有の力</b>であり、2D の速度指数とは無関係。"
+            "リアは <b>damper shaft force で wheel force ではない</b>（link 未取得）。"
             "<b>F と R の力を直接比較しないこと</b>（別ダンパー・リンク介在）。"
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color:#555; font-size:10px; padding:2px;")
+        note.setStyleSheet(
+            "color:#555; font-size:10px; padding:6px; background:#FAFAFA;"
+            " border:1px solid #E5E5E5; border-radius:3px;")
+        note.setVisible(False)
+        self._btn_notes.toggled.connect(
+            lambda on: (note.setVisible(on),
+                        self._btn_notes.setText(("▾ " if on else "▸ ")
+                                                + "Notes — モデルの前提と読み方")))
+        lay.addWidget(self._btn_notes)
         lay.addWidget(note)
 
         # ── run 選択 2 系統 ────────────────────────────────────────
@@ -9073,8 +9101,17 @@ class SetupDiffWidget(QWidget):
         lay.addWidget(self._banner)
 
         # ── 差分テーブル ───────────────────────────────────────────
-        self._tbl = QTableWidget(0, 5)
-        self._tbl.setHorizontalHeaderLabels(["群", "項目", "A", "B", "Δ"])
+        # 案B: 群を列でなくセクション見出しで示すため 4 列（2026-08-24 Tatsuki 選定）
+        self._tbl = QTableWidget(0, 4)
+        self._tbl.setHorizontalHeaderLabels(["Item", "A", "B", "Δ"])
+        _hh = self._tbl.horizontalHeader()
+        _hh.setStretchLastSection(False)
+        # Item を伸縮、A / B / Δ は内容幅（Δ が右端へ飛ぶのを防ぐ）
+        _hh.setSectionResizeMode(0, _hh.ResizeMode.Stretch)
+        # A / B / Δ は固定幅で右側にまとめる（Item だけが伸縮）
+        for _c, _w in ((1, 150), (2, 150), (3, 175)):
+            _hh.setSectionResizeMode(_c, _hh.ResizeMode.Interactive)
+            self._tbl.setColumnWidth(_c, _w)
         self._tbl.verticalHeader().setVisible(False)
         self._tbl.setAlternatingRowColors(True)
         lay.addWidget(self._tbl, stretch=1)
@@ -9175,6 +9212,7 @@ class SetupDiffWidget(QWidget):
         idb = self._cb_b.currentData()
         by_id = {r.get("run_id"): r for r in self._runs}
         a, b = by_id.get(ida), by_id.get(idb)
+        self._tbl.clearSpans()
         self._tbl.setRowCount(0)
         if not a or not b:
             self._banner.setText("run を 2 つ選択してください。")
@@ -9200,7 +9238,7 @@ class SetupDiffWidget(QWidget):
                 if na is not None and nb is not None:
                     delta = f"{nb - na:+g}"
                 else:
-                    delta = "変更"
+                    delta = "changed"
                 if grp not in self._NON_SETUP:
                     n_setup_diff += 1
             rows.append((grp, label, va or "—", vb or "—", delta, changed))
@@ -9208,55 +9246,82 @@ class SetupDiffWidget(QWidget):
         # 導出ジオメトリ行
         ga, gb = self.geometry_of(a), self.geometry_of(b)
         if ga and gb:
-            for lbl, k, unit in (("Rake (model)", "rake", "°"),
-                                 ("Trail (model)", "trail", "mm"),
-                                 ("Normal trail (model)", "normal_trail", "mm")):
+            for lbl, k, unit in (("Rake", "rake", "°"),
+                                 ("Ground trail", "trail", "mm"),
+                                 ("Normal trail", "normal_trail", "mm")):
                 va_, vb_ = ga[k], gb[k]
                 ch = abs(vb_ - va_) >= 0.05
                 rows.append(("GEO", lbl, f"{va_:.2f}{unit}", f"{vb_:.2f}{unit}",
                              f"{vb_ - va_:+.2f}" if ch else "", ch))
             if ga["extrapolated"] or gb["extrapolated"]:
-                rows.append(("GEO", "⚠ 較正範囲外", "insert が ±0.5 の外",
-                             "外挿値・参考", "", True))
+                rows.append(("GEO", "⚠ outside calibration range",
+                             "insert beyond ±0.5", "extrapolated", "", True))
 
         # ── FKR ダンパーライブラリ由来の実減衰力（セット側の性質・2D 速度軸とは無関係）──
         for lib, tag in ((FrontDamperLibrary, "F"), (RearDamperLibrary, "R")):
             sa, sb = lib.summary(a), lib.summary(b)
-            for side, jp in (("comp", f"{tag} 圧側"), ("reb", f"{tag} 伸側")):
+            for side, jp in (("comp", f"{tag} comp force"), ("reb", f"{tag} reb force")):
                 for v in lib.REF_V_MM_S:
                     ka, kb = sa.get(f"{side}@{int(v)}"), sb.get(f"{side}@{int(v)}")
                     if ka is None and kb is None:
                         continue
-                    lbl = f"{jp} 減衰力 @{v/1000:g} m/s"
+                    lbl = f"{jp}  @{v/1000:g} m/s"
                     va_ = f"{ka:.0f} N" if ka is not None else "—"
                     vb_ = f"{kb:.0f} N" if kb is not None else "—"
                     if ka is not None and kb is not None:
                         ch = abs(kb - ka) >= 0.5
                         dl = f"{kb - ka:+.0f} N ({(kb/ka - 1)*100:+.0f}%)" if ch and ka else ""
                     else:
-                        ch, dl = True, "解決不能"
+                        ch, dl = True, "not in library"
                     rows.append(("DAMP", lbl, va_, vb_, dl, ch))
             if sa.get("comp_key") or sb.get("comp_key") or sa.get("reb_key") or sb.get("reb_key"):
-                rows.append(("DAMP", f"{tag} バルブコード 圧 / 伸",
+                rows.append(("DAMP", f"{tag} valve code  comp / reb",
                              f"{sa.get('comp_key') or '—'} / {sa.get('reb_key') or '—'}",
                              f"{sb.get('comp_key') or '—'} / {sb.get('reb_key') or '—'}",
                              "", (sa.get("comp_key") != sb.get("comp_key")
                                   or sa.get("reb_key") != sb.get("reb_key"))))
 
-        self._tbl.setRowCount(len(rows))
-        for i, (grp, label, va, vb, delta, changed) in enumerate(rows):
-            for j, txt in enumerate((grp, label, va, vb, delta)):
-                it = QTableWidgetItem(str(txt))
-                if changed:
-                    it.setBackground(QColor(
-                        "#E8F0FE" if grp == "GEO" else
-                        "#E9F7EF" if grp == "DAMP" else "#FFF2CC"))
-                    if j in (2, 3, 4):
-                        f = it.font(); f.setBold(True); it.setFont(f)
-                else:
-                    it.setForeground(QColor("#999"))
-                self._tbl.setItem(i, j, it)
-        self._tbl.resizeColumnsToContents()
+        # ── 案B: 群ごとのセクション見出し（件数付き）+ 行 ───────────────
+        by_grp = {}
+        for r in rows:
+            by_grp.setdefault(r[0], []).append(r)
+        order = [g for g in self._GROUP_ORDER if g in by_grp]
+        order += [g for g in by_grp if g not in self._GROUP_ORDER]
+
+        total_rows = sum(1 + len(by_grp[g]) for g in order)
+        self._tbl.setRowCount(total_rows)
+        ri = 0
+        for g in order:
+            grp_rows = by_grp[g]
+            n_chg = sum(1 for r in grp_rows if r[5])
+            title = self._GROUP_LABEL.get(g, g)
+            cnt = (f"{n_chg} changed / {len(grp_rows)}" if g not in ("GEO", "DAMP")
+                   else f"{n_chg} changed")
+            hdr = QTableWidgetItem(f"  {title}          {cnt}")
+            f = hdr.font(); f.setBold(True); f.setPointSizeF(f.pointSizeF() + 0.5); hdr.setFont(f)
+            hdr.setBackground(QColor("#EEF1F4"))
+            hdr.setForeground(QColor("#2F5D8A" if n_chg else "#8B96A2"))
+            hdr.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self._tbl.setItem(ri, 0, hdr)
+            self._tbl.setSpan(ri, 0, 1, 4)
+            self._tbl.setRowHeight(ri, 22)
+            ri += 1
+            for (grp, label, va, vb, delta, changed) in grp_rows:
+                for j, txt in enumerate((label, va, vb, delta)):
+                    it = QTableWidgetItem(str(txt))
+                    if changed:
+                        it.setBackground(QColor(self._GROUP_TINT.get(grp, self._CHANGED_TINT)))
+                        if j in (1, 2, 3):
+                            fb = it.font(); fb.setBold(True); it.setFont(fb)
+                    else:
+                        it.setForeground(QColor("#999"))
+                    if j in (1, 2, 3):
+                        it.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                            | Qt.AlignmentFlag.AlignVCenter)
+                    self._tbl.setItem(ri, j, it)
+                self._tbl.setRowHeight(ri, 20)
+                ri += 1
+        self._tbl.resizeRowsToContents()
 
         # ── 交絡バナー ─────────────────────────────────────────────
         # ⚠ 本バナーは「記録上の設定差分の数」だけを述べ、効果の帰属は主張しない
@@ -9266,19 +9331,23 @@ class SetupDiffWidget(QWidget):
                if grp in self._NON_SETUP and self._v(a, _k) != self._v(b, _k)
                and (self._v(a, _k) or self._v(b, _k))]
         unc_txt = ("　未統制の差分: " + " / ".join(unc)) if unc else ""
+        unc_en = ("　Not controlled: " + " / ".join(unc)) if unc else ""
+        TAIL = ("Attribution not established — tyre, condition, rider and riding phase "
+                "are not controlled.")
         if n_setup_diff == 0:
-            msg = ("記録上の FRONT/REAR 変更は <b>0 項目</b>（走行条件のみ、または同一設定）。"
-                   + unc_txt)
+            msg = ("Recorded FRONT/REAR changes: <b>0 items</b>"
+                   "（走行条件のみ、または同一設定）" + unc_en)
             css = "background:#E8F5E9;border:1px solid #A5D6A7;color:#1B5E20;"
         elif n_setup_diff == 1:
-            msg = ("記録上の FRONT/REAR 変更は <b>1 項目</b>。ただしタイヤ・コンディション・"
-                   "ライダー・走行フェーズ等を統制していないため、<b>効果の帰属は未確定</b>。"
-                   + unc_txt)
+            msg = (f"Recorded FRONT/REAR changes: <b>1 item</b> — {TAIL}" + unc_en
+                   + "<br><span style='font-weight:normal'>"
+                     "記録上の差分は 1 項目ですが、<b>効果の帰属は未確定</b>です。</span>")
             css = "background:#E8F5E9;border:1px solid #66BB6A;color:#1B5E20;"
         else:
-            msg = (f"⚠ 記録上の FRONT/REAR 変更は <b>{n_setup_diff} 項目</b>（同時変更）。"
-                   " どの項目が効いたかはこの比較からは特定できません。"
-                   " さらにタイヤ・コンディション等も統制されていません。" + unc_txt)
+            msg = (f"⚠ Recorded FRONT/REAR changes: <b>{n_setup_diff} items</b> "
+                   f"(changed together) — {TAIL}" + unc_en
+                   + "<br><span style='font-weight:normal'>"
+                     "どの項目が効いたかは、この比較からは特定できません。</span>")
             css = "background:#FFF3E0;border:1px solid #FFB74D;color:#E65100;"
         self._banner.setText(msg)
         self._banner.setStyleSheet(
@@ -9292,10 +9361,10 @@ class SetupDiffWidget(QWidget):
         ba, bb = self._num(a.get("best_lap_s")), self._num(b.get("best_lap_s"))
         if ba and bb:
             parts.append(f"Best lap: {ba:.3f} → {bb:.3f} ({bb - ba:+.3f} s)")
-        parts.append(f"n laps: {a.get('n_laps') or '—'} → {b.get('n_laps') or '—'}")
-        metrics = [("brk_f_dive_spd_avg", "F dive avg"),
-                   ("brk_f_dive_spd_peak", "F dive peak"),
-                   ("ph12_rear0_s", "PH1-2 R位置≤0mm [s]")]
+        parts.append(f"Laps: {a.get('n_laps') or '—'} → {b.get('n_laps') or '—'}")
+        metrics = [("brk_f_dive_spd_avg", "F dive mean"),
+                   ("brk_f_dive_spd_peak", "F dive peak (MAX)"),
+                   ("ph12_rear0_s", "PH1-2 rear travel ≤0mm [s]")]
         try:
             with self._con() as c:
                 for col, lbl in metrics:
@@ -9374,6 +9443,7 @@ class DampingDistWidget(QWidget):
             "サス速度の<b>ラップ単位分布</b>（DB は lap ごとの avg / peak のみ保持するため、"
             "サンプル単位のヒストグラムではない）。速度は<b>相対ダンピング速度指数</b>で"
             "校正済み絶対 mm/s ではない。上部の 🔎 Run Filter の選択に従う。"
+            "<b>グラフ内の表記は英語で統一</b>（チーム共有のため）。"
         )
         note.setWordWrap(True)
         note.setStyleSheet("color:#555; font-style:italic; font-size:10px; padding:2px;")
@@ -9384,21 +9454,12 @@ class DampingDistWidget(QWidget):
         for name, _, _, _pk in self._CHANNELS:
             self._cb_ch.addItem(name)
         self._cb_ch.setMinimumWidth(200)
-        self._cb_ch.currentIndexChanged.connect(lambda *_: self._sync_peak_label())
+        self._cb_ch.currentIndexChanged.connect(lambda *_: self.redraw())
         row.addWidget(QLabel("チャンネル:"))
         row.addWidget(self._cb_ch)
 
-        self._cb_stat = QComboBox()
-        # peak の定義はチャンネル依存（MAX / p95）。ラベルは _sync_peak_label() で動的更新。
-        self._cb_stat.addItems(["avg（ラップ平均）", "peak", "avg + peak"])
-        self._cb_stat.setCurrentIndex(2)
-        self._cb_stat.currentIndexChanged.connect(lambda *_: self.redraw())
-        row.addSpacing(8)
-        row.addWidget(QLabel("統計:"))
-        row.addWidget(self._cb_stat)
-
         self._sp_bins = QSpinBox()
-        self._sp_bins.setRange(5, 60); self._sp_bins.setValue(24)
+        self._sp_bins.setRange(5, 60); self._sp_bins.setValue(26)
         self._sp_bins.valueChanged.connect(lambda *_: self.redraw())
         row.addSpacing(8)
         row.addWidget(QLabel("bins:"))
@@ -9409,19 +9470,33 @@ class DampingDistWidget(QWidget):
         self._chk_split.stateChanged.connect(lambda *_: self.redraw())
         row.addSpacing(8)
         row.addWidget(self._chk_split)
+
+        self._chk_clip = QCheckBox("裾を p99 でクリップ")
+        self._chk_clip.setChecked(True)
+        self._chk_clip.setToolTip("外れ値の長い裾で分布が潰れるのを防ぐ（表示のみ・データは除外しない）")
+        self._chk_clip.stateChanged.connect(lambda *_: self.redraw())
+        row.addSpacing(6)
+        row.addWidget(self._chk_clip)
         row.addStretch()
         lay.addLayout(row)
 
         if self._pg is None:
             lay.addWidget(QLabel("pyqtgraph が必要です: pip install pyqtgraph"))
-            self._pw = None
+            self._pw_avg = self._pw_peak = None
             return
-        self._pw = self._pg.PlotWidget()
-        self._pw.showGrid(x=True, y=True, alpha=0.3)
-        self._pw.addLegend()
-        self._pw.setLabel("bottom", "サス速度 [mm/s 相対指数]")
-        self._pw.setLabel("left", "ラップ数")
-        lay.addWidget(self._pw, stretch=1)
+
+        # ── 案A: avg / peak を独立軸の 2 パネルに分割（2026-08-24 Tatsuki 選定）──
+        #    同一線形軸では avg(中央値〜50) が peak(中央値〜400) に潰れるため。
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self._pw_avg = self._pg.PlotWidget()
+        self._pw_peak = self._pg.PlotWidget()
+        for _p in (self._pw_avg, self._pw_peak):
+            _p.showGrid(x=True, y=True, alpha=0.3)
+            _p.setLabel("bottom", "Suspension velocity  [mm/s · relative index]")
+            _p.setLabel("left", "Laps")
+            split.addWidget(_p)
+        split.setSizes([1, 1])
+        lay.addWidget(split, stretch=1)
 
         self._lbl_stats = QLabel("—")
         self._lbl_stats.setWordWrap(True)
@@ -9435,31 +9510,42 @@ class DampingDistWidget(QWidget):
         self._lbl_peakdef.setStyleSheet("color:#7a5b00; font-size:10px; padding:2px;")
         lay.addWidget(self._lbl_peakdef)
 
+        # 折りたたみ Notes（従来3行常時表示 → 既定で閉じる）
+        self._btn_notes = QPushButton("▸ Notes — 指標の定義と制約")
+        self._btn_notes.setCheckable(True)
+        self._btn_notes.setStyleSheet(
+            "QPushButton{border:none; color:#2F5D8A; font-size:10.5px; text-align:left; padding:2px;}")
         self._lbl_curve = QLabel("")
         self._lbl_curve.setWordWrap(True)
-        self._lbl_curve.setStyleSheet("color:#666; font-size:10px; padding:2px;")
+        self._lbl_curve.setStyleSheet(
+            "color:#666; font-size:10px; padding:6px; background:#FAFAFA;"
+            " border:1px solid #E5E5E5; border-radius:3px;")
+        self._lbl_curve.setVisible(False)
+        self._btn_notes.toggled.connect(
+            lambda on: (self._lbl_curve.setVisible(on),
+                        self._btn_notes.setText(("▾ " if on else "▸ ") + "Notes — 指標の定義と制約")))
+        lay.addWidget(self._btn_notes)
         lay.addWidget(self._lbl_curve)
-        self._sync_peak_label()
+        self._set_notes_text()
 
-    def _sync_peak_label(self):
-        """選択チャンネルの peak 定義（MAX / p95）をコンボと注記に反映して再描画する。"""
-        try:
-            kind = self._CHANNELS[self._cb_ch.currentIndex()][3]
-        except Exception:
-            kind = "p95"
-        self._cb_stat.setItemText(1, f"peak（ラップ {kind}）")
-        self._cb_stat.setItemText(2, f"avg + peak（{kind}）")
-        self._lbl_peakdef.setText(
-            f"このチャンネルの peak = <b>{kind}</b>。"
-            + ("　⚠ 本列のみ <b>MAX</b>（凍結列）であり、他チャンネルの p95 とは定義が異なる。"
-               "定義をまたいだ分布比較は不可。" if kind == "MAX" else
-               "　（p95 は方向サンプル n≥10 のラップのみ。n 不足は DB で NULL）"))
-        self.redraw()
+    def _set_notes_text(self):
+        """折りたたみ Notes の本文（減衰カーブ overlay の無効理由を含む）。"""
+        self._lbl_curve.setText(
+            "⛔ 減衰カーブの重ね合わせは<b>無効</b>（REFERENCE_REQUIRED）。"
+            " 本グラフの X 軸は<b>未校正の相対ダンピング速度指数</b>、dyno カーブの横軸は"
+            " <b>校正済み damper shaft velocity</b> であり、同一軸に載せることは物理的に不正。"
+            " 有効化には ①フロント/リアのセンサー校正 ②リンク比換算 ③サンプリング時間校正 が必要"
+            "（`report_v2_feedback_audit_20260708.md` / `fkr_damping_curve_prep_20260824.md`）。<br>"
+            "・<b>peak の定義はチャンネル依存</b>: <code>brk_f_dive_spd_peak</code> のみ <b>MAX</b>（凍結列）、"
+            "他 11 チャンネルは <b>p95</b>（方向サンプル n≥10）。定義をまたいだ分布比較は不可。<br>"
+            "・avg は方向サンプル n≥5 のラップのみ。n 不足は DB で NULL。<br>"
+            "・ダンパー実測カーブ自体は取得済み（FKR 228 本 / TTX36 1209 本）。"
+            "セット側の力換算としては 🆚 Setup Diff・ラップ詳細・Comment Analysis で利用中。")
 
-    # ── 減衰カーブスロット ─────────────────────────────────────────
+    # ── 減衰カーブ overlay は無効（速度軸が共有できないため）──────────
     def _load_curves(self) -> dict | None:
-        """減衰カーブ overlay は無効（速度軸が共有できないため）。常に None を返す。
-        有効化には damper shaft velocity への校正が必要（CURVE_OVERLAY_ENABLED 参照）。"""
+        """常に None。有効化には damper shaft velocity への校正が必要
+        （CURVE_OVERLAY_ENABLED 参照）。"""
         return None
 
     def set_dataframe(self, df):
@@ -9467,93 +9553,84 @@ class DampingDistWidget(QWidget):
         self.redraw()
 
     def redraw(self):
-        if self._pw is None:
+        if getattr(self, "_pw_avg", None) is None:
             return
-        self._pw.clear()
-        df = self._df
+        for _p in (self._pw_avg, self._pw_peak):
+            _p.clear()
+            if _p.plotItem.legend is not None:
+                _p.plotItem.legend.scene().removeItem(_p.plotItem.legend)
+                _p.plotItem.legend = None
+            _p.addLegend(offset=(-8, 8))
         name, c_avg, c_peak, peak_kind = self._CHANNELS[self._cb_ch.currentIndex()]
+        self._pw_avg.setTitle(f"{name} — Lap mean velocity")
+        self._pw_peak.setTitle(f"{name} — Lap peak velocity  ({peak_kind})")
+        self._lbl_peakdef.setText(
+            f"このチャンネルの peak = <b>{peak_kind}</b>。"
+            + ("　⚠ 本列のみ <b>MAX</b>（凍結列）であり、他チャンネルの p95 とは定義が異なる。"
+               "定義をまたいだ分布比較は不可。" if peak_kind == "MAX" else
+               "　（p95 は方向サンプル n≥10 のラップのみ。n 不足は DB で NULL）"))
+
+        df = self._df
         if df is None or getattr(df, "empty", True):
             self._lbl_stats.setText("表示するデータがありません（Run Filter の選択を確認）。")
             return
         cols = set(df.columns)
-        want = []
-        mode = self._cb_stat.currentIndex()
-        if mode in (0, 2) and c_avg in cols:
-            want.append((c_avg, "avg", (80, 140, 220)))
-        if mode in (1, 2) and c_peak in cols:
-            want.append((c_peak, f"peak({peak_kind})", (220, 120, 60)))
-        if not want:
+        if c_avg not in cols and c_peak not in cols:
             self._lbl_stats.setText(f"列が DB にありません: {c_avg} / {c_peak}")
             return
 
         import numpy as np
-        stats_txt, drawn = [], 0
         riders = ([r for r in sorted(df["rider"].dropna().unique().tolist())]
                   if (self._chk_split.isChecked() and "rider" in cols) else [None])
+        # Rider ごとの色（案A のモックアップと同一）
+        PAL = {"DA77": (47, 111, 176), "JA52": (192, 85, 43)}
+        FALLBACK = [(47, 111, 176), (192, 85, 43), (80, 140, 90), (140, 90, 160)]
         nb = self._sp_bins.value()
-        for col, tag, base_rgb in want:
+        stats_txt, drawn = [], 0
+        for pw, col, stat_lbl in ((self._pw_avg, c_avg, "mean"),
+                                  (self._pw_peak, c_peak, f"peak({peak_kind})")):
+            if col not in cols:
+                continue
+            series = []
             for ri, rider in enumerate(riders):
                 sub = df if rider is None else df[df["rider"] == rider]
-                vals = sub[col].dropna().to_numpy(dtype=float) if col in sub.columns else np.array([])
-                vals = vals[np.isfinite(vals)]
-                if vals.size < 3:
-                    continue
-                hist, edges = np.histogram(vals, bins=nb)
-                rgb = tuple(min(255, int(v * (1.0 if ri == 0 else 0.62))) for v in base_rgb)
-                label = f"{tag}" + (f" · {rider}" if rider else "")
-                self._pw.plot(edges, hist, stepMode=True,
-                              fillLevel=0, brush=rgb + (70,),
-                              pen=self._pg.mkPen(rgb, width=2), name=label)
+                v = sub[col].dropna().to_numpy(dtype=float)
+                v = v[np.isfinite(v)]
+                if v.size >= 3:
+                    series.append((rider, v, PAL.get(rider, FALLBACK[ri % len(FALLBACK)])))
+            if not series:
+                continue
+            # パネルごとに独立スケール。裾は p99 でクリップ（表示のみ）
+            hi = max(float(np.percentile(v, 99)) for _, v, _ in series)
+            if not self._chk_clip.isChecked():
+                hi = max(float(v.max()) for _, v, _ in series)
+            hi = max(hi, 1.0)
+            edges = np.linspace(0.0, hi, nb + 1)
+            for rider, v, rgb in series:
+                h, e = np.histogram(v, bins=edges)
+                med = float(np.median(v))
+                label = (f"{rider}   med {med:.0f}   n={v.size}" if rider
+                         else f"med {med:.0f}   n={v.size}")
+                pw.plot(e, h, stepMode=True, fillLevel=0, brush=rgb + (45,),
+                        pen=self._pg.mkPen(rgb, width=2), name=label)
+                pw.addItem(self._pg.InfiniteLine(
+                    pos=med, angle=90,
+                    pen=self._pg.mkPen(rgb, width=1.2, style=Qt.PenStyle.DashLine)))
                 drawn += 1
+                who = f" · {rider}" if rider else ""
                 stats_txt.append(
-                    f"<b>{label}</b>: n={vals.size}  median={np.median(vals):.0f}  "
-                    f"p10={np.percentile(vals,10):.0f}  p90={np.percentile(vals,90):.0f}  "
-                    f"max={vals.max():.0f}")
+                    f"<b>{stat_lbl}{who}</b>: n={v.size}  median={med:.0f}  "
+                    f"p10={np.percentile(v,10):.0f}  p90={np.percentile(v,90):.0f}  "
+                    f"max={v.max():.0f}")
+            pw.setXRange(0, hi, padding=0.02)
         if drawn == 0:
             self._lbl_stats.setText("有効なラップがありません（n<3・または当該列が全 NULL）。")
             return
-        self._pw.setTitle(f"{name} — ラップ分布")
-        self._lbl_stats.setText("　|　".join(stats_txt))
+        clip = "tails clipped at p99" if self._chk_clip.isChecked() else "full range"
+        self._lbl_stats.setText(
+            "　|　".join(stats_txt)
+            + f"　—　dashed line = median · panels independently scaled · {clip}")
 
-        # ── 減衰カーブ（登録があれば重ねる） ───────────────────────
-        curves = self._load_curves()
-        if not curves:
-            self._lbl_curve.setText(
-                "⛔ 減衰カーブの重ね合わせは<b>無効</b>（REFERENCE_REQUIRED）。"
-                " 本グラフの X 軸は<b>未校正の相対ダンピング速度指数</b>、dyno カーブの横軸は"
-                " <b>校正済み damper shaft velocity</b> であり、同一軸に載せることは物理的に不正。"
-                " 有効化には ①フロント/リアのセンサー校正 ②リンク比換算 ③サンプリング時間校正"
-                " が必要（`report_v2_feedback_audit_20260708.md` / `fkr_damping_curve_prep_20260824.md`）。"
-                " なお FKR-1xx ライブラリのカーブ自体は取得済み"
-                "（PDF 2 ページ目の Force–Velocity グラフ、および interactive xlsm の InData 228 本）。")
-        else:
-            self._lbl_curve.setText(
-                f"減衰カーブ {len(curves)} 件を {self.CURVE_FILE.name} から読込済み"
-                "（右軸 = 減衰力 [N]）。")
-            try:
-                vb2 = self._pg.ViewBox()
-                self._pw.scene().addItem(vb2)
-                ax2 = self._pg.AxisItem("right")
-                self._pw.plotItem.layout.addItem(ax2, 2, 3)
-                ax2.linkToView(vb2)
-                vb2.setXLink(self._pw.plotItem)
-                ax2.setLabel("減衰力 [N]")
-
-                def _sync():
-                    vb2.setGeometry(self._pw.plotItem.vb.sceneBoundingRect())
-                    vb2.linkedViewChanged(self._pw.plotItem.vb, vb2.XAxis)
-                _sync()
-                self._pw.plotItem.vb.sigResized.connect(_sync)
-                for i, (cname, pts) in enumerate(curves.items()):
-                    if not pts:
-                        continue
-                    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-                    col = (40 + 60 * i % 200, 160, 90)
-                    vb2.addItem(self._pg.PlotCurveItem(
-                        xs, ys, pen=self._pg.mkPen(col, width=2, style=Qt.PenStyle.DashLine)))
-            except Exception:
-                self._lbl_curve.setText(
-                    self._lbl_curve.text() + "  ※ 右軸の描画に失敗（カーブは無視されました）。")
 
 
 class MainWindow(QMainWindow):
