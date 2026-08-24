@@ -3444,3 +3444,66 @@ Obsidian `00_INBOX/FOR_CLAUDE_CODE.md`（2026-07-13 P0 項目6-8・**B-1/B-2/B-3
 - rollback: Workbench=`.pre_wiring` 復元 / DB=`_backup_event_control_*` 復元（or 新2テーブルDROP）/ scan・staging=`.pre_trackb` 復元。
 - スコープ外（未実施）: Supabase / DB Master / commit・push / historical queue cleanup / canonical業務テーブル書込。
 - 新規: `create_event_control_tables.py` / `event_manifest.py` / manifests 3 JSON / 報告書2本。変更: `extraction_scan.py` / `session_extract_staging.py` / `ts24_workbench.py`（後方互換・fallback内蔵）。
+
+---
+
+## 80. Workbench Setup Diff / Damping 分布 追加 → Codex Dynamics 監査 → 修正5件（2026-08-24 Claude Code）
+
+T08 Front setups 意見書（NERO 30/+0.5 vs ROSSO 26/−0.5・OPZIONE A/B）の作成過程で「Workbench が答えられなかったこと」を実装 → **Codex が Motorcycle Dynamics KB で監査 → 物理的誤用 5 件を検出 → 全件修正**。
+**DB 書込ゼロ・スキーマ変更なし**（SHA-256 不変・302/1423/1423/940 不変）。
+成果物 = `reports/workbench_setup_diff_damping_dist_apply_20260824.md`（実装）/ `reports/fkr_damping_curve_prep_20260824.md`（FKR 解析）/ **`reports/workbench_dynamics_audit_fixes_20260824.md`（監査対応・本件の正）**。
+
+### 80a. 追加した UI（`ts24_workbench.py` のみ・read-only）
+- **🆚 Setup Diff**（Suspension/Posture 内・Run Filter 非適用）: 2 run の設定差分 27 項目 + 導出ジオメトリ + FKR 減衰力。成績デルタ併記。
+- **📉 Damping 分布**（Run Filter 適用）: 12 チャンネルのラップ単位分布（median/p10/p90/max/n）。**DB は lap 単位 avg/peak しか持たない**ためサンプル分布ではない。
+- **💬 Comment Analysis にセット状態併記**（既定 ON・6 列＋`F reb@0.3 [N]`）: 同一症状のフォーク構成を並べ、幾何由来かダンピング由来かを切り分ける。`Diagnosis_Principles` の固定マッピング禁止には抵触しない（共通項の提示のみ・解を出さない）。
+- **ラップ詳細セットアップパネル**に `f_offset2`（HP Insert）/ `r_tos_*` / link / swing_arm / Geometry(model) / F 減衰力を追加（従来 `f_offset2` と `r_tos_*` は UI に 1 箇所も無かった）。
+- 導出ジオメトリ `SetupDiffWidget.geometry_of`: `rake = 23.95 + 0.70×insert` / `trail = (R sinε − offset)/cosε`（R=301.75mm）。T08 実測 2 点較正・**ASSUMPTION**・±0.2mm は較正点への再現誤差。`f_offset2` は角度のみで A/B の「+2」線形成分を表現できない（約 0.5mm 過大評価・コメント明記）。
+
+### 80b. ★Codex 監査の指摘 5 件 → 全件修正
+1. **減衰カーブ overlay = 物理的に比較不能**（未校正の相対指数 vs 校正済み shaft velocity）→ **機能撤回**。`CURVE_OVERLAY_ENABLED=False`・`_load_curves()` は常に None・UI に `REFERENCE_REQUIRED`（front/rear sensor calibration / linkage conversion / sampling-time calibration）。既存監査 `report_v2_feedback_audit_20260708.md` の結論と一致。**私の prep §4 で「重ねてはならない」と書きながら overlay を有効にしていた自己矛盾**。
+2. **peak 定義の誤表示**: `brk_f_dive_spd_peak`=**MAX**（凍結列 :309）/ 新 22 列=**p95**（:333）。UI が全て「p95」と表示 → チャンネル別に動的ラベル化 + MAX 選択時に「定義をまたいだ分布比較は不可」を明示。
+3. **「単一変数＝帰属可能」が強すぎ**（TYRE/COND を交絡数から除外していた）→ バナーは**記録上の差分件数のみ**を述べ帰属を主張しない。未統制の TYRE/COND 差分を列挙。
+4. **`ph12_rear0_s` を「リア荷重ゼロ」と扱わない**: 実体は `SUSP_REAR<=0mm` の滞在時間で Nr=0 を計算していない → 「PH1-2 リアサス位置≤0mm 滞在時間」に改称・接地喪失の代理として断定しない旨を明記。**⚠ Obsidian `12_TACIT_KNOWLEDGE/Diagnosis_Principles.md` 等の「リア荷重ゼロ時間」記述は未修正（Codex 領域・改称推奨）**。
+5. **Pitch / Heave は車体 pitch/heave ではない**（異なるセンサー座標の差・平均）→ UI の「均等荷重」「高荷重」等の断定を削除し **position proxy** と明記。
+- 補足: ジオメトリ ±0.2mm を `ASSUMPTION`・較正点再現誤差と明記。
+
+### 80c. ⚠ 私の記述の訂正 — FKR PDF にカーブは存在する
+実装報告の「FKR-1xx PDF はシムスタック部品表でありカーブを含まない」は **誤り**。**PDF 2 ページ目に Compression / Rebound の Force–Velocity グラフ**がある（C101–C106 / R101–R106 @ click 14・0–1.0 m/s・0–2000 N）。テキスト層のみ抽出しベクター図を見落とした。両レポート訂正済み。
+なお Cremona Test #07 の "Diving is under control with **C106**" はこの valve code を指す。
+
+### 80d. FKR ダンパーライブラリ = セット側の力換算として実装（用途分離）
+`04_REFERENCE/FKR-1xx-setting-library-version-1.0-interactive.xlsm` の `InData` から **228 本**（C101–C106 / R101–R106 × click 6–24・shaft speed 0.001–0.5 m/s・力 N）を抽出 → `04_REFERENCE/fkr_damping_library.json`（overlay スロット `damping_curves.json` とは**意図的に別名**）。
+- `FKRDamperLibrary`（read-only・線形補間・参照 0.1 / 0.3 m/s）を Setup Diff / セットアップパネル / Comment Analysis に配線。**2D テレメトリに一切触れない**ため校正問題と無関係。
+- **フロントのみ**。リアショックは別体系（`r_set_c/r_set_r` = C4x/R4x）で収載なし。
+- DB カバレッジ: 圧側 265/302・伸側 262/302 解決可（設定欠損 37・範囲外 3 = `R104_5`・`R105_26`×2）。
+- 実測例: Donington `R104_21` = **298.5 N @0.3 m/s**（JA52 2026 季**最小**・範囲 298–486）/ Balaton R4-G1 `R104_18` = 331.5 N / Misano R7-G2 `R104_12` = 441.5 N。**ただし Donington は季最良結果**でもあるため「弱い伸側=遅い」を意味しない。
+
+### 80e. 未対応（別作業・要式確定）
+- **Front WheelForce Proxy `(F_SPR_L+F_SPR_R)/2`** — 並列バネは `k_L+k_R` のため現式は合計の半分。**DB 再計算を伴うため式確定後の別作業**（`build_master_db.py:646` / `lap_suspension_stats.py:514`）。
+- **Rear WheelForce ×0.5** — `SUSP_REAR` がショック変位なら LR=2 で成立、車輪変位なら比率の二乗。センサー座標未確定 = `REFERENCE_REQUIRED`。
+  **`link` のレバー比定義が入れば、リアの wheel force 換算と速度軸校正の両方が可能になる**（§80g）。
+- Pitch/Heave の座標変換（リンク比・rake・wheelbase）/ 速度軸の校正（**不足入力はコース長のみ**・`fkr_damping_curve_prep_20260824.md` §4.2）/ Obsidian の `ph12_rear0_s` 記述改称。
+- **sag フィールド追加**（`f_sag_static` 等）= T08 意見書 §5.2 の結論「プリロード値ではなく sag 実測値が正しい比較対象」。**正本 DB スキーマ変更のため未実施**。
+- Setup Diff / Damping 分布に **Motorcycle Dynamics 専用 unit test が無い**（Quality Gate も今回の物理誤用を検出できず・Codex 指摘）。
+
+### 80g. ★リアダンパーライブラリ TTX36-GP 反映（2026-08-24 追記）
+Tatsuki 指摘により `04_REFERENCE/TTX36-GP-v3.6.xlsm`（Öhlins TTX36 GP Setting Bank・§66b で存在は既知）を解析 →
+**§80e の「リアショックは別体系で解決不能」を解消**。報告書 = `reports/ttx36_rear_damping_library_20260824.md`。
+- `InData` から **1209 本**抽出（圧側 21 コード C1-C9/C21-C23/C41-C49 + 伸側 18 コード R1-R9/R41-R49 × click **6-36**・
+  shaft speed 0.001-**1.0** m/s〔フロント 0.5 より広い〕・力 N）→ `04_REFERENCE/ttx36_damping_library.json`。
+- `DamperLibrary` 基底 + `FrontDamperLibrary`(FKR) / `RearDamperLibrary`(TTX36) へ分割（`FKRDamperLibrary` は後方互換別名）。
+  Setup Diff の DAMP 群を F/R 両対応・ラップ詳細に `R 減衰力 (TTX36 dyno)`・Comment Analysis に `R reb@0.3 [N]` 列。
+- カバレッジ: 圧側 240/302・伸側 241/302。**未収載 = `C21X`(25 run) / `R25`(24 run) / `C9_H20 L15`(1 run) → `—` 表示（推測で埋めない）。要 Tatsuki 確認**。
+- **制約（UI 明記）**: ①速度軸 overlay は引き続き無効 ②表示は **damper shaft force で wheel force ではない**（`link` レバー比未取得）
+  ③**F と R の力を直接比較しない**（別ダンパー・リンク介在）。
+- シーズン実測（JA52・Rreb@0.3）: 季範囲 1477-2155 N。**ROUND8 Donington は週末通じ `C45/R47` 固定・1633-1768 N**（`R47` は R7 後半以降のみ）。
+  ★**前後の非対称**: Donington はフロント伸側が季最小(298N)・リア伸側は上位域(1768N)。観察であり因果ではない。
+- **T08 §5.1「Balaton 反例」の定量化**: Balaton RACE1 のリアは Donington より**圧側 −14〜−28% / 伸側 −13〜−24%**、
+  TOS(120x12 vs 188x8)・link(5 vs 6) も別物 → 「高い `ph12_rear0_s` が無害」ではなく「別構成でその値に到達」を数値で確認。
+- 検証: py_compile / offscreen 全タブ / front 228・rear 1209 読込 / 後方互換別名 True / **DB SHA-256 不変**。
+  成果物 `reports/run_damping_force_front_rear.csv`（302 run × 前後 × 0.05/0.1/0.2/0.3 m/s）。
+
+### 80f. スコープ外（未実施）
+canonical write / スキーマ変更 / DB Master refresh / Supabase / commit・push / Round9 activate。
+変更: `ts24_workbench.py`。新規: `04_REFERENCE/fkr_damping_library.json` / 報告書 3 本 / `CLAUDE.md §80`。
